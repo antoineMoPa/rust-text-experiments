@@ -45,17 +45,30 @@ fn create_model(size: u32, embed_size: u32) -> NN {
     return NN::new(&[size, embed_size, size]);
 }
 
+fn get_token_embedding(token: &str, dict: &std::collections::HashMap<String, f64>) -> Vec<f64> {
+    let mut letter_embedding = 0.0;
+    let value = *dict.get(token).unwrap();
+
+    for letter in token.chars() {
+        // simply cast letter to f64 and divide by 255
+        let letter_value = letter as i32 as f64 / 10000.0;
+        letter_embedding += letter_embedding + letter_value;
+    }
+
+    return vec![value, letter_embedding];
+}
+
 fn create_and_train_model_for_dict(dict: &std::collections::HashMap<String, f64>, embed_size: u32) -> NN {
-    let mut model = create_model(1, embed_size);
+    let mut model = create_model(2, embed_size);
     let mut examples = Vec::new();
 
     for (_i, token) in dict.iter().enumerate() {
-        let value = *token.1;
-        examples.push((vec![value], vec![value]));
+        let token_embedding = get_token_embedding(token.0, dict);
+        examples.push((token_embedding.clone(), token_embedding));
     }
 
     let mut trainer = model.train(&examples);
-    trainer.halt_condition(nn::HaltCondition::Epochs(1000));
+    trainer.halt_condition(nn::HaltCondition::Epochs(2000));
     trainer.go();
 
     return model;
@@ -63,6 +76,14 @@ fn create_and_train_model_for_dict(dict: &std::collections::HashMap<String, f64>
 
 fn main() {
     println!("Hello, world!");
+}
+
+fn are_embeddings_close(embedding1: Vec<f64>, embedding2: Vec<f64>, epsilon: f64) -> bool {
+    let mut sum = 0.0;
+    for i in 0..embedding1.len() {
+        sum += (embedding1[i] - embedding2[i]).abs();
+    }
+    return sum < epsilon * embedding1.len() as f64;
 }
 
 // test tokenize
@@ -114,13 +135,14 @@ mod tests {
         let vocabulary = tokenize("Hello, world!");
         let dict = vocabulary_to_dict(vocabulary);
 
-        let model = create_and_train_model_for_dict(&dict, 1);
+        let model = create_and_train_model_for_dict(&dict, 2);
 
-        let hello = dict.get("Hello").unwrap();
-        assert!((model.run(&[*hello])[0] - *hello).abs() < 0.15);
+        let hello_embedding = get_token_embedding("Hello", &dict);
 
-        let world = dict.get("world").unwrap();
-        assert!((model.run(&[*world])[0] - *world).abs() < 0.15);
+        assert!(are_embeddings_close(model.run(&*hello_embedding), hello_embedding, 0.15));
+
+        let world_embedding = get_token_embedding("world", &dict);
+        assert!(are_embeddings_close(model.run(&*world_embedding), world_embedding, 0.15));
     }
 
     #[test]
@@ -128,15 +150,33 @@ mod tests {
         let vocabulary = tokenize("This is a longer string, hello, world!");
         let dict = vocabulary_to_dict(vocabulary);
 
-        let model = create_and_train_model_for_dict(&dict, 1);
+        let model = create_and_train_model_for_dict(&dict, 10);
 
-        let hello = dict.get("hello").unwrap();
-        assert!((model.run(&[*hello])[0] - *hello).abs() < 0.1);
+        let this_embedding = get_token_embedding("This", &dict);
+        assert!(are_embeddings_close(model.run(&*this_embedding), this_embedding, 0.15));
 
-        let world = dict.get("world").unwrap();
-        assert!((model.run(&[*world])[0] - *world).abs() < 0.1);
+        let is_embedding = get_token_embedding("is", &dict);
+        assert!(are_embeddings_close(model.run(&*is_embedding), is_embedding, 0.15));
 
-        let longer = dict.get("longer").unwrap();
-        assert!((model.run(&[*longer])[0] - *longer).abs() < 0.1);
+        let a_embedding = get_token_embedding("a", &dict);
+        assert!(are_embeddings_close(model.run(&*a_embedding), a_embedding, 0.15));
+
+        let longer_embedding = get_token_embedding("longer", &dict);
+        assert!(are_embeddings_close(model.run(&*longer_embedding), longer_embedding, 0.15));
+
+        let string_embedding = get_token_embedding("string", &dict);
+        assert!(are_embeddings_close(model.run(&*string_embedding), string_embedding, 0.15));
+
+        let comma_embedding = get_token_embedding(",", &dict);
+        assert!(are_embeddings_close(model.run(&*comma_embedding), comma_embedding, 0.15));
+
+        let hello_embedding = get_token_embedding("hello", &dict);
+        assert!(are_embeddings_close(model.run(&*hello_embedding), hello_embedding, 0.15));
+
+        let world_embedding = get_token_embedding("world", &dict);
+        assert!(are_embeddings_close(model.run(&*world_embedding), world_embedding, 0.15));
+
+        let exclamation_embedding = get_token_embedding("!", &dict);
+        assert!(are_embeddings_close(model.run(&*exclamation_embedding), exclamation_embedding, 0.15));
     }
 }
