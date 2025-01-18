@@ -78,7 +78,7 @@ fn main() {
     println!("Hello, world!");
 }
 
-fn are_embeddings_close(embedding1: Vec<f64>, embedding2: Vec<f64>, epsilon: f64) -> bool {
+fn are_embeddings_close(embedding1: &Vec<f64>, embedding2: &Vec<f64>, epsilon: f64) -> bool {
     let mut sum = 0.0;
     for i in 0..embedding1.len() {
         sum += (embedding1[i] - embedding2[i]).abs();
@@ -139,10 +139,10 @@ mod tests {
 
         let hello_embedding = get_token_embedding("Hello", &dict);
 
-        assert!(are_embeddings_close(model.run(&*hello_embedding), hello_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*hello_embedding), &hello_embedding, 0.15));
 
         let world_embedding = get_token_embedding("world", &dict);
-        assert!(are_embeddings_close(model.run(&*world_embedding), world_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*world_embedding), &world_embedding, 0.15));
     }
 
     #[test]
@@ -153,30 +153,57 @@ mod tests {
         let model = create_and_train_model_for_dict(&dict, 10);
 
         let this_embedding = get_token_embedding("This", &dict);
-        assert!(are_embeddings_close(model.run(&*this_embedding), this_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*this_embedding), &this_embedding, 0.15));
 
         let is_embedding = get_token_embedding("is", &dict);
-        assert!(are_embeddings_close(model.run(&*is_embedding), is_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*is_embedding), &is_embedding, 0.15));
 
         let a_embedding = get_token_embedding("a", &dict);
-        assert!(are_embeddings_close(model.run(&*a_embedding), a_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*a_embedding), &a_embedding, 0.15));
 
         let longer_embedding = get_token_embedding("longer", &dict);
-        assert!(are_embeddings_close(model.run(&*longer_embedding), longer_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*longer_embedding), &longer_embedding, 0.15));
 
         let string_embedding = get_token_embedding("string", &dict);
-        assert!(are_embeddings_close(model.run(&*string_embedding), string_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*string_embedding), &string_embedding, 0.15));
 
         let comma_embedding = get_token_embedding(",", &dict);
-        assert!(are_embeddings_close(model.run(&*comma_embedding), comma_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*comma_embedding), &comma_embedding, 0.15));
 
         let hello_embedding = get_token_embedding("hello", &dict);
-        assert!(are_embeddings_close(model.run(&*hello_embedding), hello_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*hello_embedding), &hello_embedding, 0.15));
 
         let world_embedding = get_token_embedding("world", &dict);
-        assert!(are_embeddings_close(model.run(&*world_embedding), world_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*world_embedding), &world_embedding, 0.15));
 
         let exclamation_embedding = get_token_embedding("!", &dict);
-        assert!(are_embeddings_close(model.run(&*exclamation_embedding), exclamation_embedding, 0.15));
+        assert!(are_embeddings_close(&model.run(&*exclamation_embedding), &exclamation_embedding, 0.15));
+
+        // Different words should have different embeddings
+        assert!(!are_embeddings_close(&model.run(&*this_embedding), &world_embedding, 0.15));
+    }
+
+    #[test]
+    fn test_close_typos() {
+        let vocabulary = tokenize("This this is a longer longee string, hello, world!");
+        let dict = vocabulary_to_dict(vocabulary);
+
+        let model = create_and_train_model_for_dict(&dict, 10);
+
+        let a = get_token_embedding("longer", &dict);
+        let b = get_token_embedding("longee", &dict);
+        assert!(are_embeddings_close(&model.run(&*a), &b, 0.1));
+
+        let a = get_token_embedding("This", &dict);
+        let b = get_token_embedding("this", &dict);
+        assert!(are_embeddings_close(&model.run(&*a), &b, 0.1));
+
+        let a = get_token_embedding("longer", &dict);
+        let b = get_token_embedding("This", &dict);
+        assert!(!are_embeddings_close(&model.run(&*a), &b, 0.1));
+
+        let a = get_token_embedding("this", &dict);
+        let b = get_token_embedding("longee", &dict);
+        assert!(!are_embeddings_close(&model.run(&*a), &b, 0.1));
     }
 }
