@@ -1,61 +1,13 @@
 use nn::NN;
 
-fn tokenize(input: &str) -> Vec<String> {
-    let split_symbols = [' ', ',', '.', '!', '?', ';', ':', '\n', '\t'];
+mod embedding_utils;
+mod token_utils;
+mod candle_model;
 
-
-    let mut tokens = Vec::new();
-    let mut token = String::new();
-
-    for c in input.chars() {
-        if split_symbols.contains(&c) {
-            if token.len() > 0 {
-                tokens.push(token.clone());
-                token.clear();
-            }
-            tokens.push(c.to_string());
-        } else {
-            token.push(c);
-        }
-    }
-
-    return tokens;
-}
-
-fn create_vocabulary(tokens: Vec<String>) -> Vec<String> {
-    let mut vocabulary = Vec::new();
-    for token in tokens {
-        if !vocabulary.contains(&token) {
-            vocabulary.push(token);
-        }
-    }
-    return vocabulary;
-}
-
-
-fn vocabulary_to_dict(vocabulary: Vec<String>) -> std::collections::HashMap<String, f64> {
-    let mut vocabulary_dict = std::collections::HashMap::new();
-    for (i, token) in vocabulary.iter().enumerate() {
-        vocabulary_dict.insert(token.clone(), i as f64 / vocabulary.len() as f64);
-    }
-    return vocabulary_dict;
-}
+use embedding_utils::get_token_embedding;
 
 fn create_model(size: u32, embed_size: u32) -> NN {
     return NN::new(&[size, embed_size, size]);
-}
-
-fn get_token_embedding(token: &str, dict: &std::collections::HashMap<String, f64>) -> Vec<f64> {
-    let mut letter_embedding = 0.0;
-    let value = *dict.get(token).unwrap();
-
-    for letter in token.chars() {
-        // simply cast letter to f64 and divide by 255
-        let letter_value = letter as i32 as f64 / 10000.0;
-        letter_embedding += letter_embedding + letter_value;
-    }
-
-    return vec![value, letter_embedding];
 }
 
 fn create_and_train_model_for_dict(dict: &std::collections::HashMap<String, f64>, embed_size: u32) -> NN {
@@ -78,19 +30,21 @@ fn main() {
     println!("Hello, world!");
 }
 
-fn are_embeddings_close(embedding1: &Vec<f64>, embedding2: &Vec<f64>, epsilon: f64) -> bool {
-    let mut sum = 0.0;
-    for i in 0..embedding1.len() {
-        sum += (embedding1[i] - embedding2[i]).abs();
-    }
-    return sum < epsilon * embedding1.len() as f64;
-}
-
-// test tokenize
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use token_utils::{
+        tokenize,
+        create_vocabulary,
+        vocabulary_to_dict,
+    };
+
+    use embedding_utils::{
+        get_token_embedding,
+        are_embeddings_close,
+    };
+
 
     #[test]
     fn test_tokenize() {
