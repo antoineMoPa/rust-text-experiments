@@ -30,7 +30,7 @@ impl Mlp {
     }
 }
 
-fn build_and_train_model() -> Result<(), candle_core::Error> {
+fn build_and_train_model() -> Result<Mlp, candle_core::Error> {
     // Use the default device (CPU in this case)
     let device = Device::Cpu;
 
@@ -38,7 +38,7 @@ fn build_and_train_model() -> Result<(), candle_core::Error> {
     let mut inputs = Vec::new();
     let mut targets = Vec::new();
 
-    for _ in 0..4000 {
+    for _ in 0..200 {
         // Generate random sample
         let mut sample = Vec::new();
         for _ in 0..8 {
@@ -112,7 +112,7 @@ fn build_and_train_model() -> Result<(), candle_core::Error> {
     let test_preds = model.forward(&inputs)?;
     println!("Predictions: {:?}", test_preds.to_string());
 
-    Ok(())
+    Ok(model)
 }
 
 fn build_candle_model() -> Result<(), Box<dyn std::error::Error>> {
@@ -137,6 +137,14 @@ mod tests {
 
     #[test]
     fn test_candle_xor() {
-        build_and_train_model().unwrap();
+        let device = Device::Cpu;
+        let model = build_and_train_model().unwrap();
+
+        let inputs = Tensor::new(&[[0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0]], &device).unwrap();
+        let targets = Tensor::new(&[[0.0, 1.0, 1.0, 0.0]], &device).unwrap();
+        let test_preds = model.forward(&inputs).unwrap();
+
+        let diff: f64 = (test_preds - &targets).unwrap().sum_all().unwrap().to_vec0().unwrap();
+        assert!(diff < 0.03);
     }
 }
