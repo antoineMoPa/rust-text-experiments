@@ -9,20 +9,24 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
 struct Mlp {
     fc1: nn::Linear,
     act: candle_nn::Activation,
+    fc2: nn::Linear,
 }
 
 impl Mlp {
     fn new(vb: VarBuilder) -> Result<Self, candle_core::Error> {
-        let fc1 = nn::linear(8, 4,vb.pp("fc1"))?;
-        let act = candle_nn::activation::Activation::Relu;
+        let fc1 = nn::linear(8, 16,vb.pp("fc1"))?;
+        let fc2 = nn::linear(16, 4,vb.pp("fc2"))?;
 
-        Ok(Self { fc1, act })
+        let act = candle_nn::activation::Activation::Relu;
+        Ok(Self { fc1, fc2, act })
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         input
             .apply(&self.fc1)?
-            .apply(&self.act)
+            .apply(&self.act)?
+            .apply(&self.fc2)?
+            .apply(&nn::activation::Activation::Sigmoid)
     }
 }
 
@@ -43,14 +47,12 @@ fn build_and_train_model() -> Result<(), candle_core::Error> {
         let mut sample_result = Vec::new();
         // XOR pairs of values
         for i in 0..4 {
-            let a = sample[(i * 2)] as i32;
+            let a = sample[i * 2] as i32;
             let b = sample[(i * 2) + 1] as i32;
             let result = a ^ b;
 
             sample_result.push(result as f64);
         }
-
-        println!("Sample: {:?}, Result: {:?}", sample, sample_result);
 
         inputs.push(Tensor::new(&[
             sample[0],
@@ -82,25 +84,26 @@ fn build_and_train_model() -> Result<(), candle_core::Error> {
 
     // Optimizer settings
     let params = ParamsAdamW {
-        lr: 0.02,
+        lr: 0.2,
         ..Default::default()
     };
     let mut optimizer = candle_nn::AdamW::new(varmap.all_vars(), params)?;
 
     // Training loop
-    for epoch in 0..100 {
+    for epoch in 0..200 {
         // Forward pass
         let predictions = model.forward(&inputs)?;
 
         // Compute loss (mean squared error)
         let loss = (&predictions - &targets)?.sqr()?.mean_all()?;
+        //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
 
         // Backpropagation
         optimizer.backward_step(&loss)?;
 
-        //if epoch % 100 == 0 {
+        if epoch % 10 == 0 {
             println!("Epoch {}: Loss = {:?}", epoch, loss);
-        //}
+        }
     }
 
     // Test the model
@@ -111,9 +114,6 @@ fn build_and_train_model() -> Result<(), candle_core::Error> {
 
     Ok(())
 }
-
-
-
 
 fn build_candle_model() -> Result<(), Box<dyn std::error::Error>> {
     let device = Device::Cpu;
