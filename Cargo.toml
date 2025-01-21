@@ -8,3 +8,4 @@ candle-core = "0.8.2"
 candle-nn = "0.8.2"
 
 nn = "0.1.6"
+rand = "0.8.5"

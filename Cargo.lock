@@ -711,6 +711,7 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "nn",
+ "rand 0.8.5",
 ]
 
 [[package]]
