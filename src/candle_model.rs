@@ -1,5 +1,3 @@
-use std::io::Error;
-
 use rand::Rng;
 
 use candle_core::{Device, Tensor, DType};
@@ -14,8 +12,8 @@ struct Mlp {
 
 impl Mlp {
     fn new(vb: VarBuilder) -> Result<Self, candle_core::Error> {
-        let fc1 = nn::linear(8, 16,vb.pp("fc1"))?;
-        let fc2 = nn::linear(16, 4,vb.pp("fc2"))?;
+        let fc1 = nn::linear(8, 32,vb.pp("fc1"))?;
+        let fc2 = nn::linear(32, 4,vb.pp("fc2"))?;
 
         let act = candle_nn::activation::Activation::Relu;
         Ok(Self { fc1, fc2, act })
@@ -84,7 +82,7 @@ fn build_and_train_model() -> Result<Mlp, candle_core::Error> {
 
     // Optimizer settings
     let params = ParamsAdamW {
-        lr: 0.2,
+        lr: 0.1,
         ..Default::default()
     };
     let mut optimizer = candle_nn::AdamW::new(varmap.all_vars(), params)?;
@@ -106,34 +104,12 @@ fn build_and_train_model() -> Result<Mlp, candle_core::Error> {
         }
     }
 
-    // Test the model
-    let inputs = Tensor::new(&[[0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0]], &device)?;
-    let targets = Tensor::new(&[[0.0, 1.0, 1.0, 0.0]], &device)?;
-    let test_preds = model.forward(&inputs)?;
-    println!("Predictions: {:?}", test_preds.to_string());
-
     Ok(model)
-}
-
-fn build_candle_model() -> Result<(), Box<dyn std::error::Error>> {
-    let device = Device::Cpu;
-
-    let a = Tensor::randn(0f32, 1., (2, 3), &device)?;
-    let b = Tensor::randn(0f32, 1., (3, 4), &device)?;
-
-    let c = a.matmul(&b)?;
-    println!("{c}");
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_candle_basic() {
-        build_candle_model().unwrap();
-    }
 
     #[test]
     fn test_candle_xor() {
