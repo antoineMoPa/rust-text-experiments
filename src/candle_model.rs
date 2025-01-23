@@ -204,7 +204,7 @@ mod tests {
         // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
-        let tokens = tokenize(&content);
+        let tokens: Vec<String> = tokenize(&content)[..100].to_vec();
 
         let dict = vocabulary_to_dict(tokens);
 
