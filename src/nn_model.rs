@@ -25,7 +25,7 @@ fn create_and_train_model_for_dict(dict: &Dict, embed_size: u32) -> NN {
 
 #[cfg(test)]
 mod tests {
-    use crate::{token_utils::{vocabulary_to_dict, tokenize}, embedding_utils::are_embeddings_close};
+    use crate::{token_utils::{tokens_to_dict, tokenize}, embedding_utils::are_embeddings_close};
 
     use super::*;
 
@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn test_encode_vocabulary() {
         let vocabulary = tokenize("Hello, world!");
-        let dict = vocabulary_to_dict(vocabulary);
+        let dict = tokens_to_dict(vocabulary);
 
         let model = create_and_train_model_for_dict(&dict, 2);
 
@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn test_encode_larger_vocabulary() {
         let vocabulary = tokenize("This is a longer string, hello, world!");
-        let dict = vocabulary_to_dict(vocabulary);
+        let dict = tokens_to_dict(vocabulary);
 
         let model = create_and_train_model_for_dict(&dict, 10);
 
@@ -100,7 +100,7 @@ mod tests {
     #[test]
     fn test_close_typos() {
         let vocabulary = tokenize("This this is a longer longee string, hello, world!");
-        let dict = vocabulary_to_dict(vocabulary);
+        let dict = tokens_to_dict(vocabulary);
 
         let model = create_and_train_model_for_dict(&dict, 10);
 
