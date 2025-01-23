@@ -41,7 +41,7 @@ impl Mlp {
     }
 }
 
-fn build_autoencoder_model(embedding_size: u32, dict: Dict) -> Result<Mlp, candle_core::Error> {
+fn create_and_train_autoencoder_model(dict: Dict, embedding_size: u32) -> Result<Mlp, candle_core::Error> {
     // Use the default device (CPU in this case)
     let device = Device::Cpu;
 
@@ -95,11 +95,6 @@ fn build_autoencoder_model(embedding_size: u32, dict: Dict) -> Result<Mlp, candl
     Ok(model)
 }
 
-pub fn create_and_train_autoencoder_model(dict: &Dict, embed_size: u32) -> Result<Mlp, candle_core::Error> {
-    build_autoencoder_model(embed_size, dict.clone())
-}
-
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -114,12 +109,12 @@ mod tests {
         let dict = vocabulary_to_dict(vocabulary);
 
         let device = Device::Cpu;
-        let model = create_and_train_autoencoder_model(&dict, 2).unwrap();
+        let model = create_and_train_autoencoder_model(dict, 2).unwrap();
 
-        let hello_embedding = get_token_embedding("hello", &dict);
+        let hello_embedding = get_token_embedding("hello", &model.dict);
         assert!(model.run(&hello_embedding, &device)? == "hello");
 
-        let world_embedding = get_token_embedding("world", &dict);
+        let world_embedding = get_token_embedding("world", &model.dict);
         assert!(model.run(&world_embedding, &device)? == "world");
 
         // Different words should have different results
@@ -134,33 +129,33 @@ mod tests {
         let dict = vocabulary_to_dict(vocabulary);
 
         let device = Device::Cpu;
-        let model = create_and_train_autoencoder_model(&dict, 2).unwrap();
+        let model = create_and_train_autoencoder_model(dict, 2).unwrap();
 
-        let this_embedding = get_token_embedding("This", &dict);
+        let this_embedding = get_token_embedding("This", &model.dict);
         assert!(model.run(&this_embedding, &device)? == "This");
 
-        let is_embedding = get_token_embedding("is", &dict);
+        let is_embedding = get_token_embedding("is", &model.dict);
         assert!(model.run(&is_embedding, &device)? == "is");
 
-        let a_embedding = get_token_embedding("a", &dict);
+        let a_embedding = get_token_embedding("a", &model.dict);
         assert!(model.run(&a_embedding, &device)? == "a");
 
-        let longer_embedding = get_token_embedding("longer", &dict);
+        let longer_embedding = get_token_embedding("longer", &model.dict);
         assert!(model.run(&longer_embedding, &device)? == "longer");
 
-        let string_embedding = get_token_embedding("string", &dict);
+        let string_embedding = get_token_embedding("string", &model.dict);
         assert!(model.run(&string_embedding, &device)? == "string");
 
-        let comma_embedding = get_token_embedding(",", &dict);
+        let comma_embedding = get_token_embedding(",", &model.dict);
         assert!(model.run(&comma_embedding, &device)? == ",");
 
-        let hello_embedding = get_token_embedding("hello", &dict);
+        let hello_embedding = get_token_embedding("hello", &model.dict);
         assert!(model.run(&hello_embedding, &device)? == "hello");
 
-        let world_embedding = get_token_embedding("world", &dict);
+        let world_embedding = get_token_embedding("world", &model.dict);
         assert!(model.run(&world_embedding, &device)? == "world");
 
-        let exclamation_embedding = get_token_embedding("!", &dict);
+        let exclamation_embedding = get_token_embedding("!", &model.dict);
         assert!(model.run(&exclamation_embedding, &device)? == "!");
 
         // Different words should have different embeddings
@@ -179,9 +174,9 @@ mod tests {
         let dict = vocabulary_to_dict(tokens);
 
         let device = Device::Cpu;
-        let model = create_and_train_autoencoder_model(&dict, 2)?;
+        let model = create_and_train_autoencoder_model(dict, 2)?;
 
-        let horse_embedding = get_token_embedding("horse", &dict);
+        let horse_embedding = get_token_embedding("horse", &model.dict);
         assert!(model.run(&horse_embedding, &device)? == "horse");
 
         Ok(())
