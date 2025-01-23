@@ -1,4 +1,6 @@
-pub fn get_token_embedding(token: &str, dict: &std::collections::HashMap<String, f64>) -> Vec<f64> {
+use crate::token_utils::Dict;
+
+pub fn get_token_embedding(token: &str, dict: &Dict) -> Vec<f64> {
     let mut letter_embedding = 0.0;
     let value = *dict.get(token).unwrap();
 

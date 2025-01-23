@@ -1,10 +1,8 @@
 use candle_core::{Device, Tensor, DType};
 use candle_nn as nn;
-use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
+use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
-use crate::embedding_utils::get_token_embedding;
-
-type Dict = std::collections::HashMap<String, f64>;
+use crate::{embedding_utils::get_token_embedding, token_utils::{Dict, GetTokenEmbedding}};
 
 pub struct Mlp {
     fc1: nn::Linear,
@@ -16,7 +14,7 @@ pub struct Mlp {
 impl Mlp {
     pub fn new(vb: VarBuilder, embedding_size: u32, dict: Dict) -> Result<Self, candle_core::Error> {
         let fc1 = nn::linear(embedding_size as usize, 32,vb.pp("fc1"))?;
-        let fc2 = nn::linear(32, embedding_size as usize,vb.pp("fc2"))?;
+        let fc2 = nn::linear(32, dict.len(),vb.pp("fc2"))?;
 
         let act = candle_nn::activation::Activation::Relu;
         Ok(Self { fc1, fc2, act, dict })
@@ -30,17 +28,20 @@ impl Mlp {
             .apply(&nn::activation::Activation::Sigmoid)
     }
 
-    pub fn run(&self, input: &Vec<f64>, device: &Device) -> Result<Vec<f64>, candle_core::Error> {
-        println!("Running model with input: {:?}", input);
+    pub fn run(&self, input: &Vec<f64>, device: &Device) -> Result<String, candle_core::Error> {
         let input = Tensor::new(input.clone(), device)?.unsqueeze(0)?;
 
-        println!("output: {:?}", self.forward(&input)?.to_vec2::<f64>()?[0]);
+        let output_prob = self.forward(&input)?;
+        let output_prob_max_index = output_prob.argmax(1)?;
+        let n = output_prob_max_index.to_vec1::<u32>()?[0];
 
-        Ok(self.forward(&input)?.to_vec2::<f64>()?[0].clone())
+        let max_token = self.dict.iter().nth(n as usize).unwrap();
+
+        return Ok(max_token.0.clone());
     }
 }
 
-fn build_autoencoder_model(embedding_size: u32, examples: &Vec<Vec<f64>>, dict: Dict) -> Result<Mlp, candle_core::Error> {
+fn build_autoencoder_model(embedding_size: u32, dict: Dict) -> Result<Mlp, candle_core::Error> {
     // Use the default device (CPU in this case)
     let device = Device::Cpu;
 
@@ -48,9 +49,10 @@ fn build_autoencoder_model(embedding_size: u32, examples: &Vec<Vec<f64>>, dict: 
     let mut inputs: Vec<Tensor> = Vec::new();
     let mut targets: Vec<Tensor> = Vec::new();
 
-    for example in examples {
-        let input = Tensor::new(example.clone(), &device)?;
-        let target = input.clone();
+    for (index, (word, _)) in dict.iter().enumerate() {
+        let input = Tensor::new(dict.get_token_embedding(word), &device)?;
+        let token_index: u32 = index as u32;
+        let target = one_hot(Tensor::new(token_index, &device)?, dict.len(), 1.0, 0.0)?;
 
         inputs.push(input);
         targets.push(target);
@@ -68,17 +70,17 @@ fn build_autoencoder_model(embedding_size: u32, examples: &Vec<Vec<f64>>, dict: 
 
     // Optimizer settings
     let params = ParamsAdamW {
-        lr: 0.1,
+        lr: 0.03,
         ..Default::default()
     };
     let mut optimizer = candle_nn::AdamW::new(varmap.all_vars(), params)?;
 
     // Training loop
-    for epoch in 0..200 {
+    for epoch in 0..300 {
         // Forward pass
         let predictions = model.forward(&inputs)?;
 
-        // Compute loss (mean squared error)
+        // Compute loss
         let loss = (&predictions - &targets)?.sqr()?.mean_all()?;
         //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
 
@@ -94,14 +96,7 @@ fn build_autoencoder_model(embedding_size: u32, examples: &Vec<Vec<f64>>, dict: 
 }
 
 pub fn create_and_train_autoencoder_model(dict: &Dict, embed_size: u32) -> Result<Mlp, candle_core::Error> {
-    let mut examples: Vec<Vec<f64>> = Vec::new();
-
-    for (_i, token) in dict.iter().enumerate() {
-        let token_embedding = get_token_embedding(token.0, dict);
-        examples.push(token_embedding);
-    }
-
-    build_autoencoder_model(embed_size, &examples, dict.clone())
+    build_autoencoder_model(embed_size, dict.clone())
 }
 
 
@@ -109,7 +104,7 @@ pub fn create_and_train_autoencoder_model(dict: &Dict, embed_size: u32) -> Resul
 mod tests {
     use std::fs;
 
-    use crate::{token_utils::{tokenize, vocabulary_to_dict}, embedding_utils::are_embeddings_close};
+    use crate::token_utils::{tokenize, vocabulary_to_dict};
 
     use super::*;
 
@@ -122,13 +117,13 @@ mod tests {
         let model = create_and_train_autoencoder_model(&dict, 2).unwrap();
 
         let hello_embedding = get_token_embedding("hello", &dict);
-        assert!(are_embeddings_close(&model.run(&hello_embedding, &device)?, &hello_embedding, 0.15));
+        assert!(model.run(&hello_embedding, &device)? == "hello");
 
         let world_embedding = get_token_embedding("world", &dict);
-        assert!(are_embeddings_close(&model.run(&world_embedding, &device)?, &world_embedding, 0.15));
+        assert!(model.run(&world_embedding, &device)? == "world");
 
         // Different words should have different results
-        assert!(!are_embeddings_close(&model.run(&hello_embedding, &device)?, &world_embedding, 0.15));
+        assert!(model.run(&hello_embedding, &device)? != model.run(&world_embedding, &device)?);
 
         Ok(())
     }
@@ -142,65 +137,37 @@ mod tests {
         let model = create_and_train_autoencoder_model(&dict, 2).unwrap();
 
         let this_embedding = get_token_embedding("This", &dict);
-        assert!(are_embeddings_close(&model.run(&this_embedding, &device)?, &this_embedding, 0.15));
+        assert!(model.run(&this_embedding, &device)? == "This");
 
         let is_embedding = get_token_embedding("is", &dict);
-        assert!(are_embeddings_close(&model.run(&is_embedding, &device)?, &is_embedding, 0.15));
+        assert!(model.run(&is_embedding, &device)? == "is");
 
         let a_embedding = get_token_embedding("a", &dict);
-        assert!(are_embeddings_close(&model.run(&a_embedding, &device)?, &a_embedding, 0.15));
+        assert!(model.run(&a_embedding, &device)? == "a");
 
         let longer_embedding = get_token_embedding("longer", &dict);
-        assert!(are_embeddings_close(&model.run(&longer_embedding, &device)?, &longer_embedding, 0.15));
+        assert!(model.run(&longer_embedding, &device)? == "longer");
 
         let string_embedding = get_token_embedding("string", &dict);
-        assert!(are_embeddings_close(&model.run(&string_embedding, &device)?, &string_embedding, 0.15));
+        assert!(model.run(&string_embedding, &device)? == "string");
 
         let comma_embedding = get_token_embedding(",", &dict);
-        assert!(are_embeddings_close(&model.run(&comma_embedding, &device)?, &comma_embedding, 0.15));
+        assert!(model.run(&comma_embedding, &device)? == ",");
 
         let hello_embedding = get_token_embedding("hello", &dict);
-        assert!(are_embeddings_close(&model.run(&hello_embedding, &device)?, &hello_embedding, 0.15));
+        assert!(model.run(&hello_embedding, &device)? == "hello");
 
         let world_embedding = get_token_embedding("world", &dict);
-        assert!(are_embeddings_close(&model.run(&world_embedding, &device)?, &world_embedding, 0.15));
+        assert!(model.run(&world_embedding, &device)? == "world");
 
         let exclamation_embedding = get_token_embedding("!", &dict);
-        assert!(are_embeddings_close(&model.run(&exclamation_embedding, &device)?, &exclamation_embedding, 0.15));
+        assert!(model.run(&exclamation_embedding, &device)? == "!");
 
         // Different words should have different embeddings
-        assert!(!are_embeddings_close(&model.run(&this_embedding, &device)?, &world_embedding, 0.15));
+        assert!(model.run(&this_embedding, &device)? != model.run(&world_embedding, &device)?);
 
         Ok(())
     }
-
-    #[test]
-    fn test_close_typos() -> Result<(), candle_core::Error> {
-        let vocabulary = tokenize("This this is a longer longee string, hello, world!");
-        let dict = vocabulary_to_dict(vocabulary);
-
-        let device = Device::Cpu;
-        let model = create_and_train_autoencoder_model(&dict, 2)?;
-
-        let a = get_token_embedding("longer", &dict);
-        let b = get_token_embedding("longee", &dict);
-        assert!(are_embeddings_close(&model.run(&a, &device)?, &b, 0.1));
-
-        let a = get_token_embedding("This", &dict);
-        let b = get_token_embedding("this", &dict);
-        assert!(are_embeddings_close(&model.run(&a, &device)?, &b, 0.1));
-
-        let a = get_token_embedding("longer", &dict);
-        let b = get_token_embedding("This", &dict);
-        assert!(!are_embeddings_close(&model.run(&a, &device)?, &b, 0.1));
-
-        let a = get_token_embedding("this", &dict);
-        let b = get_token_embedding("longee", &dict);
-        assert!(!are_embeddings_close(&model.run(&a, &device)?, &b, 0.1));
-
-        Ok(())
-    }
-
 
     #[test]
     fn test_candle_autoencoder_horse() -> Result<(), candle_core::Error> {
@@ -215,7 +182,7 @@ mod tests {
         let model = create_and_train_autoencoder_model(&dict, 2)?;
 
         let horse_embedding = get_token_embedding("horse", &dict);
-        assert!(are_embeddings_close(&model.run(&horse_embedding, &device)?, &horse_embedding, 0.08));
+        assert!(model.run(&horse_embedding, &device)? == "horse");
 
         Ok(())
     }

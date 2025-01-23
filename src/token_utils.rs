@@ -1,3 +1,23 @@
+pub type Dict = std::collections::BTreeMap<String, f64>;
+
+pub trait GetTokenEmbedding {
+    fn get_token_embedding(&self, token: &str) -> Vec<f64>;
+}
+
+impl GetTokenEmbedding for Dict {
+    fn get_token_embedding(&self, token: &str) -> Vec<f64> {
+        let mut letter_embedding = 0.0;
+        let value = *self.get(token).unwrap();
+
+        for letter in token.chars() {
+            // simply cast letter to f64 and divide by 255
+            let letter_value = letter as i32 as f64 / 10000.0;
+            letter_embedding += letter_embedding + letter_value;
+        }
+
+        return vec![value, letter_embedding];
+    }
+}
 
 pub fn tokenize(input: &str) -> Vec<String> {
     let split_symbols = [' ', ',', '.', '!', '?', ';', ':', '\n', '\t'];
@@ -32,8 +52,8 @@ pub fn create_vocabulary(tokens: Vec<String>) -> Vec<String> {
 }
 
 
-pub fn vocabulary_to_dict(vocabulary: Vec<String>) -> std::collections::HashMap<String, f64> {
-    let mut vocabulary_dict = std::collections::HashMap::new();
+pub fn vocabulary_to_dict(vocabulary: Vec<String>) -> Dict {
+    let mut vocabulary_dict = Dict::new();
     for (i, token) in vocabulary.iter().enumerate() {
         vocabulary_dict.insert(token.clone(), i as f64 / vocabulary.len() as f64);
     }

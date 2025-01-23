@@ -1,12 +1,12 @@
 use nn::NN;
 
-use crate::embedding_utils::get_token_embedding;
+use crate::{embedding_utils::get_token_embedding, token_utils::Dict};
 
 fn create_model(size: u32, embed_size: u32) -> NN {
     return NN::new(&[size, embed_size, size]);
 }
 
-fn create_and_train_model_for_dict(dict: &std::collections::HashMap<String, f64>, embed_size: u32) -> NN {
+fn create_and_train_model_for_dict(dict: &Dict, embed_size: u32) -> NN {
     let mut model = create_model(2, embed_size);
     let mut examples = Vec::new();
 
