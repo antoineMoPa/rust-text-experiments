@@ -1,8 +1,8 @@
-use rand::Rng;
-
 use candle_core::{Device, Tensor, DType};
 use candle_nn as nn;
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
+
+use crate::embedding_utils::get_token_embedding;
 
 struct Mlp {
     fc1: nn::Linear,
@@ -11,9 +11,9 @@ struct Mlp {
 }
 
 impl Mlp {
-    fn new(vb: VarBuilder) -> Result<Self, candle_core::Error> {
-        let fc1 = nn::linear(8, 32,vb.pp("fc1"))?;
-        let fc2 = nn::linear(32, 4,vb.pp("fc2"))?;
+    fn new(vb: VarBuilder, embedding_size: u32) -> Result<Self, candle_core::Error> {
+        let fc1 = nn::linear(embedding_size as usize, 32,vb.pp("fc1"))?;
+        let fc2 = nn::linear(32, embedding_size as usize,vb.pp("fc2"))?;
 
         let act = candle_nn::activation::Activation::Relu;
         Ok(Self { fc1, fc2, act })
@@ -26,48 +26,31 @@ impl Mlp {
             .apply(&self.fc2)?
             .apply(&nn::activation::Activation::Sigmoid)
     }
+
+    fn run(&self, input: &Vec<f64>, device: &Device) -> Result<Vec<f64>, candle_core::Error> {
+        println!("Running model with input: {:?}", input);
+        let input = Tensor::new(input.clone(), device)?.unsqueeze(0)?;
+
+        println!("output: {:?}", self.forward(&input)?.to_vec2::<f64>()?[0]);
+
+        Ok(self.forward(&input)?.to_vec2::<f64>()?[0].clone())
+    }
 }
 
-fn build_and_train_model() -> Result<Mlp, candle_core::Error> {
+fn build_model(embedding_size: u32, examples: &Vec<Vec<f64>>) -> Result<Mlp, candle_core::Error> {
     // Use the default device (CPU in this case)
     let device = Device::Cpu;
 
     // Define training data for XOR
-    let mut inputs = Vec::new();
-    let mut targets = Vec::new();
+    let mut inputs: Vec<Tensor> = Vec::new();
+    let mut targets: Vec<Tensor> = Vec::new();
 
-    for _ in 0..200 {
-        // Generate random sample
-        let mut sample = Vec::new();
-        for _ in 0..8 {
-            sample.push(rand::thread_rng().gen_range(0..2) as f64);
-        }
-        let mut sample_result = Vec::new();
-        // XOR pairs of values
-        for i in 0..4 {
-            let a = sample[i * 2] as i32;
-            let b = sample[(i * 2) + 1] as i32;
-            let result = a ^ b;
+    for example in examples {
+        let input = Tensor::new(example.clone(), &device)?;
+        let target = input.clone();
 
-            sample_result.push(result as f64);
-        }
-
-        inputs.push(Tensor::new(&[
-            sample[0],
-            sample[1],
-            sample[2],
-            sample[3],
-            sample[4],
-            sample[5],
-            sample[6],
-            sample[7],
-        ], &device)?);
-        targets.push(Tensor::new(&[
-            sample_result[0],
-            sample_result[1],
-            sample_result[2],
-            sample_result[3],
-        ], &device)?);
+        inputs.push(input);
+        targets.push(target);
     }
 
     let inputs = Tensor::stack(&inputs, 0)?;
@@ -78,7 +61,7 @@ fn build_and_train_model() -> Result<Mlp, candle_core::Error> {
     let vb = VarBuilder::from_varmap(&varmap, DType::F64, &Device::Cpu);
 
     // Create the XORNet model
-    let model = Mlp::new(vb)?;
+    let model = Mlp::new(vb, embedding_size)?;
 
     // Optimizer settings
     let params = ParamsAdamW {
@@ -99,7 +82,7 @@ fn build_and_train_model() -> Result<Mlp, candle_core::Error> {
         // Backpropagation
         optimizer.backward_step(&loss)?;
 
-        if epoch % 10 == 0 {
+        if epoch % 100 == 0 {
             println!("Epoch {}: Loss = {:?}", epoch, loss);
         }
     }
@@ -107,20 +90,41 @@ fn build_and_train_model() -> Result<Mlp, candle_core::Error> {
     Ok(model)
 }
 
+fn create_and_train_model_for_dict(dict: &std::collections::HashMap<String, f64>, embed_size: u32) -> Result<Mlp, candle_core::Error> {
+    let mut examples: Vec<Vec<f64>> = Vec::new();
+
+    for (_i, token) in dict.iter().enumerate() {
+        let token_embedding = get_token_embedding(token.0, dict);
+        examples.push(token_embedding);
+    }
+
+    build_model(embed_size, &examples)
+}
+
+
 #[cfg(test)]
 mod tests {
+    use crate::{token_utils::{tokenize, vocabulary_to_dict}, embedding_utils::are_embeddings_close};
+
     use super::*;
 
     #[test]
-    fn test_candle_xor() {
+    fn test_candle_encoder_decoder_hello_world() -> Result<(), candle_core::Error> {
+        let vocabulary = tokenize("hello, world!");
+        let dict = vocabulary_to_dict(vocabulary);
+
         let device = Device::Cpu;
-        let model = build_and_train_model().unwrap();
+        let model = create_and_train_model_for_dict(&dict, 2).unwrap();
 
-        let inputs = Tensor::new(&[[0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0]], &device).unwrap();
-        let targets = Tensor::new(&[[0.0, 1.0, 1.0, 0.0]], &device).unwrap();
-        let test_preds = model.forward(&inputs).unwrap();
+        let hello_embedding = get_token_embedding("hello", &dict);
+        assert!(are_embeddings_close(&model.run(&hello_embedding, &device)?, &hello_embedding, 0.15));
 
-        let diff: f64 = (test_preds - &targets).unwrap().sum_all().unwrap().to_vec0().unwrap();
-        assert!(diff < 0.03);
+        let world_embedding = get_token_embedding("world", &dict);
+        assert!(are_embeddings_close(&model.run(&world_embedding, &device)?, &world_embedding, 0.15));
+
+        // Different words should have different results
+        assert!(!are_embeddings_close(&model.run(&hello_embedding, &device)?, &world_embedding, 0.15));
+
+        Ok(())
     }
 }
