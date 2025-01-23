@@ -30,21 +30,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_encode_vocabulary() {
-        let vocabulary = tokenize("Hello, world!");
-        let dict = vocabulary_to_dict(vocabulary);
-
-        let model = create_and_train_model_for_dict(&dict, 2);
-
-        let hello_embedding = get_token_embedding("Hello", &dict);
-
-        assert!(are_embeddings_close(&model.run(&*hello_embedding), &hello_embedding, 0.15));
-
-        let world_embedding = get_token_embedding("world", &dict);
-        assert!(are_embeddings_close(&model.run(&*world_embedding), &world_embedding, 0.15));
-    }
-
-    #[test]
     fn test_train_model() {
         let mut model = create_model(3, 1);
         let examples = [
@@ -57,6 +42,21 @@ mod tests {
 
         assert_eq!(model.run(&[0.0, 0.0, 0.0])[0].round(), 0.0);
         assert_eq!(model.run(&[1.0, 1.0, 1.0])[0].round(), 1.0);
+    }
+
+    #[test]
+    fn test_encode_vocabulary() {
+        let vocabulary = tokenize("Hello, world!");
+        let dict = vocabulary_to_dict(vocabulary);
+
+        let model = create_and_train_model_for_dict(&dict, 2);
+
+        let hello_embedding = get_token_embedding("Hello", &dict);
+
+        assert!(are_embeddings_close(&model.run(&*hello_embedding), &hello_embedding, 0.15));
+
+        let world_embedding = get_token_embedding("world", &dict);
+        assert!(are_embeddings_close(&model.run(&*world_embedding), &world_embedding, 0.15));
     }
 
     #[test]
