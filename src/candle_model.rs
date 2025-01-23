@@ -104,6 +104,8 @@ pub fn create_and_train_model_for_dict(dict: &std::collections::HashMap<String, 
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use crate::{token_utils::{tokenize, vocabulary_to_dict}, embedding_utils::are_embeddings_close};
 
     use super::*;
@@ -192,6 +194,25 @@ mod tests {
         let a = get_token_embedding("this", &dict);
         let b = get_token_embedding("longee", &dict);
         assert!(!are_embeddings_close(&model.run(&a, &device)?, &b, 0.1));
+
+        Ok(())
+    }
+
+
+    #[test]
+    fn test_candle_encoder_decoder_horse() -> Result<(), candle_core::Error> {
+        // Define the file path
+        let file_path = "data/corpus/wiki-horse.txt";
+        let content = fs::read_to_string(file_path)?;
+        let tokens = tokenize(&content);
+
+        let dict = vocabulary_to_dict(tokens);
+
+        let device = Device::Cpu;
+        let model = create_and_train_model_for_dict(&dict, 2)?;
+
+        let horse_embedding = get_token_embedding("horse", &dict);
+        assert!(are_embeddings_close(&model.run(&horse_embedding, &device)?, &horse_embedding, 0.05));
 
         Ok(())
     }
