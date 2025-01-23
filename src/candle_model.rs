@@ -127,4 +127,72 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_encode_larger_vocabulary() -> Result<(), candle_core::Error> {
+        let vocabulary = tokenize("This is a longer string, hello, world!");
+        let dict = vocabulary_to_dict(vocabulary);
+
+        let device = Device::Cpu;
+        let model = create_and_train_model_for_dict(&dict, 2).unwrap();
+
+        let this_embedding = get_token_embedding("This", &dict);
+        assert!(are_embeddings_close(&model.run(&this_embedding, &device)?, &this_embedding, 0.15));
+
+        let is_embedding = get_token_embedding("is", &dict);
+        assert!(are_embeddings_close(&model.run(&is_embedding, &device)?, &is_embedding, 0.15));
+
+        let a_embedding = get_token_embedding("a", &dict);
+        assert!(are_embeddings_close(&model.run(&a_embedding, &device)?, &a_embedding, 0.15));
+
+        let longer_embedding = get_token_embedding("longer", &dict);
+        assert!(are_embeddings_close(&model.run(&longer_embedding, &device)?, &longer_embedding, 0.15));
+
+        let string_embedding = get_token_embedding("string", &dict);
+        assert!(are_embeddings_close(&model.run(&string_embedding, &device)?, &string_embedding, 0.15));
+
+        let comma_embedding = get_token_embedding(",", &dict);
+        assert!(are_embeddings_close(&model.run(&comma_embedding, &device)?, &comma_embedding, 0.15));
+
+        let hello_embedding = get_token_embedding("hello", &dict);
+        assert!(are_embeddings_close(&model.run(&hello_embedding, &device)?, &hello_embedding, 0.15));
+
+        let world_embedding = get_token_embedding("world", &dict);
+        assert!(are_embeddings_close(&model.run(&world_embedding, &device)?, &world_embedding, 0.15));
+
+        let exclamation_embedding = get_token_embedding("!", &dict);
+        assert!(are_embeddings_close(&model.run(&exclamation_embedding, &device)?, &exclamation_embedding, 0.15));
+
+        // Different words should have different embeddings
+        assert!(!are_embeddings_close(&model.run(&this_embedding, &device)?, &world_embedding, 0.15));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_close_typos() -> Result<(), candle_core::Error> {
+        let vocabulary = tokenize("This this is a longer longee string, hello, world!");
+        let dict = vocabulary_to_dict(vocabulary);
+
+        let device = Device::Cpu;
+        let model = create_and_train_model_for_dict(&dict, 2)?;
+
+        let a = get_token_embedding("longer", &dict);
+        let b = get_token_embedding("longee", &dict);
+        assert!(are_embeddings_close(&model.run(&a, &device)?, &b, 0.1));
+
+        let a = get_token_embedding("This", &dict);
+        let b = get_token_embedding("this", &dict);
+        assert!(are_embeddings_close(&model.run(&a, &device)?, &b, 0.1));
+
+        let a = get_token_embedding("longer", &dict);
+        let b = get_token_embedding("This", &dict);
+        assert!(!are_embeddings_close(&model.run(&a, &device)?, &b, 0.1));
+
+        let a = get_token_embedding("this", &dict);
+        let b = get_token_embedding("longee", &dict);
+        assert!(!are_embeddings_close(&model.run(&a, &device)?, &b, 0.1));
+
+        Ok(())
+    }
 }
