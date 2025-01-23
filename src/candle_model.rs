@@ -4,19 +4,22 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
 
 use crate::embedding_utils::get_token_embedding;
 
+type Dict = std::collections::HashMap<String, f64>;
+
 pub struct Mlp {
     fc1: nn::Linear,
     act: candle_nn::Activation,
     fc2: nn::Linear,
+    dict: Dict,
 }
 
 impl Mlp {
-    pub fn new(vb: VarBuilder, embedding_size: u32) -> Result<Self, candle_core::Error> {
+    pub fn new(vb: VarBuilder, embedding_size: u32, dict: Dict) -> Result<Self, candle_core::Error> {
         let fc1 = nn::linear(embedding_size as usize, 32,vb.pp("fc1"))?;
         let fc2 = nn::linear(32, embedding_size as usize,vb.pp("fc2"))?;
 
         let act = candle_nn::activation::Activation::Relu;
-        Ok(Self { fc1, fc2, act })
+        Ok(Self { fc1, fc2, act, dict })
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -37,7 +40,7 @@ impl Mlp {
     }
 }
 
-fn build_autoencoder_model(embedding_size: u32, examples: &Vec<Vec<f64>>) -> Result<Mlp, candle_core::Error> {
+fn build_autoencoder_model(embedding_size: u32, examples: &Vec<Vec<f64>>, dict: Dict) -> Result<Mlp, candle_core::Error> {
     // Use the default device (CPU in this case)
     let device = Device::Cpu;
 
@@ -61,7 +64,7 @@ fn build_autoencoder_model(embedding_size: u32, examples: &Vec<Vec<f64>>) -> Res
     let vb = VarBuilder::from_varmap(&varmap, DType::F64, &Device::Cpu);
 
     // Create the XORNet model
-    let model = Mlp::new(vb, embedding_size)?;
+    let model = Mlp::new(vb, embedding_size, dict)?;
 
     // Optimizer settings
     let params = ParamsAdamW {
@@ -90,7 +93,7 @@ fn build_autoencoder_model(embedding_size: u32, examples: &Vec<Vec<f64>>) -> Res
     Ok(model)
 }
 
-pub fn create_and_train_autoencoder_model(dict: &std::collections::HashMap<String, f64>, embed_size: u32) -> Result<Mlp, candle_core::Error> {
+pub fn create_and_train_autoencoder_model(dict: &Dict, embed_size: u32) -> Result<Mlp, candle_core::Error> {
     let mut examples: Vec<Vec<f64>> = Vec::new();
 
     for (_i, token) in dict.iter().enumerate() {
@@ -98,7 +101,7 @@ pub fn create_and_train_autoencoder_model(dict: &std::collections::HashMap<Strin
         examples.push(token_embedding);
     }
 
-    build_autoencoder_model(embed_size, &examples)
+    build_autoencoder_model(embed_size, &examples, dict.clone())
 }
 
 
