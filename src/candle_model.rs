@@ -4,14 +4,14 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
 
 use crate::embedding_utils::get_token_embedding;
 
-struct Mlp {
+pub struct Mlp {
     fc1: nn::Linear,
     act: candle_nn::Activation,
     fc2: nn::Linear,
 }
 
 impl Mlp {
-    fn new(vb: VarBuilder, embedding_size: u32) -> Result<Self, candle_core::Error> {
+    pub fn new(vb: VarBuilder, embedding_size: u32) -> Result<Self, candle_core::Error> {
         let fc1 = nn::linear(embedding_size as usize, 32,vb.pp("fc1"))?;
         let fc2 = nn::linear(32, embedding_size as usize,vb.pp("fc2"))?;
 
@@ -27,7 +27,7 @@ impl Mlp {
             .apply(&nn::activation::Activation::Sigmoid)
     }
 
-    fn run(&self, input: &Vec<f64>, device: &Device) -> Result<Vec<f64>, candle_core::Error> {
+    pub fn run(&self, input: &Vec<f64>, device: &Device) -> Result<Vec<f64>, candle_core::Error> {
         println!("Running model with input: {:?}", input);
         let input = Tensor::new(input.clone(), device)?.unsqueeze(0)?;
 
@@ -90,7 +90,7 @@ fn build_model(embedding_size: u32, examples: &Vec<Vec<f64>>) -> Result<Mlp, can
     Ok(model)
 }
 
-fn create_and_train_model_for_dict(dict: &std::collections::HashMap<String, f64>, embed_size: u32) -> Result<Mlp, candle_core::Error> {
+pub fn create_and_train_model_for_dict(dict: &std::collections::HashMap<String, f64>, embed_size: u32) -> Result<Mlp, candle_core::Error> {
     let mut examples: Vec<Vec<f64>> = Vec::new();
 
     for (_i, token) in dict.iter().enumerate() {

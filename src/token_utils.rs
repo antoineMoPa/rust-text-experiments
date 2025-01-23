@@ -39,3 +39,32 @@ pub fn vocabulary_to_dict(vocabulary: Vec<String>) -> std::collections::HashMap<
     }
     return vocabulary_dict;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tokenize() {
+        assert_eq!(tokenize("Hello, world!"), vec!["Hello", ",", " ", "world", "!"]);
+    }
+
+    #[test]
+    fn test_create_vocabulary() {
+        let tokens = tokenize("Hello, world!");
+
+        assert_eq!(create_vocabulary(tokens), vec!["Hello", ",", " ", "world", "!"]);
+    }
+
+    #[test]
+    fn test_vocabulary_to_dict() {
+        let vocabulary = tokenize("Hello, world!");
+        let vocabulary_dict = vocabulary_to_dict(vocabulary);
+
+        assert_ne!(vocabulary_dict.get("Hello").unwrap(),
+                   vocabulary_dict.get("world").unwrap());
+
+        assert!(*vocabulary_dict.get("world").unwrap() > 0.0);
+    }
+
+}
