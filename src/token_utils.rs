@@ -31,7 +31,35 @@ impl GetTokenEmbedding for Dict {
 }
 
 pub fn tokenize(input: &str) -> Vec<String> {
-    let split_symbols = [' ', ',', '.', '!', '?', ';', ':', '\n', '\t'];
+    let split_symbols = [
+        ' ',
+        ',',
+        '.',
+        '!',
+        '?',
+        ';',
+        ':',
+        '\n',
+        '\t',
+        '(',
+        ')',
+        '{',
+        '}',
+        '[',
+        ']',
+        '<',
+        '>',
+        '=',
+        '+',
+        '-',
+        '*',
+        '/',
+        '&',
+        '|',
+        '^',
+        '%',
+        '$',
+    ];
 
     let mut tokens = Vec::new();
     let mut token = String::new();
