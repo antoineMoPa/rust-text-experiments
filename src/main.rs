@@ -20,12 +20,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = get_device()?;
     let model = create_and_train_predictor_model(dict, tokens, &device)?;
 
-    let input = args.join(" ") + " ";
+    let mut input = args.join(" ") + " ";
     println!("Predicting next token for: '{:?}'", input);
 
-    let pred = model.predict_next_token(input.as_str(), &device)?;
+    while true {
+        let pred = model.predict_next_token(input.as_str(), &device)?;
+        input = input + pred.as_str();
+        print!("{}", pred);
+    }
 
-    println!("Predicted next token: {:?}", pred);
 
     Ok(())
 }
