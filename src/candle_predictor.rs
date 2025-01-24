@@ -14,7 +14,7 @@ const CONTEXT_WINDOW: usize = 10;
 
 impl Mlp {
     pub fn new(vb: VarBuilder, dict: Dict) -> Result<Self, candle_core::Error> {
-        let hidden_size = 64;
+        let hidden_size = 128;
 
         let fc1 = nn::linear(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
         let fc2 = nn::linear(hidden_size, dict.len(),vb.pp("fc2"))?;
@@ -25,10 +25,11 @@ impl Mlp {
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let result = input;
         let result = result.apply(&self.fc1)?;
-        let result = nn::ops::dropout(&result, 0.2)?;
+        // let result = self.bn.forward_t(&result, false)?;
+        let result = nn::ops::dropout(&result, 0.4)?;
         let result = result.relu()?;
         let result = result.apply(&self.fc2)?;
-        let result = result.tanh()?;
+        // let result = result.tanh()?;
         let result = nn::ops::softmax(&result, 1);
 
         return result;
@@ -118,7 +119,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, d
 
     // Optimizer settings
     let epoch = 400;
-    let lr = 0.01;
+    let lr = 0.004;
 
     let params = ParamsAdamW {
         lr,
@@ -133,8 +134,9 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, d
         let predictions = model.forward(&inputs)?;
 
         // Compute loss
-        let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
-        //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
+        // let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
+        // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
+        let loss = nn::loss::mse(&predictions, &targets)?;
 
         // Backpropagation
         optimizer.backward_step(&loss)?;
