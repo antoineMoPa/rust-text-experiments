@@ -1,6 +1,6 @@
 pub type Dict = std::collections::BTreeMap<String, f32>;
 
-pub const EMBEDDING_SIZE: usize = 15;
+pub const EMBEDDING_SIZE: usize = 20;
 
 pub trait GetTokenEmbedding {
     fn get_token_embedding(&self, token: &str) -> Vec<f32>;
@@ -14,30 +14,28 @@ impl GetTokenEmbedding for Dict {
 
         embedding.push(value);
 
-        for (index, letter) in token.chars().enumerate() {
-            if index >= EMBEDDING_SIZE - 1 {
-                break;
-            }
-
-            // simply cast letter to f32 and divide by 255
-            let letter_value = letter as i32 as f32 / 50.0;
-
-            embedding.push(letter_value.cos());
-        }
-
-        for (index, letter) in token.chars().enumerate() {
-            if embedding.len() >= EMBEDDING_SIZE - 1 {
-                break;
-            }
-
-            // simply cast letter to f32 and divide by 255
-            let letter_value = letter as i32 as f32 / 100.0;
-
-            embedding.push(letter_value.cos());
-        }
-
         while embedding.len() < EMBEDDING_SIZE {
-            embedding.push(0.0);
+            for (index, letter) in token.chars().enumerate() {
+                if embedding.len() >= EMBEDDING_SIZE {
+                    break;
+                }
+
+                // simply cast letter to f32 and divide by 255
+                let letter_value = letter as i32 as f32 / 50.0;
+
+                embedding.push(letter_value.cos());
+            }
+
+            for (index, letter) in token.chars().enumerate() {
+                if embedding.len() >= EMBEDDING_SIZE {
+                    break;
+                }
+
+                // simply cast letter to f32 and divide by 255
+                let letter_value = letter as i32 as f32 / 100.0;
+
+                embedding.push(letter_value.cos());
+            }
         }
 
         assert_eq!(embedding.len(), EMBEDDING_SIZE);
