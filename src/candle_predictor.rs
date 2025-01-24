@@ -14,7 +14,7 @@ const CONTEXT_WINDOW: usize = 10;
 
 impl Mlp {
     pub fn new(vb: VarBuilder, dict: Dict) -> Result<Self, candle_core::Error> {
-        let hidden_size = 128;
+        let hidden_size = 256;
 
         let fc1 = nn::linear(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
         let fc2 = nn::linear(hidden_size, dict.len(),vb.pp("fc2"))?;
@@ -118,8 +118,9 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, d
     let model = Mlp::new(vb, dict)?;
 
     // Optimizer settings
-    let epoch = 400;
-    let lr = 0.004;
+    // 1. More epoch when sample size is smaller
+    let epoch = 100 + 3000 / tokens_chain.len();
+    let lr = 0.008;
 
     let params = ParamsAdamW {
         lr,
