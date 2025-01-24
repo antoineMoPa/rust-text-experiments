@@ -9,7 +9,8 @@ pub trait GetTokenEmbedding {
 
 impl GetTokenEmbedding for Dict {
     fn get_token_embedding(&self, token: &str) -> Vec<f32> {
-        let value = *self.get(token).unwrap();
+        let default = 0.0 as f32;
+        let value = *self.get(token).unwrap_or(&default);
         let mut embedding: Vec<f32> = Vec::new();
 
         embedding.push(value);
