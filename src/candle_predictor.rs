@@ -16,7 +16,7 @@ const CONTEXT_WINDOW: usize = 20;
 
 impl Mlp {
     pub fn new(vb: VarBuilder, embedding_size: u32, dict: Dict) -> Result<Self, candle_core::Error> {
-        let hidden_size = 64;
+        let hidden_size = 32;
         let fc1 = nn::linear(embedding_size as usize * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
         let fc2 = nn::linear(hidden_size, hidden_size,vb.pp("fc2"))?;
         let fc3 = nn::linear(hidden_size, dict.len(),vb.pp("fc3"))?;
@@ -124,8 +124,8 @@ fn create_and_train_predictor_model(dict: Dict, embedding_size: u32, tokens_chai
     let mut lr = 0.01;
 
     if tokens_chain.len() > 150 {
-        epoch = 50;
-        lr = 0.01;
+        epoch = 40;
+        lr = 0.008;
     }
 
     let params = ParamsAdamW {
@@ -268,7 +268,7 @@ mod tests {
 
         let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
 
-        let substring = tokens[35..38].to_vec().join(" ");
+        let substring = tokens[35..38].to_vec().join("");
 
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
 
@@ -288,11 +288,11 @@ mod tests {
 
         let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
 
-        let substring = tokens[35..38].to_vec().join(" ");
+        let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
 
 
-        let substring = tokens[51..56].to_vec().join(" ");
+        let substring = tokens[51..56].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[56]);
 
         Ok(())
@@ -311,11 +311,11 @@ mod tests {
 
         let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
 
-        let substring = tokens[35..38].to_vec().join(" ");
+        let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
 
 
-        let substring = tokens[63..69].to_vec().join(" ");
+        let substring = tokens[63..69].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
 
         Ok(())
@@ -334,15 +334,15 @@ mod tests {
 
         let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
 
-        let substring = tokens[35..38].to_vec().join(" ");
+        let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
 
 
-        let substring = tokens[63..69].to_vec().join(" ");
+        let substring = tokens[63..69].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
 
 
-        let substring = tokens[102..114].to_vec().join(" ");
+        let substring = tokens[102..114].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[114]);
 
         Ok(())
@@ -353,7 +353,7 @@ mod tests {
         // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
-        let tokens: Vec<String> = tokenize(&content)[0..200].to_vec();
+        let tokens: Vec<String> = tokenize(&content)[0..400].to_vec();
 
         let dict = tokens_to_dict(tokens.clone());
 
@@ -361,20 +361,25 @@ mod tests {
 
         let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
 
-        let substring = tokens[35..38].to_vec().join(" ");
+        let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
 
 
-        let substring = tokens[63..69].to_vec().join(" ");
+        let substring = tokens[63..69].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
 
 
-        let substring = tokens[102..114].to_vec().join(" ");
+        let substring = tokens[102..114].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[114]);
 
-        let substring = tokens[162..181].to_vec().join(" ");
-        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[181]);
+        let substring = tokens[162..182].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[182]);
 
+        let substring = tokens[190..211].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[211]);
+
+        let substring = tokens[330..341].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[341]);
 
         Ok(())
     }
