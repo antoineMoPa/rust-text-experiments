@@ -2,26 +2,25 @@ use candle_core::{Device, Tensor, DType};
 use candle_nn as nn;
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
-use crate::token_utils::{Dict, GetTokenEmbedding, tokenize};
+use crate::token_utils::{Dict, GetTokenEmbedding, tokenize, EMBEDDING_SIZE};
 
 pub struct Mlp {
     fc1: nn::Linear,
     fc2: nn::Linear,
     fc3: nn::Linear,
     dict: Dict,
-    embedding_size: u32,
 }
 
 const CONTEXT_WINDOW: usize = 20;
 
 impl Mlp {
-    pub fn new(vb: VarBuilder, embedding_size: u32, dict: Dict) -> Result<Self, candle_core::Error> {
+    pub fn new(vb: VarBuilder, dict: Dict) -> Result<Self, candle_core::Error> {
         let hidden_size = 32;
-        let fc1 = nn::linear(embedding_size as usize * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
+        let fc1 = nn::linear(EMBEDDING_SIZE * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
         let fc2 = nn::linear(hidden_size, hidden_size,vb.pp("fc2"))?;
         let fc3 = nn::linear(hidden_size, dict.len(),vb.pp("fc3"))?;
 
-        Ok(Self { fc1, fc2, fc3, dict, embedding_size })
+        Ok(Self { fc1, fc2, fc3, dict })
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -33,8 +32,6 @@ impl Mlp {
     }
 
     pub fn run(&self, input_embedding: &Vec<Vec<f64>>, device: &Device) -> Result<String, candle_core::Error> {
-        let embedding_size = self.embedding_size;
-
         let mut input: Vec<f64> = Vec::new();
 
         if input_embedding.len() > CONTEXT_WINDOW {
@@ -45,7 +42,7 @@ impl Mlp {
         }
         else {
             // pad with zeros
-            input = vec![0.0; (CONTEXT_WINDOW - input_embedding.len()) * embedding_size as usize];
+            input = vec![0.0; (CONTEXT_WINDOW - input_embedding.len()) * EMBEDDING_SIZE as usize];
             input.append(&mut input_embedding.to_vec().concat());
         }
 
@@ -72,7 +69,7 @@ impl Mlp {
     }
 }
 
-pub fn create_and_train_predictor_model(dict: Dict, embedding_size: u32, tokens_chain: Vec<String>) -> Result<Mlp, candle_core::Error> {
+pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>) -> Result<Mlp, candle_core::Error> {
     // Use the default device (CPU in this case)
     let device = Device::Cpu;
 
@@ -117,7 +114,7 @@ pub fn create_and_train_predictor_model(dict: Dict, embedding_size: u32, tokens_
     let vb = VarBuilder::from_varmap(&varmap, DType::F64, &Device::Cpu);
 
     // Create the XORNet model
-    let model = Mlp::new(vb, embedding_size, dict)?;
+    let model = Mlp::new(vb, dict)?;
 
     // Optimizer settings
     let mut epoch = 180;
@@ -171,7 +168,7 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens)?;
+        let model = create_and_train_predictor_model(dict, tokens)?;
 
         assert_eq!(model.predict_next_token("hello", &device)?, " ");
         assert_eq!(model.predict_next_token("hello ", &device)?, "world");
@@ -187,7 +184,7 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone())?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
@@ -204,7 +201,7 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone())?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
@@ -230,7 +227,7 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens)?;
+        let model = create_and_train_predictor_model(dict, tokens)?;
 
         assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
 
@@ -248,7 +245,7 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens)?;
+        let model = create_and_train_predictor_model(dict, tokens)?;
 
         assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
 
@@ -266,11 +263,13 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone())?;
 
         let substring = tokens[35..38].to_vec().join("");
-
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
+
+        let substring = tokens[35..39].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[39]);
 
         Ok(())
     }
@@ -286,14 +285,16 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone())?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
 
-
         let substring = tokens[51..56].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[56]);
+
+        let substring = tokens[51..57].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[57]);
 
         Ok(())
     }
@@ -309,14 +310,16 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone())?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
 
-
         let substring = tokens[63..69].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
+
+        let substring = tokens[63..70].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[70]);
 
         Ok(())
     }
@@ -332,7 +335,7 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone())?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -341,6 +344,8 @@ mod tests {
         let substring = tokens[63..69].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
 
+        let substring = tokens[102..113].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[113]);
 
         let substring = tokens[102..114].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[114]);
@@ -359,7 +364,7 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone())?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -381,6 +386,9 @@ mod tests {
         let substring = tokens[330..341].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[341]);
 
+        let substring = tokens[330..342].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[342]);
+
         Ok(())
     }
 
@@ -395,7 +403,7 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone())?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -409,6 +417,9 @@ mod tests {
 
         let substring = tokens[810..831].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[831]);
+
+        let substring = tokens[810..832].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[832]);
 
         Ok(())
     }

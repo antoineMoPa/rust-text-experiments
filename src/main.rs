@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let args = args[1..].to_vec();
 
-    let model = create_and_train_predictor_model(dict, 2, tokens)?;
+    let model = create_and_train_predictor_model(dict, tokens)?;
     let device = candle_core::Device::Cpu;
 
     let input = args.join(" ") + " ";

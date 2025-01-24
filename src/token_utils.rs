@@ -1,5 +1,7 @@
 pub type Dict = std::collections::BTreeMap<String, f64>;
 
+pub const EMBEDDING_SIZE: usize = 2;
+
 pub trait GetTokenEmbedding {
     fn get_token_embedding(&self, token: &str) -> Vec<f64>;
     fn get_word_index(&self, token: &str) -> Result<u32, std::io::Error>;

@@ -2,7 +2,7 @@ use candle_core::{Device, Tensor, DType};
 use candle_nn as nn;
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
-use crate::token_utils::{Dict, GetTokenEmbedding};
+use crate::token_utils::{Dict, GetTokenEmbedding, EMBEDDING_SIZE};
 
 pub struct Mlp {
     fc1: nn::Linear,
@@ -12,8 +12,8 @@ pub struct Mlp {
 }
 
 impl Mlp {
-    pub fn new(vb: VarBuilder, embedding_size: u32, dict: Dict) -> Result<Self, candle_core::Error> {
-        let fc1 = nn::linear(embedding_size as usize, 32,vb.pp("fc1"))?;
+    pub fn new(vb: VarBuilder, dict: Dict) -> Result<Self, candle_core::Error> {
+        let fc1 = nn::linear(EMBEDDING_SIZE, 32,vb.pp("fc1"))?;
         let fc2 = nn::linear(32, dict.len(),vb.pp("fc2"))?;
 
         let act = candle_nn::activation::Activation::Relu;
@@ -41,7 +41,7 @@ impl Mlp {
     }
 }
 
-fn create_and_train_autoencoder_model(dict: Dict, embedding_size: u32) -> Result<Mlp, candle_core::Error> {
+fn create_and_train_autoencoder_model(dict: Dict) -> Result<Mlp, candle_core::Error> {
     // Use the default device (CPU in this case)
     let device = Device::Cpu;
 
@@ -66,7 +66,7 @@ fn create_and_train_autoencoder_model(dict: Dict, embedding_size: u32) -> Result
     let vb = VarBuilder::from_varmap(&varmap, DType::F64, &Device::Cpu);
 
     // Create the XORNet model
-    let model = Mlp::new(vb, embedding_size, dict)?;
+    let model = Mlp::new(vb, dict)?;
 
     // Optimizer settings
     let params = ParamsAdamW {
@@ -109,7 +109,7 @@ mod tests {
         let dict = tokens_to_dict(vocabulary);
 
         let device = Device::Cpu;
-        let model = create_and_train_autoencoder_model(dict, 2).unwrap();
+        let model = create_and_train_autoencoder_model(dict).unwrap();
 
         let hello_embedding = get_token_embedding("hello", &model.dict);
         assert!(model.run(&hello_embedding, &device)? == "hello");
@@ -129,7 +129,7 @@ mod tests {
         let dict = tokens_to_dict(vocabulary);
 
         let device = Device::Cpu;
-        let model = create_and_train_autoencoder_model(dict, 2).unwrap();
+        let model = create_and_train_autoencoder_model(dict).unwrap();
 
         let this_embedding = get_token_embedding("This", &model.dict);
         assert!(model.run(&this_embedding, &device)? == "This");
