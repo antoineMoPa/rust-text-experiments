@@ -23,12 +23,12 @@ impl Mlp {
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let result = input
-            .apply(&self.fc1)?
-            .relu()?
-            .apply(&self.fc2)?
-            .tanh()?;
-
+        let result = input;
+        let result = result.apply(&self.fc1)?;
+        let result = nn::ops::dropout(&result, 0.2)?;
+        let result = result.relu()?;
+        let result = result.apply(&self.fc2)?;
+        let result = result.tanh()?;
         let result = nn::ops::softmax(&result, 1);
 
         return result;
