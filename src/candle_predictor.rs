@@ -6,27 +6,25 @@ use crate::token_utils::{Dict, GetTokenEmbedding, tokenize};
 
 pub struct Mlp {
     fc1: nn::Linear,
-    act: candle_nn::Activation,
     fc2: nn::Linear,
     dict: Dict,
     embedding_size: u32,
 }
 
-const CONTEXT_WINDOW: usize = 2;
+const CONTEXT_WINDOW: usize = 3;
 
 impl Mlp {
     pub fn new(vb: VarBuilder, embedding_size: u32, dict: Dict) -> Result<Self, candle_core::Error> {
-        let fc1 = nn::linear(embedding_size as usize * CONTEXT_WINDOW, 16,vb.pp("fc1"))?;
-        let fc2 = nn::linear(16, dict.len(),vb.pp("fc2"))?;
+        let hidden_size = 128;
+        let fc1 = nn::linear(embedding_size as usize * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
+        let fc2 = nn::linear(hidden_size, dict.len(),vb.pp("fc2"))?;
 
-        let act = candle_nn::activation::Activation::Relu;
-        Ok(Self { fc1, fc2, act, dict, embedding_size })
+        Ok(Self { fc1, fc2, dict, embedding_size })
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         input
             .apply(&self.fc1)?
-            .apply(&self.act)?
             .apply(&self.fc2)?
             .apply(&nn::activation::Activation::Sigmoid)
     }
@@ -79,6 +77,15 @@ fn create_and_train_predictor_model(dict: Dict, embedding_size: u32, tokens_chai
     let mut inputs: Vec<Tensor> = Vec::new();
     let mut targets: Vec<Tensor> = Vec::new();
 
+    // pad token chain with context window zeros
+    let mut padding: Vec<String> = Vec::new();
+    let mut tokens_chain = tokens_chain.clone();
+
+    for _ in 0..CONTEXT_WINDOW {
+        padding.push(" ".to_string());
+        tokens_chain.insert(0, " ".to_string());
+    }
+
     // iterate over tokens_chain
     for (index, token) in tokens_chain.iter().enumerate() {
         if index < CONTEXT_WINDOW {
@@ -110,14 +117,23 @@ fn create_and_train_predictor_model(dict: Dict, embedding_size: u32, tokens_chai
     let model = Mlp::new(vb, embedding_size, dict)?;
 
     // Optimizer settings
+    let mut epoch = 200;
+    let mut lr = 0.02;
+
+    if tokens_chain.len() < 30 {
+        epoch = 200;
+        lr = 0.01;
+    }
+
     let params = ParamsAdamW {
-        lr: 0.1,
+        lr,
         ..Default::default()
     };
     let mut optimizer = candle_nn::AdamW::new(varmap.all_vars(), params)?;
 
     // Training loop
-    for epoch in 0..100 {
+
+    for epoch in 0..epoch {
         // Forward pass
         let predictions = model.forward(&inputs)?;
 
@@ -146,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_candle_predictor_hello_world() -> Result<(), candle_core::Error> {
-        let tokens = tokenize("  hello world");
+        let tokens = tokenize("hello world");
 
         let dict = tokens_to_dict(tokens.clone());
 
@@ -201,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn test_horse_easy() -> Result<(), candle_core::Error> {
+    fn test_horse_10() -> Result<(), candle_core::Error> {
         // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
@@ -213,11 +229,46 @@ mod tests {
 
         let model = create_and_train_predictor_model(dict, 2, tokens)?;
 
-        println!("Predicting next token for '(Equus' {:}", model.predict_next_token("(Equus ", &device)?);
+        assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_horse_20() -> Result<(), candle_core::Error> {
+        // Define the file path
+        let file_path = "data/corpus/wiki-horse.txt";
+        let content = fs::read_to_string(file_path)?;
+        let tokens: Vec<String> = tokenize(&content)[0..20].to_vec();
+
+        let dict = tokens_to_dict(tokens.clone());
+
+        let device = Device::Cpu;
+
+        let model = create_and_train_predictor_model(dict, 2, tokens)?;
 
         assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
 
         Ok(())
     }
 
+    #[test]
+    fn test_horse_40() -> Result<(), candle_core::Error> {
+        // Define the file path
+        let file_path = "data/corpus/wiki-horse.txt";
+        let content = fs::read_to_string(file_path)?;
+        let tokens: Vec<String> = tokenize(&content)[0..40].to_vec();
+
+        let dict = tokens_to_dict(tokens.clone());
+
+        let device = Device::Cpu;
+
+        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+
+        let substring = tokens[35..38].to_vec().join(" ");
+
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
+
+        Ok(())
+    }
 }
