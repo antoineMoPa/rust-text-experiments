@@ -72,7 +72,7 @@ impl Mlp {
     }
 }
 
-fn create_and_train_predictor_model(dict: Dict, embedding_size: u32, tokens_chain: Vec<String>) -> Result<Mlp, candle_core::Error> {
+pub fn create_and_train_predictor_model(dict: Dict, embedding_size: u32, tokens_chain: Vec<String>) -> Result<Mlp, candle_core::Error> {
     // Use the default device (CPU in this case)
     let device = Device::Cpu;
 
@@ -407,8 +407,8 @@ mod tests {
         let substring = tokens[330..341].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[341]);
 
-        let substring = tokens[810..830].to_vec().join("");
-        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[830]);
+        let substring = tokens[810..831].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[831]);
 
         Ok(())
     }
