@@ -18,17 +18,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = args[1..].to_vec();
 
     let device = get_device()?;
-    let model = create_and_train_predictor_model(dict, tokens, &device)?;
 
-    let mut input = args.join(" ") + " ";
-    println!("Predicting next token for: '{:?}'", input);
+    if args[0] == "train" {
+        println!("Training model");
 
-    while true {
-        let pred = model.predict_next_token(input.as_str(), &device)?;
-        input = input + pred.as_str();
-        print!("{}", pred);
+        let model = create_and_train_predictor_model(dict, tokens, true, &device)?;
+
+        model.var_map.save("data/horse.safetensors")?;
+
+        return Ok(());
     }
 
+    if args[0] == "run" {
+        println!("Loading model");
 
+        let mut model = create_and_train_predictor_model(dict, tokens, false, &device)?;
+
+        model.var_map.load("data/horse.safetensors")?;
+
+        let args = args[1..].to_vec();
+
+        let mut input = args.join(" ") + " ";
+        println!("Predicting next token for: '{:?}'", input);
+
+        loop {
+            let pred = model.predict_next_token(input.as_str(), &device)?;
+            input = input + pred.as_str();
+            print!("{}", pred);
+        }
+    }
+
+    println!("Please provide a valid command: 'train' or 'run'");
     Ok(())
 }
