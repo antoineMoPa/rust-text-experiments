@@ -384,4 +384,33 @@ mod tests {
         Ok(())
     }
 
+        #[test]
+    fn test_horse_1000() -> Result<(), candle_core::Error> {
+        // Define the file path
+        let file_path = "data/corpus/wiki-horse.txt";
+        let content = fs::read_to_string(file_path)?;
+        let tokens: Vec<String> = tokenize(&content)[0..1000].to_vec();
+
+        let dict = tokens_to_dict(tokens.clone());
+
+        let device = Device::Cpu;
+
+        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+
+        let substring = tokens[35..38].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
+
+
+        let substring = tokens[63..69].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
+
+        let substring = tokens[330..341].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[341]);
+
+        let substring = tokens[810..830].to_vec().join("");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[830]);
+
+        Ok(())
+    }
+
 }
