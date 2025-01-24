@@ -14,28 +14,21 @@ impl GetTokenEmbedding for Dict {
 
         embedding.push(value);
 
+        let mut div = 1.3;
+
         while embedding.len() < EMBEDDING_SIZE {
-            for (index, letter) in token.chars().enumerate() {
+            for (_index, letter) in token.chars().enumerate() {
                 if embedding.len() >= EMBEDDING_SIZE {
                     break;
                 }
 
                 // simply cast letter to f32 and divide by 255
-                let letter_value = letter as i32 as f32 / 50.0;
+                let letter_value = letter as i32 as f32 / div;
 
                 embedding.push(letter_value.cos());
             }
 
-            for (index, letter) in token.chars().enumerate() {
-                if embedding.len() >= EMBEDDING_SIZE {
-                    break;
-                }
-
-                // simply cast letter to f32 and divide by 255
-                let letter_value = letter as i32 as f32 / 100.0;
-
-                embedding.push(letter_value.cos());
-            }
+            div *= 2.0;
         }
 
         assert_eq!(embedding.len(), EMBEDDING_SIZE);
