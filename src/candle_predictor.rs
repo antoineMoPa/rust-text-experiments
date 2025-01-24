@@ -16,7 +16,7 @@ const CONTEXT_WINDOW: usize = 20;
 
 impl Mlp {
     pub fn new(vb: VarBuilder, embedding_size: u32, dict: Dict) -> Result<Self, candle_core::Error> {
-        let hidden_size = 16;
+        let hidden_size = 64;
         let fc1 = nn::linear(embedding_size as usize * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
         let fc2 = nn::linear(hidden_size, hidden_size,vb.pp("fc2"))?;
         let fc3 = nn::linear(hidden_size, dict.len(),vb.pp("fc3"))?;
@@ -122,6 +122,11 @@ fn create_and_train_predictor_model(dict: Dict, embedding_size: u32, tokens_chai
     // Optimizer settings
     let mut epoch = 180;
     let mut lr = 0.01;
+
+    if tokens_chain.len() > 150 {
+        epoch = 50;
+        lr = 0.01;
+    }
 
     let params = ParamsAdamW {
         lr,
@@ -339,6 +344,37 @@ mod tests {
 
         let substring = tokens[102..114].to_vec().join(" ");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[114]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_horse_400() -> Result<(), candle_core::Error> {
+        // Define the file path
+        let file_path = "data/corpus/wiki-horse.txt";
+        let content = fs::read_to_string(file_path)?;
+        let tokens: Vec<String> = tokenize(&content)[0..200].to_vec();
+
+        let dict = tokens_to_dict(tokens.clone());
+
+        let device = Device::Cpu;
+
+        let model = create_and_train_predictor_model(dict, 2, tokens.clone())?;
+
+        let substring = tokens[35..38].to_vec().join(" ");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
+
+
+        let substring = tokens[63..69].to_vec().join(" ");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
+
+
+        let substring = tokens[102..114].to_vec().join(" ");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[114]);
+
+        let substring = tokens[162..181].to_vec().join(" ");
+        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[181]);
+
 
         Ok(())
     }
