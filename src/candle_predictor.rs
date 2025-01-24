@@ -23,10 +23,12 @@ impl Mlp {
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        input
+        let result = input
             .apply(&self.fc1)?
             .apply(&self.fc2)?
-            .apply(&nn::activation::Activation::Gelu)
+            .tanh()?;
+
+        return nn::ops::softmax(&result, 1);
     }
 
     pub fn run(&self, input_embedding: &Vec<Vec<f32>>, device: &Device) -> Result<String, candle_core::Error> {
