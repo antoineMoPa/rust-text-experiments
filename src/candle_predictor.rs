@@ -10,7 +10,7 @@ pub struct Mlp {
     dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 20;
+const CONTEXT_WINDOW: usize = 10;
 
 impl Mlp {
     pub fn new(vb: VarBuilder, dict: Dict) -> Result<Self, candle_core::Error> {
@@ -25,10 +25,13 @@ impl Mlp {
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let result = input
             .apply(&self.fc1)?
+            .relu()?
             .apply(&self.fc2)?
             .tanh()?;
 
-        return nn::ops::softmax(&result, 1);
+        let result = nn::ops::softmax(&result, 1);
+
+        return result;
     }
 
     pub fn run(&self, input_embedding: &Vec<Vec<f32>>, device: &Device) -> Result<String, candle_core::Error> {
