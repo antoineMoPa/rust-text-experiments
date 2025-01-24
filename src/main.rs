@@ -1,10 +1,9 @@
 use std::fs;
 
-use crate::{token_utils::{tokenize, tokens_to_dict}, candle_predictor::create_and_train_predictor_model};
+use crate::{token_utils::{tokenize, tokens_to_dict}, candle_predictor::{create_and_train_predictor_model, get_device}};
 
 mod embedding_utils;
 mod token_utils;
-mod nn_model;
 mod candle_autoencoder;
 mod candle_predictor;
 
@@ -18,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let args = args[1..].to_vec();
 
-    let model = create_and_train_predictor_model(dict, tokens)?;
-    let device = candle_core::Device::Cpu;
+    let device = get_device()?;
+    let model = create_and_train_predictor_model(dict, tokens, &device)?;
 
     let input = args.join(" ") + " ";
     println!("Predicting next token for: '{:?}'", input);

@@ -10,11 +10,11 @@ pub struct Mlp {
     dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 4;
+const CONTEXT_WINDOW: usize = 20;
 
 impl Mlp {
     pub fn new(vb: VarBuilder, dict: Dict) -> Result<Self, candle_core::Error> {
-        let hidden_size = 32;
+        let hidden_size = 64;
 
         let fc1 = nn::linear(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
         let fc2 = nn::linear(hidden_size, dict.len(),vb.pp("fc2"))?;
@@ -26,11 +26,11 @@ impl Mlp {
         input
             .apply(&self.fc1)?
             .apply(&self.fc2)?
-            .apply(&nn::activation::Activation::Sigmoid)
+            .apply(&nn::activation::Activation::Gelu)
     }
 
-    pub fn run(&self, input_embedding: &Vec<Vec<f64>>, device: &Device) -> Result<String, candle_core::Error> {
-        let mut input: Vec<f64> = Vec::new();
+    pub fn run(&self, input_embedding: &Vec<Vec<f32>>, device: &Device) -> Result<String, candle_core::Error> {
+        let mut input: Vec<f32> = Vec::new();
 
         if input_embedding.len() > CONTEXT_WINDOW {
             // ... then add the input
@@ -57,7 +57,7 @@ impl Mlp {
 
     pub fn predict_next_token(&self, input: &str, device: &Device) -> Result<String, candle_core::Error> {
         let tokens = tokenize(&input);
-        let mut input: Vec<Vec<f64>> = Vec::new();
+        let mut input: Vec<Vec<f32>> = Vec::new();
 
         for token in tokens {
             input.push(self.dict.get_token_embedding(token.as_str()));
@@ -67,10 +67,7 @@ impl Mlp {
     }
 }
 
-pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>) -> Result<Mlp, candle_core::Error> {
-    // Use the default device (CPU in this case)
-    let device = Device::Cpu;
-
+pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, device: &Device) -> Result<Mlp, candle_core::Error> {
     // Define training data for XOR
     let mut inputs: Vec<Tensor> = Vec::new();
     let mut targets: Vec<Tensor> = Vec::new();
@@ -91,14 +88,14 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>) -
         }
 
         let input_tokens: Vec<String> = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
-        let input: Vec<f64> = input_tokens.iter().flat_map(|token| dict.get_token_embedding(token)).collect();
+        let input: Vec<f32> = input_tokens.iter().flat_map(|token| dict.get_token_embedding(token)).collect();
 
         let output: &String = token;
 
         let output_token_index: u32 = dict.get_word_index(output)?;
 
         let input = Tensor::new(input, &device)?;
-        let target = one_hot(Tensor::new(output_token_index, &device)?, dict.len(), 1.0, 0.0)?;
+        let target = one_hot(Tensor::new(output_token_index, &device)?, dict.len(), 1.0 as f32, 0.0 as f32)?;
 
         inputs.push(input);
         targets.push(target);
@@ -109,19 +106,14 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>) -
 
     // Create Varbuilder
     let varmap = VarMap::new();
-    let vb = VarBuilder::from_varmap(&varmap, DType::F64, &Device::Cpu);
+    let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
     // Create the XORNet model
     let model = Mlp::new(vb, dict)?;
 
     // Optimizer settings
-    let mut epoch = 400;
-    let mut lr = 0.008;
-
-    // if tokens_chain.len() > 150 {
-    //     epoch = 40;
-    //     lr = 0.008;
-    // }
+    let epoch = 400;
+    let lr = 0.01;
 
     let params = ParamsAdamW {
         lr,
@@ -150,6 +142,15 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>) -
     Ok(model)
 }
 
+pub fn get_device() -> Result<Device, candle_core::Error> {
+    let device = Device::new_metal(0)?;
+    let metal_device = match &device {
+        Device::Metal(m) => m,
+        _ => panic!("Device is not Metal"),
+    };
+    return Ok(device);
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -164,9 +165,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens)?;
+        let model = create_and_train_predictor_model(dict, tokens, &device)?;
 
         assert_eq!(model.predict_next_token("hello", &device)?, " ");
         assert_eq!(model.predict_next_token("hello ", &device)?, "world");
@@ -180,9 +181,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone(), &device)?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
@@ -197,9 +198,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone(), &device)?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
@@ -223,9 +224,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens)?;
+        let model = create_and_train_predictor_model(dict, tokens, &device)?;
 
         assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
 
@@ -241,9 +242,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens)?;
+        let model = create_and_train_predictor_model(dict, tokens, &device)?;
 
         assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
 
@@ -259,9 +260,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone(), &device)?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -281,9 +282,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone(), &device)?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -306,9 +307,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone(), &device)?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -331,9 +332,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone(), &device)?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -360,9 +361,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone(), &device)?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -399,9 +400,9 @@ mod tests {
 
         let dict = tokens_to_dict(tokens.clone());
 
-        let device = Device::Cpu;
+        let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone())?;
+        let model = create_and_train_predictor_model(dict, tokens.clone(), &device)?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);

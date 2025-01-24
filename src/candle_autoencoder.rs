@@ -25,10 +25,10 @@ impl Mlp {
             .apply(&self.fc1)?
             .apply(&self.act)?
             .apply(&self.fc2)?
-            .apply(&nn::activation::Activation::Sigmoid)
+            .apply(&nn::activation::Activation::Relu)
     }
 
-    pub fn run(&self, input: &Vec<f64>, device: &Device) -> Result<String, candle_core::Error> {
+    pub fn run(&self, input: &Vec<f32>, device: &Device) -> Result<String, candle_core::Error> {
         let input = Tensor::new(input.clone(), device)?.unsqueeze(0)?;
 
         let output_prob = self.forward(&input)?;
@@ -52,7 +52,7 @@ fn create_and_train_autoencoder_model(dict: Dict) -> Result<Mlp, candle_core::Er
     for (index, (word, _)) in dict.iter().enumerate() {
         let input = Tensor::new(dict.get_token_embedding(word), &device)?;
         let token_index: u32 = index as u32;
-        let target = one_hot(Tensor::new(token_index, &device)?, dict.len(), 1.0, 0.0)?;
+        let target = one_hot(Tensor::new(token_index, &device)?, dict.len(), 1.0 as f32, 0.0 as f32)?;
 
         inputs.push(input);
         targets.push(target);
@@ -63,7 +63,7 @@ fn create_and_train_autoencoder_model(dict: Dict) -> Result<Mlp, candle_core::Er
 
     // Create Varbuilder
     let varmap = VarMap::new();
-    let vb = VarBuilder::from_varmap(&varmap, DType::F64, &Device::Cpu);
+    let vb = VarBuilder::from_varmap(&varmap, DType::F32, &Device::Cpu);
 
     // Create the XORNet model
     let model = Mlp::new(vb, dict)?;
@@ -76,7 +76,7 @@ fn create_and_train_autoencoder_model(dict: Dict) -> Result<Mlp, candle_core::Er
     let mut optimizer = candle_nn::AdamW::new(varmap.all_vars(), params)?;
 
     // Training loop
-    for epoch in 0..400 {
+    for epoch in 0..200 {
         // Forward pass
         let predictions = model.forward(&inputs)?;
 

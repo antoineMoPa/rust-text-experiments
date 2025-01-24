@@ -1,26 +1,37 @@
-pub type Dict = std::collections::BTreeMap<String, f64>;
+pub type Dict = std::collections::BTreeMap<String, f32>;
 
 pub const EMBEDDING_SIZE: usize = 15;
 
 pub trait GetTokenEmbedding {
-    fn get_token_embedding(&self, token: &str) -> Vec<f64>;
+    fn get_token_embedding(&self, token: &str) -> Vec<f32>;
     fn get_word_index(&self, token: &str) -> Result<u32, std::io::Error>;
 }
 
 impl GetTokenEmbedding for Dict {
-    fn get_token_embedding(&self, token: &str) -> Vec<f64> {
+    fn get_token_embedding(&self, token: &str) -> Vec<f32> {
         let value = *self.get(token).unwrap();
-        let mut embedding: Vec<f64> = Vec::new();
+        let mut embedding: Vec<f32> = Vec::new();
 
         embedding.push(value);
 
         for (index, letter) in token.chars().enumerate() {
-            if index == EMBEDDING_SIZE - 1 {
+            if index >= EMBEDDING_SIZE - 1 {
                 break;
             }
 
-            // simply cast letter to f64 and divide by 255
-            let letter_value = letter as i32 as f64 / 100.0;
+            // simply cast letter to f32 and divide by 255
+            let letter_value = letter as i32 as f32 / 50.0;
+
+            embedding.push(letter_value.cos());
+        }
+
+        for (index, letter) in token.chars().enumerate() {
+            if embedding.len() >= EMBEDDING_SIZE - 1 {
+                break;
+            }
+
+            // simply cast letter to f32 and divide by 255
+            let letter_value = letter as i32 as f32 / 100.0;
 
             embedding.push(letter_value.cos());
         }
@@ -115,7 +126,7 @@ pub fn tokens_to_dict(vocabulary: Vec<String>) -> Dict {
         if vocabulary_dict.contains_key(token) {
             continue;
         }
-        vocabulary_dict.insert(token.clone(), i as f64 / vocabulary.len() as f64);
+        vocabulary_dict.insert(token.clone(), i as f32 / vocabulary.len() as f32);
     }
     return vocabulary_dict;
 }
