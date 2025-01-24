@@ -11,7 +11,7 @@ pub struct Mlp {
     dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 20;
+const CONTEXT_WINDOW: usize = 5;
 
 impl Mlp {
     pub fn new(vb: VarBuilder, dict: Dict) -> Result<Self, candle_core::Error> {

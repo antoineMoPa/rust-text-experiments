@@ -1,6 +1,6 @@
 pub type Dict = std::collections::BTreeMap<String, f64>;
 
-pub const EMBEDDING_SIZE: usize = 2;
+pub const EMBEDDING_SIZE: usize = 10;
 
 pub trait GetTokenEmbedding {
     fn get_token_embedding(&self, token: &str) -> Vec<f64>;
@@ -9,16 +9,29 @@ pub trait GetTokenEmbedding {
 
 impl GetTokenEmbedding for Dict {
     fn get_token_embedding(&self, token: &str) -> Vec<f64> {
-        let mut letter_embedding = 0.0;
         let value = *self.get(token).unwrap();
+        let mut embedding: Vec<f64> = Vec::new();
 
-        for letter in token.chars() {
+        embedding.push(value);
+
+        for (index, letter) in token.chars().enumerate() {
+            if index == EMBEDDING_SIZE - 1 {
+                break;
+            }
+
             // simply cast letter to f64 and divide by 255
-            let letter_value = letter as i32 as f64 / 10000.0;
-            letter_embedding += letter_embedding + letter_value;
+            let letter_value = letter as i32 as f64 / 100.0;
+
+            embedding.push(letter_value.cos());
         }
 
-        return vec![value, letter_embedding];
+        while embedding.len() < EMBEDDING_SIZE {
+            embedding.push(0.0);
+        }
+
+        assert_eq!(embedding.len(), EMBEDDING_SIZE);
+
+        return embedding;
     }
 
     fn get_word_index(&self, token: &str) -> Result<u32, std::io::Error> {
