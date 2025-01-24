@@ -7,27 +7,25 @@ use crate::token_utils::{Dict, GetTokenEmbedding, tokenize, EMBEDDING_SIZE};
 pub struct Mlp {
     fc1: nn::Linear,
     fc2: nn::Linear,
-    fc3: nn::Linear,
     dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 5;
+const CONTEXT_WINDOW: usize = 4;
 
 impl Mlp {
     pub fn new(vb: VarBuilder, dict: Dict) -> Result<Self, candle_core::Error> {
         let hidden_size = 32;
-        let fc1 = nn::linear(EMBEDDING_SIZE * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
-        let fc2 = nn::linear(hidden_size, hidden_size,vb.pp("fc2"))?;
-        let fc3 = nn::linear(hidden_size, dict.len(),vb.pp("fc3"))?;
 
-        Ok(Self { fc1, fc2, fc3, dict })
+        let fc1 = nn::linear(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
+        let fc2 = nn::linear(hidden_size, dict.len(),vb.pp("fc2"))?;
+
+        Ok(Self { fc1, fc2, dict })
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         input
             .apply(&self.fc1)?
             .apply(&self.fc2)?
-            .apply(&self.fc3)?
             .apply(&nn::activation::Activation::Sigmoid)
     }
 
@@ -117,13 +115,13 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>) -
     let model = Mlp::new(vb, dict)?;
 
     // Optimizer settings
-    let mut epoch = 180;
-    let mut lr = 0.01;
+    let mut epoch = 400;
+    let mut lr = 0.008;
 
-    if tokens_chain.len() > 150 {
-        epoch = 40;
-        lr = 0.008;
-    }
+    // if tokens_chain.len() > 150 {
+    //     epoch = 40;
+    //     lr = 0.008;
+    // }
 
     let params = ParamsAdamW {
         lr,
@@ -138,13 +136,13 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>) -
         let predictions = model.forward(&inputs)?;
 
         // Compute loss
-        let loss = (&predictions - &targets)?.sqr()?.mean_all()?;
+        let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
         //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
 
         // Backpropagation
         optimizer.backward_step(&loss)?;
 
-        if epoch % 100 == 0 {
+        if epoch % 10 == 0 {
             println!("Epoch {}: Loss = {:?}", epoch, loss);
         }
     }
