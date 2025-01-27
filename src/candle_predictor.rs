@@ -74,7 +74,6 @@ impl Mlp {
 }
 
 pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, train: bool, device: &Device) -> Result<Mlp, candle_core::Error> {
-    // Define training data for XOR
     let mut inputs: Vec<Tensor> = Vec::new();
     let mut targets: Vec<Tensor> = Vec::new();
 
@@ -114,7 +113,6 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    // Create the XORNet model
     let model = Mlp::new(dict, varmap, vb)?;
 
     // Optimizer settings
