@@ -1,11 +1,14 @@
 use std::fs;
 
-use crate::{token_utils::{tokenize, tokens_to_dict}, candle_predictor::{create_and_train_predictor_model, get_device}};
+use crate::{
+    token_utils::{tokenize, tokens_to_dict},
+    lstm_predictor::{create_and_train_predictor_model, get_device}
+};
 
 mod embedding_utils;
 mod token_utils;
-mod candle_predictor;
-// mod lstm_predictor;
+// mod candle_predictor;
+mod lstm_predictor;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read args

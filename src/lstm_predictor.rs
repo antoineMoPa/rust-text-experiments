@@ -26,11 +26,10 @@ impl Mlp {
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let result = input;
         let result = result.apply(&self.fc1)?;
-        // let result = self.bn.forward_t(&result, false)?;
         let result = nn::ops::dropout(&result, 0.4)?;
         let result = result.relu()?;
         let result = result.apply(&self.fc2)?;
-        // let result = result.tanh()?;
+        let result = result.tanh()?;
         let result = nn::ops::softmax(&result, 1);
 
         return result;
@@ -120,8 +119,8 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 
     // Optimizer settings
     // 1. More epoch when sample size is smaller
-    let epoch = 100 + 3000 / tokens_chain.len();
-    let lr = 0.008;
+    let epoch = 100 + 1000 / tokens_chain.len();
+    let lr = 0.002;
 
     let params = ParamsAdamW {
         lr,
@@ -434,5 +433,4 @@ mod tests {
 
         Ok(())
     }
-
 }
