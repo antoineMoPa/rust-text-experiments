@@ -4,8 +4,8 @@ use crate::{token_utils::{tokenize, tokens_to_dict}, candle_predictor::{create_a
 
 mod embedding_utils;
 mod token_utils;
-mod candle_autoencoder;
 mod candle_predictor;
+mod lstm_predictor;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read args
