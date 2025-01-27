@@ -30,7 +30,7 @@ impl Mlp {
         let result = nn::ops::dropout(&result, 0.4)?;
         let result = result.relu()?;
         let result = result.apply(&self.fc2)?;
-        // let result = result.tanh()?;
+        let result = result.tanh()?;
         let result = nn::ops::softmax(&result, 1);
 
         return result;
@@ -121,7 +121,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     // Optimizer settings
     // 1. More epoch when sample size is smaller
     let epoch = 100 + 3000 / tokens_chain.len();
-    let lr = 0.008;
+    let lr = 0.006;
 
     let params = ParamsAdamW {
         lr,

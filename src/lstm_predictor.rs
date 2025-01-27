@@ -172,7 +172,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_candle_predictor_hello_world() -> Result<(), candle_core::Error> {
+    fn test_lstm_predictor_hello_world() -> Result<(), candle_core::Error> {
         let tokens = tokenize("hello world");
 
         let dict = tokens_to_dict(tokens.clone());
@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn test_candle_predictor_lorem() -> Result<(), candle_core::Error> {
+    fn test_lstm_predictor_lorem() -> Result<(), candle_core::Error> {
         let tokens = tokenize("lorem ipsum et");
 
         let dict = tokens_to_dict(tokens.clone());
@@ -205,7 +205,7 @@ mod tests {
     }
 
         #[test]
-    fn test_candle_predictor_lorem_2() -> Result<(), candle_core::Error> {
+    fn test_lstm_predictor_lorem_2() -> Result<(), candle_core::Error> {
         let tokens = tokenize("lorem ipsum et dolor sit amet");
 
         let dict = tokens_to_dict(tokens.clone());
