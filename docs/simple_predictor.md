@@ -4,6 +4,8 @@ Neural net capable of outputting words based on the previous output.
 
 **Final structure**
 
+(Remember charts in AI are read from the bottom to the top for some unknown reason).
+
 ![simple preditcor architecture](./simple_predictor.png)
 
 **Description**
