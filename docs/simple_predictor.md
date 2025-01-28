@@ -4,7 +4,7 @@ Neural net capable of outputting words based on the previous output.
 
 **Final structure**
 
-![simple preditcor architecture](./images/simple_predictor.png)
+![simple preditcor architecture](./simple_predictor.png)
 
 **Description**
 
