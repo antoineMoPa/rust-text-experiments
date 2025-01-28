@@ -30,8 +30,8 @@ When evaluating (running) the model, we append the last generated token to the i
 
 - It’s pretty good for such a simple architecture.
 - It’s a classic neural network, no recurring parts, but previous tokens do give some context.
-- I imagine it would be hard to scale to huge context windows because all of the input needs to be provided.
-- One-hot output encoding might not scale well to big dictionaries.
+- I imagine it would be hard to scale to huge context windows because all of the input needs to be provided as an input. In modern architectures, the input can be provided sequentially so it does not need to sit in RAM / VRAM.
+- One-hot output encoding might not scale well to big dictionaries. Embedded output could be userul? Then we could reverse-search the output token using some vector database. Though I'm not sure if modern architectures bother doing this.
 
 **Questions**
 
