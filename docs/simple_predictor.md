@@ -22,7 +22,7 @@ When evaluating (running) the model, we append the last generated token to the i
 
 **Work notes**
 
-- Encoding space as part of words helped reduce repetitions. Else it was too easy for the model to optimize for every next token to be a space, because spaces are omnipresent in language.
+- Encoding spaces (" ") as part of words helped reduce repetitions. Else it was too easy for the model to optimize for every next token to be a space, because spaces are omnipresent in language.
 - Used tanh instead of sigmoid because sigmoid is not implemented in candle in metal (apple silicon)
 - Final tanh + softmax layers really helped the performance vs just the hidden layer output.
 
