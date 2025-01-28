@@ -1,12 +1,13 @@
 use candle_core::{Device, Tensor, DType};
 use candle_nn as nn;
-use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
+use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot, RNN};
 
 use crate::token_utils::{Dict, GetTokenEmbedding, tokenize, EMBEDDING_SIZE};
 
 pub struct Mlp {
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
+    pub lstm: nn::LSTM,
     pub var_map: VarMap,
     pub dict: Dict,
 }
@@ -20,7 +21,14 @@ impl Mlp {
         let fc1 = nn::linear(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
         let fc2 = nn::linear(hidden_size, dict.len(),vb.pp("fc2"))?;
 
-        Ok(Self { fc1, fc2, dict, var_map })
+        let lstm = nn::lstm(
+            EMBEDDING_SIZE,
+            dict.len(),
+            nn::LSTMConfig::default_no_bias(),
+            vb.pp("lstm"),
+        )?;
+
+        Ok(Self { fc1, fc2, lstm, dict, var_map })
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -30,6 +38,7 @@ impl Mlp {
         let result = result.relu()?;
         let result = result.apply(&self.fc2)?;
         let result = result.tanh()?;
+
         let result = nn::ops::softmax(&result, 1);
 
         return result;
@@ -74,10 +83,6 @@ impl Mlp {
 }
 
 pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, train: bool, device: &Device) -> Result<Mlp, candle_core::Error> {
-    // Define training data for XOR
-    let mut inputs: Vec<Tensor> = Vec::new();
-    let mut targets: Vec<Tensor> = Vec::new();
-
     // pad token chain with context window zeros
     let mut padding: Vec<String> = Vec::new();
     let mut tokens_chain = tokens_chain.clone();
@@ -87,40 +92,15 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
         tokens_chain.insert(0, " ".to_string());
     }
 
-    // iterate over tokens_chain
-    for (index, token) in tokens_chain.iter().enumerate() {
-        if index < CONTEXT_WINDOW {
-            continue;
-        }
-
-        let input_tokens: Vec<String> = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
-        let input: Vec<f32> = input_tokens.iter().flat_map(|token| dict.get_token_embedding(token)).collect();
-
-        let output: &String = token;
-
-        let output_token_index: u32 = dict.get_word_index(output)?;
-
-        let input = Tensor::new(input, &device)?;
-        let target = one_hot(Tensor::new(output_token_index, &device)?, dict.len(), 1.0 as f32, 0.0 as f32)?;
-
-        inputs.push(input);
-        targets.push(target);
-    }
-
-    let inputs = Tensor::stack(&inputs, 0)?;
-    let targets = Tensor::stack(&targets, 0)?;
-
     // Create Varbuilder
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    // Create the XORNet model
     let model = Mlp::new(dict, varmap, vb)?;
 
     // Optimizer settings
-    // 1. More epoch when sample size is smaller
-    let epoch = 100 + 1000 / tokens_chain.len();
-    let lr = 0.002;
+    let epochs = 100;
+    let lr = 0.01;
 
     let params = ParamsAdamW {
         lr,
@@ -132,15 +112,40 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
         return Ok(model);
     }
 
+    let mut inputs: Vec<Tensor> = Vec::new();
+    let mut targets: Vec<Tensor> = Vec::new();
+
+    for (index, token) in tokens_chain.iter().enumerate() {
+        if index == 0 {
+            continue;
+        }
+        let input_token = tokens_chain[index - 1].clone();
+        let input = model.dict.get_token_embedding(input_token.as_str());
+        let input: Tensor = Tensor::new(input, &device)?;
+        let output: &String = token;
+        let output_token = model.dict.get_word_index(output)?;
+        let target = one_hot(Tensor::new(output_token, &device)?, model.dict.len(), 1.0 as f32, 0.0 as f32)?;
+
+        inputs.push(input);
+        targets.push(target);
+    }
+
+    let inputs = Tensor::stack(&inputs, 0)?;
+    let targets = Tensor::stack(&targets, 0)?;
+
+
     // Training loop
-    for epoch in 0..epoch {
-        // Forward pass
-        let predictions = model.forward(&inputs)?;
+    for epoch in 0..epochs {
+        let mut state = model.lstm.zero_state(inputs.dims()[0])?;
+
+        state = model.lstm.step(&inputs, &state)?;
+
+        let lstm_output = state.h().clone();
 
         // Compute loss
         // let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
         // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-        let loss = nn::loss::mse(&predictions, &targets)?;
+        let loss = nn::loss::mse(&lstm_output, &targets)?;
 
         // Backpropagation
         optimizer.backward_step(&loss)?;
@@ -154,12 +159,15 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 }
 
 pub fn get_device() -> Result<Device, candle_core::Error> {
-    let device = Device::new_metal(0)?;
-    let metal_device = match &device {
-        Device::Metal(m) => m,
-        _ => panic!("Device is not Metal"),
-    };
+    let device = Device::Cpu;
     return Ok(device);
+
+    // let device = Device::new_metal(0)?;
+    // let metal_device = match &device {
+    //     Device::Metal(m) => m,
+    //     _ => panic!("Device is not Metal"),
+    // };
+    // return Ok(device);
 }
 
 #[cfg(test)]
