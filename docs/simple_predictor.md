@@ -23,12 +23,12 @@ When evaluating (running) the model, we append the last generated token to the i
 **Work notes**
 
 - Encoding spaces (" ") as part of words helped reduce repetitions. Else, it was too easy for the model to optimize for every next token to be a space, because spaces are omnipresent in language.
-- Used tanh instead of sigmoid because sigmoid is not implemented in candle in metal (apple silicon)
+- Used tanh instead of sigmoid because sigmoid is not implemented in candle in metal (apple silicon).
 - Final tanh + softmax layers really helped the performance vs just the hidden layer output.
 
 **Training corpus**
 
-The model is trained on the wikipedia article about Horses. It just knows how to spit out horse stuff, mostly copied from wikipedia.
+The model is trained on the wikipedia article about [horses](https://en.wikipedia.org/wiki/Horse). It just knows how to spit out horse stuff, mostly copied from wikipedia.
 
 **Example output**
 
@@ -49,8 +49,8 @@ Some sentences make sense. Others don't.
 
 - It’s pretty good for such a simple architecture.
 - It’s a classic neural network, no recurring parts, but previous tokens do give some context.
-- I imagine it would be hard to scale to huge context windows because all of the input needs to be provided as an input. In modern architectures, the input can be provided sequentially so it does not need to sit in RAM / VRAM.
-- One-hot output encoding might not scale well to big dictionaries. Embedded output could be userul? Then we could reverse-search the output token using some vector database. Though I'm not sure if modern architectures bother doing this.
+- I imagine it would be hard to scale to huge context windows because all of the input needs to be provided at once. In modern architectures, the input can be provided sequentially so it does not need to sit in RAM / VRAM.
+- One-hot output encoding might not scale well to big dictionaries. Embedded output could be useful? Then we could reverse-search the output token using some vector database. Though I'm not sure if modern architectures bother doing this.
 
 **Questions left in the open**
 
