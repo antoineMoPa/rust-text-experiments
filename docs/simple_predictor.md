@@ -6,7 +6,7 @@ Neural net capable of outputting words based on the previous output.
 
 (Remember diagrams in AI are read from the bottom to the top for some unknown reason).
 
-![simple preditcor architecture](./simple_predictor.png)
+![simple predictor architecture](./simple_predictor.png)
 
 **Description**
 
