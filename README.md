@@ -10,6 +10,10 @@ A small experimental Rust project exploring tokenization and training a basic ne
 - Simple neural network training: Trains a minimal model to encode and decode tokens based on their embeddings.
 - Tests.
 
+## First model: classic neural network
+
+[See doc here](./docs/simple_predictor.md)
+
 ## Example output
 
 Here is a sample of the model trained on the wikipedia "Horse" article.
@@ -35,4 +39,3 @@ cargo test
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
-
