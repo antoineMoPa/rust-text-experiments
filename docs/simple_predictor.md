@@ -1,4 +1,4 @@
-### ✅ Classic Neural Net Text predictor
+### Classic Neural Net Text Predictor
 
 Neural net capable of outputting words based on the previous output.
 
