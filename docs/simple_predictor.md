@@ -26,6 +26,25 @@ When evaluating (running) the model, we append the last generated token to the i
 - Used tanh instead of sigmoid because sigmoid is not implemented in candle in metal (apple silicon)
 - Final tanh + softmax layers really helped the performance vs just the hidden layer output.
 
+**Training corpus**
+
+The model is trained on the wikipedia article about Horses. It just knows how to spit out horse stuff, mostly copied from wikipedia.
+
+**Example output**
+
+```
+$ ./target/debug/rust-text-experiments run Horses
+Loading model
+Predicting next token for: '"Horses "'
+and a to sleep, allowing them to quickly, Humans began domesticating horses around 4000 BCE, and their domestication is believed to have been widespread by 3000 BCE. Horses to the subspecies, and toed animal of today. Humans began domesticating horses around 4000 anatomy, and their domestication is believed to have been widespread by 3000 BCE. Horses used domesticated animal live related to by , domesticated flee from Horses to the BCE, single, colors, markings, breeds, locomotion, and behavior.
+
+Horses are adapted to run, allowing them to quickly believed predators, and possess an excellent sense of balance and a strong fight.or flight response. Related to this believed to flee from predators by to wild, asexcellent ferus are a small multi,toed creature, Eohippus, into the large, single
+toed animal of today. Humans began domesticating horses around 4000 BCE, and their domestication is believed to have been widespread by 3000 BCE. Horses family domestication is believed to have been widespread by 3000 BCE. Horses to the subspecies caballus are domesticated, although some domesticated populations live in the wild as feral,horses. These covering populations to describe are predators in describe, locomotion  The the caballus
+ single to to of today. Humans began domesticating horses around to BCE, and their domestication is believed to have been widespread by 3000 BCE. Horses is the subspecies caballus are domesticated, although some domesticated populations live in the wild as feral horses. These as term extensive is used to describe horses that have never been domesticated. There is an,extensive, specialized vocabulary used to describe equine related concepts, covering everything from anatomy to life stages, size, colors, markings, breeds,.locomotion, and behavior.
+```
+
+Some sentences make sense. Others don't.
+
 **Conclusion**
 
 - It’s pretty good for such a simple architecture.
@@ -33,6 +52,6 @@ When evaluating (running) the model, we append the last generated token to the i
 - I imagine it would be hard to scale to huge context windows because all of the input needs to be provided as an input. In modern architectures, the input can be provided sequentially so it does not need to sit in RAM / VRAM.
 - One-hot output encoding might not scale well to big dictionaries. Embedded output could be userul? Then we could reverse-search the output token using some vector database. Though I'm not sure if modern architectures bother doing this.
 
-**Questions**
+**Questions left in the open**
 
 - Could I use this model or similar to predict stock values / other time series?
