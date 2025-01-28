@@ -55,3 +55,7 @@ Some sentences make sense. Others don't.
 **Questions left in the open**
 
 - Could I use this model or similar to predict stock values / other time series?
+
+**What's next?**
+
+Next, if I find time, I wish to explore using LSTM networks, then transformers, then post-transformer architectures. Stay tuned :slightly_smiling_face:
