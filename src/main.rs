@@ -2,13 +2,13 @@ use std::fs;
 
 use crate::{
     token_utils::{tokenize, tokens_to_dict},
-    simple_predictor::{create_and_train_predictor_model, get_device}
+    lstm_predictor::{create_and_train_predictor_model, get_device}
 };
 
 mod embedding_utils;
 mod token_utils;
-mod simple_predictor;
-// mod lstm_predictor;
+//mod simple_predictor;
+mod lstm_predictor;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read args
