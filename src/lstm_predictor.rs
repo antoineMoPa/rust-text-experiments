@@ -13,13 +13,11 @@ pub struct Mlp {
     pub dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 10;
-
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder) -> Result<Self, candle_core::Error> {
 
-        // let lstm_size = LSTM_SIZE;
-        let lstm_size = dict.len();
+        let lstm_size = 32;
+        //let lstm_size = dict.len();
 
 
         let fc1 = nn::linear(EMBEDDING_SIZE as usize, EMBEDDING_SIZE,vb.pp("fc1"))?;
@@ -44,22 +42,19 @@ impl Mlp {
     }
 
     fn forward(&mut self, inputs: &Vec<Tensor>) -> Result<Tensor, candle_core::Error> {
-        let mut result: Tensor = self.state.h().clone();
-
         self.reset()?;
 
         for i in 0..inputs.len() {
-            let input = &inputs[i].unsqueeze(0)?;
-            let state = self.lstm.step(&input, &self.state)?;
-            result = state.h().clone();
+            let input = (&inputs[i] * 0.5)?.unsqueeze(0)?;
+            self.state = self.lstm.step(&input, &self.state)?;
         }
 
-        //let result = result.relu()?;
-        //let result = self.fc2.forward(&result)?;
+        let result = self.state.h().clone();
+        let result = self.fc2.forward(&result)?;
         let result = result.squeeze(0)?;
 
-        //let result = result.tanh()?;
-        let result = nn::ops::softmax(&result, 0)?;
+        let result = result.tanh()?;
+        //let result = nn::ops::softmax(&result, 0)?;
 
         return Ok(result);
     }
@@ -77,12 +72,7 @@ impl Mlp {
 
     pub fn predict_next_token(&mut self, input: &str, device: &Device) -> Result<String, candle_core::Error> {
         let tokens_chain = tokenize(&input);
-
-        let mut input = tokens_chain.to_vec();
-        // pad with spaces for CONTEXT_WINDOW lenght
-        input = vec![" ".to_string(); CONTEXT_WINDOW].into_iter()
-            .chain(input.into_iter())
-            .collect();
+        let input = tokens_chain.to_vec();
 
         let input_embedding: Vec<Vec<f32> > = input.iter().map(|token| self.dict.get_token_embedding(token)).collect();
 
@@ -98,8 +88,8 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let mut model = Mlp::new(dict, varmap, vb)?;
 
     // Optimizer settings
-    let epochs = 100;
-    let lr = 0.05;
+    let epochs = 30;
+    let lr = 0.1;
 
     let params = ParamsAdamW {
         lr,
@@ -114,20 +104,18 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let mut inputs: Vec<Vec<Tensor>> = Vec::new();
     let mut targets: Vec<Tensor> = Vec::new();
 
-    for (index, token) in tokens_chain.iter().enumerate() {
-        let mut input = tokens_chain.to_vec();
-        // pad with spaces for CONTEXT_WINDOW lenght
-        input = vec![" ".to_string(); CONTEXT_WINDOW].into_iter()
-            .chain(input.into_iter())
-            .collect();
+    for i  in 0..tokens_chain.len() {
+        let chain = tokens_chain.to_vec();
 
-        input = input[index..index + CONTEXT_WINDOW].to_vec();
+        let input = chain[0..i].to_vec();
+        let output = chain[i].clone();
+
+        // print input and output
+        println!("input: {:?}, output: {:?}", input, output);
 
         let input: Vec<Tensor> = input.iter().map(|token| Tensor::new(model.dict.get_token_embedding(token), &device)).collect::<Result<Vec<Tensor>, candle_core::Error>>()?;
-        let input = input;
 
-        let output = token;
-        let output = model.dict.get_word_index(output)?;
+        let output = model.dict.get_word_index(output.as_str())?;
 
         let output = one_hot(Tensor::new(output, &device)?, model.dict.len(), 1.0 as f32, 0.0 as f32)?;
 
@@ -138,7 +126,6 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     // Training loop
     for epoch in 0..epochs {
         let mut outputs: Vec::<Tensor> = Vec::new();
-        // model.reset()?;
 
         for (index, input) in inputs.iter().enumerate() {
             let output = model.forward(&input)?;
@@ -203,8 +190,8 @@ mod tests {
     }
 
     #[test]
-    fn test_lstm_predictor_lorem() -> Result<(), candle_core::Error> {
-        let tokens = tokenize("lorem ipsum et");
+    fn test_lstm_predictor_lorem_1() -> Result<(), candle_core::Error> {
+        let tokens = tokenize("lorem ipsum et dolor sit");
 
         let dict = tokens_to_dict(tokens.clone());
 
