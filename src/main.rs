@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read args
     let file_path = "data/corpus/wiki-horse.txt";
     let content = fs::read_to_string(file_path)?;
-    let tokens: Vec<String> = tokenize(&content)[0..400].to_vec();
+    let tokens: Vec<String> = tokenize(&content)[0..10].to_vec();
     let dict = tokens_to_dict(tokens.clone());
 
     let args: Vec<String> = std::env::args().collect();

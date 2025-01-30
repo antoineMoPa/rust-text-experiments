@@ -88,7 +88,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let mut model = Mlp::new(dict, varmap, vb)?;
 
     // Optimizer settings
-    let epochs = 30;
+    let epochs = 20;
     let lr = 0.1;
 
     let params = ParamsAdamW {
