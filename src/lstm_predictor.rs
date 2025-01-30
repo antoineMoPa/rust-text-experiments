@@ -13,81 +13,61 @@ pub struct Mlp {
     pub dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 3;
-const LSTM_SIZE: usize = 128;
+const CONTEXT_WINDOW: usize = 10;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder) -> Result<Self, candle_core::Error> {
+
+        // let lstm_size = LSTM_SIZE;
+        let lstm_size = dict.len();
+
+
         let fc1 = nn::linear(EMBEDDING_SIZE as usize, EMBEDDING_SIZE,vb.pp("fc1"))?;
-        let fc2 = nn::linear(LSTM_SIZE, dict.len(),vb.pp("fc2"))?;
+        let fc2 = nn::linear(lstm_size, dict.len(),vb.pp("fc2"))?;
+
 
         let lstm = nn::lstm(
             EMBEDDING_SIZE as usize,
-            dict.len(),
-            nn::LSTMConfig::default_no_bias(),
+            lstm_size,
+            nn::LSTMConfig::default(),
             vb.pp("lstm"),
         )?;
 
-        let state = lstm.zero_state(0)?;
+        let state = lstm.zero_state(1)?;
 
         Ok(Self { fc1, fc2, state, lstm, dict, var_map })
     }
 
-    fn reset(&mut self, input_dim: usize) -> Result<(), candle_core::Error> {
-        self.state = self.lstm.zero_state(input_dim)?;
+    fn reset(&mut self) -> Result<(), candle_core::Error> {
+        self.state = self.lstm.zero_state(1)?;
         Ok(())
     }
 
     fn forward(&mut self, inputs: &Vec<Tensor>) -> Result<Tensor, candle_core::Error> {
-        let device = inputs[0].device();
-        let mut result = Tensor::zeros(&[LSTM_SIZE], DType::F32, &device)?;
+        let mut result: Tensor = self.state.h().clone();
 
-        self.reset(1)?;
+        self.reset()?;
 
-        for i in 0..CONTEXT_WINDOW {
+        for i in 0..inputs.len() {
             let input = &inputs[i].unsqueeze(0)?;
-            let state = self.lstm.step(input, &self.state)?;
+            let state = self.lstm.step(&input, &self.state)?;
             result = state.h().clone();
         }
 
-        //let result = self.fc1.forward(&result)?;
-        //let result = nn::ops::dropout(&result, 0.2)?;
-        //let result = self.lstm.step(&result, &self.state)?.h.clone();
         //let result = result.relu()?;
         //let result = self.fc2.forward(&result)?;
-
         let result = result.squeeze(0)?;
+
         //let result = result.tanh()?;
-        //let result = nn::ops::softmax(&result, 0)?;
+        let result = nn::ops::softmax(&result, 0)?;
 
         return Ok(result);
     }
 
     fn run(&mut self, input_embedding: &Vec<Vec<f32>>, device: &Device) -> Result<String, candle_core::Error> {
+        let inputs: Vec<Tensor> = input_embedding.iter().map(|input| Tensor::new(input.clone(), &device)).collect::<Result<Vec<Tensor>, candle_core::Error>>()?;
 
-        let mut inputs: Vec<Tensor> = Vec::new();
-
-        for (index, input) in input_embedding.iter().enumerate() {
-            if index == 0 {
-                continue;
-            }
-            let input: Tensor = Tensor::new(input.clone(), &device)?;
-
-            inputs.push(input);
-        }
-
-        // zero pad the input up to context window length
-        inputs.reverse();
-        for _ in 0..CONTEXT_WINDOW - inputs.len() {
-            let input: Tensor = Tensor::zeros(&[EMBEDDING_SIZE], DType::F32, &device)?;
-            inputs.push(input);
-        }
-        inputs.reverse();
-
-        // Slice to window length
-        let inputs = &inputs[inputs.len() - CONTEXT_WINDOW..].to_vec();
-
-        let output_prob = self.forward(inputs)?;
+        let output_prob = self.forward(&inputs)?;
         let output_prob_max_index = output_prob.argmax(0)?;
         let n = output_prob_max_index.to_vec0::<u32>()?;
         let max_token = self.dict.iter().nth(n as usize).unwrap().0.clone();
@@ -97,26 +77,20 @@ impl Mlp {
 
     pub fn predict_next_token(&mut self, input: &str, device: &Device) -> Result<String, candle_core::Error> {
         let tokens_chain = tokenize(&input);
-        let mut input: Vec<Vec<f32>> = Vec::new();
 
-        for token in tokens_chain.iter() {
-            input.push(self.dict.get_token_embedding(token.as_str()));
-        }
+        let mut input = tokens_chain.to_vec();
+        // pad with spaces for CONTEXT_WINDOW lenght
+        input = vec![" ".to_string(); CONTEXT_WINDOW].into_iter()
+            .chain(input.into_iter())
+            .collect();
 
-        self.run(&input, device)
+        let input_embedding: Vec<Vec<f32> > = input.iter().map(|token| self.dict.get_token_embedding(token)).collect();
+
+        self.run(&input_embedding, device)
     }
 }
 
 pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, train: bool, device: &Device) -> Result<Mlp, candle_core::Error> {
-    // pad token chain with context window zeros
-    let mut padding: Vec<String> = Vec::new();
-    let mut tokens_chain = tokens_chain.clone();
-
-    for _ in 0..CONTEXT_WINDOW {
-        padding.push(" ".to_string());
-        tokens_chain.insert(0, " ".to_string());
-    }
-
     // Create Varbuilder
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
@@ -124,8 +98,8 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let mut model = Mlp::new(dict, varmap, vb)?;
 
     // Optimizer settings
-    let epochs = 150;
-    let lr = 0.02;
+    let epochs = 100;
+    let lr = 0.05;
 
     let params = ParamsAdamW {
         lr,
@@ -141,11 +115,14 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let mut targets: Vec<Tensor> = Vec::new();
 
     for (index, token) in tokens_chain.iter().enumerate() {
-        if index < CONTEXT_WINDOW {
-            continue;
-        }
+        let mut input = tokens_chain.to_vec();
+        // pad with spaces for CONTEXT_WINDOW lenght
+        input = vec![" ".to_string(); CONTEXT_WINDOW].into_iter()
+            .chain(input.into_iter())
+            .collect();
 
-        let input = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
+        input = input[index..index + CONTEXT_WINDOW].to_vec();
+
         let input: Vec<Tensor> = input.iter().map(|token| Tensor::new(model.dict.get_token_embedding(token), &device)).collect::<Result<Vec<Tensor>, candle_core::Error>>()?;
         let input = input;
 
@@ -160,23 +137,30 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 
     // Training loop
     for epoch in 0..epochs {
+        let mut outputs: Vec::<Tensor> = Vec::new();
+        // model.reset()?;
 
-        model.reset(CONTEXT_WINDOW)?;
-
-        for (input, target) in inputs.iter().zip(targets.iter()) {
+        for (index, input) in inputs.iter().enumerate() {
             let output = model.forward(&input)?;
+            outputs.push(output);
 
-            // Compute loss
-            // let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
-            // let loss = nn::loss::binary_cross_entropy_with_logit(&output, &target)?;
-            let loss = nn::loss::mse(&output, &target)?;
+            //let loss = nn::loss::mse(&output, &targets[index])?;
 
-            // Backpropagation
-            optimizer.backward_step(&loss)?;
+            //optimizer.backward_step(&loss)?;
 
-            // if epoch % 100 == 0 {
+            //if epoch % 2 == 0 {
             //    println!("Epoch {}: Loss = {:?}", epoch, loss);
-            // }
+            //}
+        }
+
+        let outputs = Tensor::stack(&outputs, 0)?;
+        let targets = Tensor::stack(&targets, 0)?;
+        let loss = nn::loss::mse(&outputs, &targets)?;
+
+        optimizer.backward_step(&loss)?;
+
+        if epoch % 2 == 0 {
+            println!("Epoch {}: Loss = {:?}", epoch, loss);
         }
     }
 
