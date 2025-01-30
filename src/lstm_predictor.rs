@@ -106,9 +106,11 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 
     for i  in 0..tokens_chain.len() {
         let chain = tokens_chain.to_vec();
-
-        let input = chain[0..i].to_vec();
+        let context_window = 5;
+        let start = ((i as i32) - context_window).max(0) as usize;
+        let input = chain[start..i].to_vec();
         let output = chain[i].clone();
+
 
         // print input and output
         println!("input: {:?}, output: {:?}", input, output);
