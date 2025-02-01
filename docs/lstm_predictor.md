@@ -18,10 +18,10 @@ This model uses a lstm to predict the next value in a sequence of tokens.
 
 **Work notes**
 
- - candle lstm examples online are quite difficult to find as of right now.
- - candle's lstm implementation not support metal GPU devices, so I had to train on CPU (slow).
- - My classic neural net, by comparion, was much simpler to create and had a much better ability to learn.
- - Presumable, I could have improved the architecture, but given these pain points and shortcomings of LSTM, I'd rather move on to other architectures like transformers.
+ - Candle lstm examples online are quite difficult to find as of right now.
+ - Candle's lstm implementation does not support metal GPU devices, so I had to train on CPU (slow).
+ - My classic neural net, by comparison, was much simpler to create and had a much better ability to learn.
+ - Presumably, I could have improved the architecture, but given these pain points and shortcomings of LSTM, I'd rather move on to other architectures like transformers.
 
 **Training corpus**
 
