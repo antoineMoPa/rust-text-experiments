@@ -1,11 +1,10 @@
 use candle_core::{Device, Tensor, DType, Module};
 use candle_nn as nn;
-use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot, RNN, rnn::LSTMState};
+use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot, RNN};
 
 use crate::token_utils::{Dict, GetTokenEmbedding, tokenize, EMBEDDING_SIZE};
 
 pub struct Mlp {
-    pub fc1: nn::Linear,
     pub fc2: nn::Linear,
     pub lstm: nn::LSTM,
     pub state: nn::rnn::LSTMState,
@@ -15,12 +14,9 @@ pub struct Mlp {
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder) -> Result<Self, candle_core::Error> {
-
         let lstm_size = 32;
         //let lstm_size = dict.len();
 
-
-        let fc1 = nn::linear(EMBEDDING_SIZE as usize, EMBEDDING_SIZE,vb.pp("fc1"))?;
         let fc2 = nn::linear(lstm_size, dict.len(),vb.pp("fc2"))?;
 
 
@@ -33,7 +29,7 @@ impl Mlp {
 
         let state = lstm.zero_state(1)?;
 
-        Ok(Self { fc1, fc2, state, lstm, dict, var_map })
+        Ok(Self { fc2, state, lstm, dict, var_map })
     }
 
     fn reset(&mut self) -> Result<(), candle_core::Error> {
@@ -45,7 +41,7 @@ impl Mlp {
         self.reset()?;
 
         for i in 0..inputs.len() {
-            let input = (&inputs[i] * 0.5)?.unsqueeze(0)?;
+            let input = (&inputs[i] * 0.4)?.unsqueeze(0)?;
             self.state = self.lstm.step(&input, &self.state)?;
         }
 
@@ -88,7 +84,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let mut model = Mlp::new(dict, varmap, vb)?;
 
     // Optimizer settings
-    let epochs = 20;
+    let epochs = 30;
     let lr = 0.1;
 
     let params = ParamsAdamW {
@@ -111,7 +107,6 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
         let input = chain[start..i].to_vec();
         let output = chain[i].clone();
 
-
         // print input and output
         println!("input: {:?}, output: {:?}", input, output);
 
@@ -129,17 +124,9 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     for epoch in 0..epochs {
         let mut outputs: Vec::<Tensor> = Vec::new();
 
-        for (index, input) in inputs.iter().enumerate() {
+        for (_index, input) in inputs.iter().enumerate() {
             let output = model.forward(&input)?;
             outputs.push(output);
-
-            //let loss = nn::loss::mse(&output, &targets[index])?;
-
-            //optimizer.backward_step(&loss)?;
-
-            //if epoch % 2 == 0 {
-            //    println!("Epoch {}: Loss = {:?}", epoch, loss);
-            //}
         }
 
         let outputs = Tensor::stack(&outputs, 0)?;
@@ -159,13 +146,6 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 pub fn get_device() -> Result<Device, candle_core::Error> {
     let device = Device::Cpu;
     return Ok(device);
-
-    // let device = Device::new_metal(0)?;
-    // let metal_device = match &device {
-    //     Device::Metal(m) => m,
-    //     _ => panic!("Device is not Metal"),
-    // };
-    // return Ok(device);
 }
 
 #[cfg(test)]
@@ -288,154 +268,4 @@ mod tests {
 
         Ok(())
     }
-
-    // #[test]
-    // fn test_horse_60() -> Result<(), candle_core::Error> {
-    //     // Define the file path
-    //     let file_path = "data/corpus/wiki-horse.txt";
-    //     let content = fs::read_to_string(file_path)?;
-    //     let tokens: Vec<String> = tokenize(&content)[0..60].to_vec();
-    //
-    //     let dict = tokens_to_dict(tokens.clone());
-    //
-    //     let device = get_device()?;
-    //
-    //     let mut model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
-    //
-    //     let substring = tokens[35..38].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-    //
-    //     let substring = tokens[51..56].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[56]);
-    //
-    //     let substring = tokens[51..57].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[57]);
-    //
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_horse_100() -> Result<(), candle_core::Error> {
-    //     // Define the file path
-    //     let file_path = "data/corpus/wiki-horse.txt";
-    //     let content = fs::read_to_string(file_path)?;
-    //     let tokens: Vec<String> = tokenize(&content)[0..100].to_vec();
-    //
-    //     let dict = tokens_to_dict(tokens.clone());
-    //
-    //     let device = get_device()?;
-    //
-    //     let mut model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
-    //
-    //     let substring = tokens[35..38].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-    //
-    //     let substring = tokens[63..69].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
-    //
-    //     let substring = tokens[63..70].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[70]);
-    //
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_horse_200() -> Result<(), candle_core::Error> {
-    //     // Define the file path
-    //     let file_path = "data/corpus/wiki-horse.txt";
-    //     let content = fs::read_to_string(file_path)?;
-    //     let tokens: Vec<String> = tokenize(&content)[0..200].to_vec();
-    //
-    //     let dict = tokens_to_dict(tokens.clone());
-    //
-    //     let device = get_device()?;
-    //
-    //     let mut model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
-    //
-    //     let substring = tokens[35..38].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-    //
-    //
-    //     let substring = tokens[63..69].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
-    //
-    //     let substring = tokens[102..113].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[113]);
-    //
-    //     let substring = tokens[102..114].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[114]);
-    //
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_horse_400() -> Result<(), candle_core::Error> {
-    //     // Define the file path
-    //     let file_path = "data/corpus/wiki-horse.txt";
-    //     let content = fs::read_to_string(file_path)?;
-    //     let tokens: Vec<String> = tokenize(&content)[0..400].to_vec();
-    //
-    //     let dict = tokens_to_dict(tokens.clone());
-    //
-    //     let device = get_device()?;
-    //
-    //     let mut model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
-    //
-    //     let substring = tokens[35..38].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-    //
-    //
-    //     let substring = tokens[63..69].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
-    //
-    //
-    //     let substring = tokens[102..114].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[114]);
-    //
-    //     let substring = tokens[162..182].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[182]);
-    //
-    //     let substring = tokens[190..211].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[211]);
-    //
-    //     let substring = tokens[330..341].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[341]);
-    //
-    //     let substring = tokens[330..342].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[342]);
-    //
-    //     Ok(())
-    // }
-    //
-    //     #[test]
-    // fn test_horse_1000() -> Result<(), candle_core::Error> {
-    //     // Define the file path
-    //     let file_path = "data/corpus/wiki-horse.txt";
-    //     let content = fs::read_to_string(file_path)?;
-    //     let tokens: Vec<String> = tokenize(&content)[0..1000].to_vec();
-    //
-    //     let dict = tokens_to_dict(tokens.clone());
-    //
-    //     let device = get_device()?;
-    //
-    //     let mut model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
-    //
-    //     let substring = tokens[35..38].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-    //
-    //
-    //     let substring = tokens[63..69].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
-    //
-    //     let substring = tokens[330..341].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[341]);
-    //
-    //     let substring = tokens[810..831].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[831]);
-    //
-    //     let substring = tokens[810..832].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[832]);
-    //
-    //     Ok(())
-    // }
 }
