@@ -14,6 +14,11 @@ A small experimental Rust project exploring tokenization and training a basic ne
 
 [See doc here](./docs/simple_predictor.md)
 
+## Second model: using LSTM
+
+[See doc here](./docs/lstm_predictor.md)
+
+
 ## Example output
 
 Here is a sample of the model trained on the wikipedia "Horse" article.
