@@ -18,7 +18,7 @@ impl Mlp {
         let hidden_size = 256;
 
         let fc1 = nn::linear(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, hidden_size,vb.pp("fc1"))?;
-        let fc2 = nn::linear(hidden_size, dict.len(),vb.pp("fc2"))?;
+        let fc2 = nn::linear(hidden_size, dict.len(), vb.pp("fc2"))?;
 
         Ok(Self { fc1, fc2, dict, var_map })
     }
