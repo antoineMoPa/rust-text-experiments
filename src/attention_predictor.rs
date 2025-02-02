@@ -7,6 +7,7 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 use crate::token_utils::{Dict, GetTokenEmbedding, tokenize, EMBEDDING_SIZE};
 
 pub struct Mlp {
+    pub fc1: nn::Linear,
     pub fc2: nn::Linear,
     pub q: nn::Linear,
     pub k: nn::Linear,
@@ -16,21 +17,21 @@ pub struct Mlp {
 }
 
 const CONTEXT_WINDOW: usize = 10;
+const HIDDEN_SIZE: usize = 128;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
-        let hidden_size = 64;
 
-        let fc1 = nn::linear(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, hidden_size, vb.pp("fc1"))?;
+        let q = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("q"))?;
+        let k = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("k"))?;
+        let v = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("v"))?;
 
-        let q = nn::linear(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, hidden_size, vb.pp("q"))?;
-        let k = nn::linear(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, hidden_size, vb.pp("k"))?;
-        let v = nn::linear(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, hidden_size, vb.pp("v"))?;
+        let fc1 = nn::linear_b(HIDDEN_SIZE, dict.len(), false, vb.pp("fc1"))?;
 
-        let fc2 = nn::linear(hidden_size, dict.len(), vb.pp("fc2"))?;
+        let fc2 = nn::linear_b(dict.len(), dict.len(), false, vb.pp("fc2"))?;
 
 
-        Ok(Self { fc2, q, k, v, dict, var_map })
+        Ok(Self { fc1, fc2, q, k, v, dict, var_map })
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -39,20 +40,17 @@ impl Mlp {
         let v = input.apply(&self.v)?;
 
         // Scale dot product
+        let scale = 1.0 / ((HIDDEN_SIZE) as f64).sqrt();
         let result = q.matmul(&k.t()?)?;
-        let scale = 1.0 / (input.dim(D::Minus1)? as f64).sqrt();
         let result = (result * scale)?;
         let result = nn::ops::softmax(&result, D::Minus1)?;
         let result = result.matmul(&v)?;
 
-        // let result = result.tanh()?;
-        // not sure about this one:
-        // let result = nn::ops::softmax(&result,1)?;
+        let result = self.fc1.forward(&result)?;
+
+        let result = nn::ops::softmax(&result, D::Minus1)?;
 
         let result = self.fc2.forward(&result)?;
-        //let result = result.tanh()?;
-
-        //let result = nn::ops::softmax(&result, 1)?;
 
         return Ok(result);
     }
@@ -137,10 +135,11 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 
     let model = Mlp::new(dict, varmap, vb)?;
 
+    // WARMUP
     // Optimizer settings
     // 1. More epoch when sample size is smaller
-    let epoch = 1000;
-    let lr = 0.002;
+    let epochs = 1000;
+    let lr = 0.001;
 
     let params = ParamsAdamW {
         lr,
@@ -153,7 +152,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     }
 
     // Training loop
-    for epoch in 0..epoch {
+    for epoch in 0..epochs {
         // Forward pass
         let predictions = model.forward(&inputs)?;
 
@@ -166,7 +165,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
         optimizer.backward_step(&loss)?;
 
         if epoch % 10 == 0 {
-            println!("Epoch {}: Loss = {:?}", epoch, loss);
+            println!("Epoch {}: Loss = {:?}", epoch, loss.to_vec0::<f32>()?);
         }
     }
 
