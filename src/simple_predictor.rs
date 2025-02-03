@@ -153,7 +153,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 
 pub fn get_device() -> Result<Device, candle_core::Error> {
     let device = Device::new_metal(0)?;
-    let metal_device = match &device {
+    match &device {
         Device::Metal(m) => m,
         _ => panic!("Device is not Metal"),
     };

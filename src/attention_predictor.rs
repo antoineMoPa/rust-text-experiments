@@ -1,5 +1,3 @@
-use core::cmp::Ord;
-
 use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
@@ -17,7 +15,7 @@ pub struct Mlp {
 }
 
 const CONTEXT_WINDOW: usize = 10;
-const HIDDEN_SIZE: usize = 128;
+const HIDDEN_SIZE: usize = 256;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
@@ -139,7 +137,9 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     // Optimizer settings
     // 1. More epoch when sample size is smaller
     let epochs = 1000;
-    let lr = 0.001;
+    let initial_lr = 0.0001;
+    let lr = initial_lr;
+    let max_lr = 0.0005;
 
     let params = ParamsAdamW {
         lr,
@@ -151,10 +151,13 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
         return Ok(model);
     }
 
+
     // Training loop
     for epoch in 0..epochs {
         // Forward pass
         let predictions = model.forward(&inputs)?;
+        let lr = initial_lr + (max_lr - initial_lr) * (epoch as f64 / epochs as f64);
+        optimizer.set_learning_rate(lr);
 
         // Compute loss
         // let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
@@ -164,8 +167,8 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
         // Backpropagation
         optimizer.backward_step(&loss)?;
 
-        if epoch % 10 == 0 {
-            println!("Epoch {}: Loss = {:?}", epoch, loss.to_vec0::<f32>()?);
+        if epoch % 100 == 0 {
+            println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
         }
     }
 
@@ -174,7 +177,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 
 pub fn get_device() -> Result<Device, candle_core::Error> {
     let device = Device::new_metal(0)?;
-    let metal_device = match &device {
+    match &device {
         Device::Metal(m) => m,
         _ => panic!("Device is not Metal"),
     };
