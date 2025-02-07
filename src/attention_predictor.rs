@@ -5,36 +5,40 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 use crate::token_utils::{Dict, GetTokenEmbedding, tokenize, EMBEDDING_SIZE};
 
 pub struct Mlp {
-    pub fc1: nn::Linear,
-    pub fc2: nn::Linear,
+    pub linear: Vec<nn::Linear>,
     pub qs: Vec<nn::Linear>,
     pub ks: Vec<nn::Linear>,
     pub vs: Vec<nn::Linear>,
+    pub fc1: nn::Linear,
+    pub fc2: nn::Linear,
     pub var_map: VarMap,
     pub dict: Dict,
 }
 
 const CONTEXT_WINDOW: usize = 10;
 const HIDDEN_SIZE: usize = 200;
+const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
+        let mut linear: Vec<nn::Linear> = Vec::new();
         let mut qs: Vec<nn::Linear> = Vec::new();
         let mut ks: Vec<nn::Linear> = Vec::new();
         let mut vs: Vec<nn::Linear> = Vec::new();
 
         for i in 0..NUM_ATTENTION_HEADS {
+            linear.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("linear{}", i)))?);
             qs.push(nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp(&format!("q{}", i)))?);
             ks.push(nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp(&format!("k{}", i)))?);
             vs.push(nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp(&format!("v{}", i)))?);
         }
 
-        let fc1 = nn::linear_b(HIDDEN_SIZE * NUM_ATTENTION_HEADS, EMBEDDING_SIZE * CONTEXT_WINDOW, false, vb.pp("fc1"))?;
+        let fc1 = nn::linear_b(HIDDEN_SIZE * NUM_ATTENTION_HEADS, INPUT_SIZE, false, vb.pp("fc1"))?;
 
         let fc2 = nn::linear_b(EMBEDDING_SIZE * CONTEXT_WINDOW, dict.len(), false, vb.pp("fc2"))?;
 
-        Ok(Self { fc1, fc2, qs, ks, vs, dict, var_map })
+        Ok(Self { linear, qs, ks, fc1, fc2, vs, dict, var_map })
     }
 
     fn scaled_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -72,17 +76,19 @@ impl Mlp {
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         // position encoding
         let input = (input + self.position_encoding(input)?)?;
+        let input = nn::ops::dropout(&input, 0.2)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
         for i in 0..NUM_ATTENTION_HEADS {
-            let q = input.apply(&self.qs[i])?;
-            let k = input.apply(&self.ks[i])?;
-            let v = input.apply(&self.vs[i])?;
+            let linear_output = input.apply(&self.linear[i])?;
+
+            let q = linear_output.apply(&self.qs[i])?;
+            let k = linear_output.apply(&self.ks[i])?;
+            let v = linear_output.apply(&self.vs[i])?;
 
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
-            let input = nn::ops::dropout(&result, 0.4)?;
-            let result = (((result * 0.7)? + input.clone())? * 0.3)?;
+            let result = (result + input.clone())?;
 
             results.push(result);
         }
@@ -96,8 +102,8 @@ impl Mlp {
         let result = self.fc2.forward(&result)?;
 
         //let result = nn::ops::softmax(&result, D::Minus1)?;
-        let result = result.tanh()?;
-        //let result = nn::ops::softmax(&result, D::Minus1)?;
+        //let result = result.tanh()?;
+        let result = nn::ops::softmax(&result, D::Minus1)?;
 
         return Ok(result);
     }
@@ -187,7 +193,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let epochs = 8000;
     let initial_lr = 0.0001;
     let lr = initial_lr;
-    let max_lr = initial_lr * 2.0;
+    let max_lr = initial_lr * 5.0;
 
     let params = ParamsAdamW {
         lr,
