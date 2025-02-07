@@ -7,33 +7,34 @@ use crate::token_utils::{Dict, GetTokenEmbedding, tokenize, EMBEDDING_SIZE};
 pub struct Mlp {
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
-    pub q: nn::Linear,
-    pub k: nn::Linear,
-    pub v: nn::Linear,
-    // pub qs: Vec<nn::Linear>,
-    // pub ks: Vec<nn::Linear>,
-    // pub vs: Vec<nn::Linear>,
+    pub qs: Vec<nn::Linear>,
+    pub ks: Vec<nn::Linear>,
+    pub vs: Vec<nn::Linear>,
     pub var_map: VarMap,
     pub dict: Dict,
 }
 
 const CONTEXT_WINDOW: usize = 10;
 const HIDDEN_SIZE: usize = 200;
+const NUM_ATTENTION_HEADS: usize = 8;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
+        let mut qs: Vec<nn::Linear> = Vec::new();
+        let mut ks: Vec<nn::Linear> = Vec::new();
+        let mut vs: Vec<nn::Linear> = Vec::new();
 
-        let q = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("q"))?;
-        let k = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("k"))?;
-        let v = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("v"))?;
+        for i in 0..NUM_ATTENTION_HEADS {
+            qs.push(nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp(&format!("q{}", i)))?);
+            ks.push(nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp(&format!("k{}", i)))?);
+            vs.push(nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp(&format!("v{}", i)))?);
+        }
 
-
-
-        let fc1 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE * CONTEXT_WINDOW, false, vb.pp("fc1"))?;
+        let fc1 = nn::linear_b(HIDDEN_SIZE * NUM_ATTENTION_HEADS, EMBEDDING_SIZE * CONTEXT_WINDOW, false, vb.pp("fc1"))?;
 
         let fc2 = nn::linear_b(EMBEDDING_SIZE * CONTEXT_WINDOW, dict.len(), false, vb.pp("fc2"))?;
 
-        Ok(Self { fc1, fc2, q, k, v, dict, var_map })
+        Ok(Self { fc1, fc2, qs, ks, vs, dict, var_map })
     }
 
     fn scaled_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -70,17 +71,25 @@ impl Mlp {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         // position encoding
-        //let input = (input + self.position_encoding(input)?)?;
+        let input = (input + self.position_encoding(input)?)?;
 
-        let q = input.apply(&self.q)?;
-        let k = input.apply(&self.k)?;
-        let v = input.apply(&self.v)?;
+        let mut results: Vec<Tensor> = Vec::new();
 
-        // Scaled dot product attention
-        let result = self.scaled_dot_product_attention(&q, &k, &v)?;
+        for i in 0..NUM_ATTENTION_HEADS {
+            let q = input.apply(&self.qs[i])?;
+            let k = input.apply(&self.ks[i])?;
+            let v = input.apply(&self.vs[i])?;
+
+            let result = self.scaled_dot_product_attention(&q, &k, &v)?;
+            let input = nn::ops::dropout(&result, 0.4)?;
+            let result = (((result * 0.7)? + input.clone())? * 0.3)?;
+
+            results.push(result);
+        }
+
+        let result = Tensor::cat(&results, D::Minus1)?;
 
         // Add
-        let result = (((result * 0.3)? + input.clone())? * 0.7)?;
         let result = self.fc1.forward(&result)?;
         let result = nn::ops::dropout(&result, 0.1)?;
         let result = result.relu()?;
