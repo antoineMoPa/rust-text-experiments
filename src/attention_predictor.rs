@@ -15,7 +15,7 @@ pub struct Mlp {
 }
 
 const CONTEXT_WINDOW: usize = 10;
-const HIDDEN_SIZE: usize = 256;
+const HIDDEN_SIZE: usize = 32;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
@@ -53,19 +53,18 @@ impl Mlp {
 
         let position = Tensor::new(position, input.device())?;
 
-        let position = (position / self.dict.len() as f64)?;
+        let position = (position / CONTEXT_WINDOW as f64)?;
         let encoding = (position.clone() * 0.0)?;
-
-        let p = (position.clone() * 10.0)?;
-        let encoding = (encoding + p.cos()?)?;
 
         let p = (position.clone() * 100.0)?;
         let encoding = (encoding + p.cos()?)?;
 
-        let p = (position * 10000.0)?;
+        let p = (position * 2000.0)?;
         let encoding = (encoding + p.cos()?)?;
 
         let encoding = encoding.unsqueeze(0)?;
+
+        // let encoding = (encoding * 0.3)?;
 
         // Repeat to match batch size
         let batch_size = input.dim(0)?;
@@ -76,7 +75,7 @@ impl Mlp {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         // position encoding
-        let input = (input + self.position_encoding(input)?)?;
+        //let input = (input + self.position_encoding(input)?)?;
 
         let q = input.apply(&self.q)?;
         let k = input.apply(&self.k)?;
@@ -85,11 +84,16 @@ impl Mlp {
         // Scaled dot product attention
         let result = self.scale_dot_product_attention(&q, &k, &v)?;
 
+        let result = result.matmul(&input.t()?)?;
+
         let result = self.fc1.forward(&result)?;
 
-        let result = nn::ops::softmax(&result, D::Minus1)?;
+        //let result = nn::ops::softmax(&result, D::Minus1)?;
+        let result = result.tanh()?;
 
-        let result = self.fc2.forward(&result)?;
+        //let result = self.fc2.forward(&result)?;
+
+        //let result = nn::ops::softmax(&result, D::Minus1)?;
 
         return Ok(result);
     }
@@ -177,7 +181,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     // WARMUP
     // Optimizer settings
     // 1. More epoch when sample size is smaller
-    let epochs = 5000;
+    let epochs = 10000;
     let initial_lr = 0.0001;
     let lr = initial_lr;
     let max_lr = 0.0005;
