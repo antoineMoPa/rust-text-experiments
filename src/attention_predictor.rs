@@ -88,7 +88,7 @@ impl Mlp {
             let v = linear_output.apply(&self.vs[i])?;
 
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
-            let result = (result + input.clone())?;
+            let result = (((result * 0.7)? + input.clone())? * 0.3)?;
 
             results.push(result);
         }
@@ -102,8 +102,8 @@ impl Mlp {
         let result = self.fc2.forward(&result)?;
 
         //let result = nn::ops::softmax(&result, D::Minus1)?;
-        //let result = result.tanh()?;
-        let result = nn::ops::softmax(&result, D::Minus1)?;
+        let result = result.tanh()?;
+        //let result = nn::ops::softmax(&result, D::Minus1)?;
 
         return Ok(result);
     }
@@ -190,7 +190,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     // WARMUP
     // Optimizer settings
     // 1. More epoch when sample size is smaller
-    let epochs = 8000;
+    let epochs = 4000;
     let initial_lr = 0.0001;
     let lr = initial_lr;
     let max_lr = initial_lr * 5.0;
