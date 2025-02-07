@@ -14,8 +14,8 @@ pub struct Mlp {
     pub dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 10;
-const HIDDEN_SIZE: usize = 32;
+const CONTEXT_WINDOW: usize = 30;
+const HIDDEN_SIZE: usize = 600;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
@@ -24,10 +24,9 @@ impl Mlp {
         let k = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("k"))?;
         let v = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("v"))?;
 
-        let fc1 = nn::linear_b(HIDDEN_SIZE, dict.len(), false, vb.pp("fc1"))?;
+        let fc1 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE * CONTEXT_WINDOW, false, vb.pp("fc1"))?;
 
-        let fc2 = nn::linear_b(dict.len(), dict.len(), false, vb.pp("fc2"))?;
-
+        let fc2 = nn::linear_b(EMBEDDING_SIZE * CONTEXT_WINDOW, dict.len(), false, vb.pp("fc2"))?;
 
         Ok(Self { fc1, fc2, q, k, v, dict, var_map })
     }
@@ -68,6 +67,8 @@ impl Mlp {
         // position encoding
         let input = (input + self.position_encoding(input)?)?;
 
+        let input = nn::ops::dropout(&input, 0.2)?;
+
         let q = input.apply(&self.q)?;
         let k = input.apply(&self.k)?;
         let v = input.apply(&self.v)?;
@@ -75,13 +76,16 @@ impl Mlp {
         // Scaled dot product attention
         let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
+        let result = nn::ops::dropout(&result, 0.2)?;
+
+        // Add
+        let result = ((result + input.clone())? / 3.0)?;
         let result = self.fc1.forward(&result)?;
+        let result = result.relu()?;
+        let result = self.fc2.forward(&result)?;
 
         //let result = nn::ops::softmax(&result, D::Minus1)?;
         let result = result.tanh()?;
-
-        //let result = self.fc2.forward(&result)?;
-
         //let result = nn::ops::softmax(&result, D::Minus1)?;
 
         return Ok(result);
@@ -170,10 +174,10 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     // WARMUP
     // Optimizer settings
     // 1. More epoch when sample size is smaller
-    let epochs = 5000;
-    let initial_lr = 0.0001;
+    let epochs = 3000;
+    let initial_lr = 0.0002;
     let lr = initial_lr;
-    let max_lr = 0.0005;
+    let max_lr = initial_lr * 2.0;
 
     let params = ParamsAdamW {
         lr,
