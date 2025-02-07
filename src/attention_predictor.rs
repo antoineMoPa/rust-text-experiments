@@ -46,27 +46,21 @@ impl Mlp {
         let mut position: Vec<f32> = Vec::new();
 
         for i in 0..CONTEXT_WINDOW {
-            for _j in 0..EMBEDDING_SIZE {
-                position.push(i as f32);
+            for j in 0..EMBEDDING_SIZE {
+                let val = (i as f32) / (10000 as f32).powf(2.0 * (j as f32) / EMBEDDING_SIZE as f32);
+                if i % 2 == 0 {
+                    position.push(val.sin());
+                } else {
+                    position.push(val.cos());
+                }
             }
         }
 
         let position = Tensor::new(position, input.device())?;
 
-        let position = (position / CONTEXT_WINDOW as f64)?;
-        let encoding = (position.clone() * 0.0)?;
-
         let p = (position.clone() * 100.0)?;
-        let encoding = (encoding + p.cos()?)?;
+        let encoding = p.sin()?;
 
-        let p = (position * 2000.0)?;
-        let encoding = (encoding + p.cos()?)?;
-
-        let encoding = encoding.unsqueeze(0)?;
-
-        // let encoding = (encoding * 0.3)?;
-
-        // Repeat to match batch size
         let batch_size = input.dim(0)?;
         let encoding = encoding.repeat(&[batch_size, 1])?;
 
@@ -83,8 +77,6 @@ impl Mlp {
 
         // Scaled dot product attention
         let result = self.scale_dot_product_attention(&q, &k, &v)?;
-
-        let result = result.matmul(&input.t()?)?;
 
         let result = self.fc1.forward(&result)?;
 
