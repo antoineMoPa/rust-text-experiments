@@ -58,11 +58,8 @@ impl Mlp {
 
         let position = Tensor::new(position, input.device())?;
 
-        let p = (position.clone() * 100.0)?;
-        let encoding = p.sin()?;
-
         let batch_size = input.dim(0)?;
-        let encoding = encoding.repeat(&[batch_size, 1])?;
+        let encoding = position.repeat(&[batch_size, 1])?;
 
         return Ok(encoding);
     }
