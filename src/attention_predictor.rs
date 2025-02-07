@@ -32,7 +32,7 @@ impl Mlp {
         Ok(Self { fc1, fc2, q, k, v, dict, var_map })
     }
 
-    fn scale_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor, candle_core::Error> {
+    fn scaled_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor, candle_core::Error> {
         let scale = 1.0 / ((HIDDEN_SIZE) as f64).sqrt();
         let result = q.matmul(&k.t()?)?;
         let result = (result * scale)?;
@@ -73,7 +73,7 @@ impl Mlp {
         let v = input.apply(&self.v)?;
 
         // Scaled dot product attention
-        let result = self.scale_dot_product_attention(&q, &k, &v)?;
+        let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
         let result = self.fc1.forward(&result)?;
 
