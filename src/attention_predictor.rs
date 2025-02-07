@@ -66,7 +66,7 @@ impl Mlp {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         // position encoding
-        //let input = (input + self.position_encoding(input)?)?;
+        let input = (input + self.position_encoding(input)?)?;
 
         let q = input.apply(&self.q)?;
         let k = input.apply(&self.k)?;
@@ -170,7 +170,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     // WARMUP
     // Optimizer settings
     // 1. More epoch when sample size is smaller
-    let epochs = 10000;
+    let epochs = 5000;
     let initial_lr = 0.0001;
     let lr = initial_lr;
     let max_lr = 0.0005;
@@ -203,6 +203,14 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 
         if epoch % 100 == 0 {
             println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
+            // print the first 10 predictions after "the horse"
+            let input = "the horse ".to_string();
+            let mut result = input.clone();
+            for _ in 0..10 {
+                let prediction = model.predict_next_token(result.as_str(), device)?;
+                result = result + prediction.as_str();
+            }
+            println!("the horse: {}", result);
         }
     }
 
