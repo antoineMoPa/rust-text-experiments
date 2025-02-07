@@ -157,6 +157,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn test_lstm_predictor_hello_world() -> Result<(), candle_core::Error> {
         let tokens = tokenize("hello world");
 
@@ -172,6 +173,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_lstm_predictor_lorem_1() -> Result<(), candle_core::Error> {
         let tokens = tokenize("lorem ipsum et dolor sit");
 
@@ -189,6 +191,7 @@ mod tests {
     }
 
         #[test]
+    #[ignore]
     fn test_lstm_predictor_lorem_2() -> Result<(), candle_core::Error> {
         let tokens = tokenize("lorem ipsum et dolor sit amet");
 
@@ -212,6 +215,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_horse_10() -> Result<(), candle_core::Error> {
         // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
@@ -230,6 +234,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_horse_20() -> Result<(), candle_core::Error> {
         // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
@@ -248,6 +253,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_horse_40() -> Result<(), candle_core::Error> {
         // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";

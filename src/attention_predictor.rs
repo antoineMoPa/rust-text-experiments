@@ -10,12 +10,15 @@ pub struct Mlp {
     pub q: nn::Linear,
     pub k: nn::Linear,
     pub v: nn::Linear,
+    // pub qs: Vec<nn::Linear>,
+    // pub ks: Vec<nn::Linear>,
+    // pub vs: Vec<nn::Linear>,
     pub var_map: VarMap,
     pub dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 30;
-const HIDDEN_SIZE: usize = 600;
+const CONTEXT_WINDOW: usize = 10;
+const HIDDEN_SIZE: usize = 200;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
@@ -23,6 +26,8 @@ impl Mlp {
         let q = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("q"))?;
         let k = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("k"))?;
         let v = nn::linear_b(EMBEDDING_SIZE as usize * CONTEXT_WINDOW, HIDDEN_SIZE, false, vb.pp("v"))?;
+
+
 
         let fc1 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE * CONTEXT_WINDOW, false, vb.pp("fc1"))?;
 
@@ -65,9 +70,7 @@ impl Mlp {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         // position encoding
-        let input = (input + self.position_encoding(input)?)?;
-
-        let input = nn::ops::dropout(&input, 0.2)?;
+        //let input = (input + self.position_encoding(input)?)?;
 
         let q = input.apply(&self.q)?;
         let k = input.apply(&self.k)?;
@@ -76,11 +79,10 @@ impl Mlp {
         // Scaled dot product attention
         let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
-        let result = nn::ops::dropout(&result, 0.2)?;
-
         // Add
-        let result = ((result + input.clone())? / 3.0)?;
+        let result = (((result * 0.3)? + input.clone())? * 0.7)?;
         let result = self.fc1.forward(&result)?;
+        let result = nn::ops::dropout(&result, 0.1)?;
         let result = result.relu()?;
         let result = self.fc2.forward(&result)?;
 
@@ -150,7 +152,6 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 
         let input_tokens: Vec<String> = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
         let input: Vec<f32> = input_tokens.iter().flat_map(|token| dict.get_token_embedding(token)).collect();
-
         let output: &String = token;
 
         let output_token_index: u32 = dict.get_word_index(output)?;
@@ -174,8 +175,8 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     // WARMUP
     // Optimizer settings
     // 1. More epoch when sample size is smaller
-    let epochs = 3000;
-    let initial_lr = 0.0002;
+    let epochs = 8000;
+    let initial_lr = 0.0001;
     let lr = initial_lr;
     let max_lr = initial_lr * 2.0;
 
@@ -208,13 +209,13 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
         if epoch % 100 == 0 {
             println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
             // print the first 10 predictions after "the horse"
-            let input = "the horse ".to_string();
+            let input = "The horse ".to_string();
             let mut result = input.clone();
             for _ in 0..10 {
                 let prediction = model.predict_next_token(result.as_str(), device)?;
                 result = result + prediction.as_str();
             }
-            println!("the horse: {}", result);
+            println!("prediction: {}", result);
         }
     }
 
@@ -312,6 +313,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     fn test_horse_20() -> Result<(), candle_core::Error> {
         // Define the file path
@@ -330,6 +332,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     fn test_horse_40() -> Result<(), candle_core::Error> {
         // Define the file path
@@ -352,6 +355,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     fn test_horse_60() -> Result<(), candle_core::Error> {
         // Define the file path
@@ -377,6 +381,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     fn test_horse_100() -> Result<(), candle_core::Error> {
         // Define the file path

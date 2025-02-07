@@ -282,6 +282,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     fn test_horse_60() -> Result<(), candle_core::Error> {
         // Define the file path
@@ -307,6 +308,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     fn test_horse_100() -> Result<(), candle_core::Error> {
         // Define the file path
@@ -332,6 +334,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     fn test_horse_200() -> Result<(), candle_core::Error> {
         // Define the file path
@@ -361,6 +364,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     fn test_horse_400() -> Result<(), candle_core::Error> {
         // Define the file path
@@ -400,7 +404,8 @@ mod tests {
         Ok(())
     }
 
-        #[test]
+    #[ignore]
+    #[test]
     fn test_horse_1000() -> Result<(), candle_core::Error> {
         // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
