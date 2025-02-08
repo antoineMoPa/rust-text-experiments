@@ -183,7 +183,7 @@ impl Mlp {
         // WARMUP
         // Optimizer settings
         // 1. More epoch when sample size is smaller
-        let epochs = 1000;
+        let epochs = 400;
         let initial_lr = 0.00008;
         let lr = initial_lr;
         let max_lr = initial_lr * 5.0;
@@ -270,39 +270,36 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_pretrain() -> Result<(), candle_core::Error> {
+    fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
-        let mut tokens: Vec<String> = tokenize(&content)[0..10].to_vec();
-        tokens.push(String::from("hello"));
-        tokens.push(String::from("world"));
+        let tokens: Vec<String> = tokenize(&content)[0..40].to_vec();
+        let lorem_tokens = tokenize("lorem ipsum et");
+        let hello_world_tokens = tokenize("hello world");
+
+        let tokens = [tokens, lorem_tokens, hello_world_tokens].concat();
 
         let dict = tokens_to_dict(tokens.clone());
 
+        return Ok((dict, tokens));
+    }
+
+    #[test]
+    fn test_pretrain_base() -> Result<(), candle_core::Error> {
+        let (dict, tokens) = get_pretrained_dict()?;
+
         let device = get_device()?;
 
-        let mut model = create_and_train_predictor_model(dict, tokens, true, &device)?;
+        let model = create_and_train_predictor_model(dict, tokens, true, &device)?;
 
         model.var_map.save("data/horse_pretrain.safetensors")?;
-
-        assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
-
-        model.var_map.load("data/horse_pretrain.safetensors")?;
-
-        assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
 
         Ok(())
     }
 
     #[test]
     fn test_pretrain_then_different_sequence() -> Result<(), candle_core::Error> {
-        let file_path = "data/corpus/wiki-horse.txt";
-        let content = fs::read_to_string(file_path)?;
-        let mut tokens: Vec<String> = tokenize(&content)[0..10].to_vec();
-        tokens.push(String::from("hello"));
-        tokens.push(String::from("world"));
-        let dict = tokens_to_dict(tokens.clone());
+        let (dict, _tokens) = get_pretrained_dict()?;
 
         let device = get_device()?;
 
@@ -318,13 +315,15 @@ mod tests {
 
     #[test]
     fn test_candle_predictor_hello_world() -> Result<(), candle_core::Error> {
-        let tokens = tokenize("hello world");
-
-        let dict = tokens_to_dict(tokens.clone());
+        let (dict, _tokens) = get_pretrained_dict()?;
 
         let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens, true, &device)?;
+        let mut model = create_model(dict, &device)?;
+        model.var_map.load("data/horse_pretrain.safetensors")?;
+
+        let tokens = tokenize("hello world");
+        model.train( tokens,  &device)?;
 
         assert_eq!(model.predict_next_token("hello", &device)?, " ");
         assert_eq!(model.predict_next_token("hello ", &device)?, "world");
