@@ -15,8 +15,8 @@ pub struct Mlp {
     pub dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 10;
-const HIDDEN_SIZE: usize = 200;
+const CONTEXT_WINDOW: usize = 3;
+const HIDDEN_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
 
@@ -76,7 +76,7 @@ impl Mlp {
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         // position encoding
         let input = (input + self.position_encoding(input)?)?;
-        let input = nn::ops::dropout(&input, 0.2)?;
+        let input = nn::ops::dropout(&input, 0.8)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
@@ -190,7 +190,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     // WARMUP
     // Optimizer settings
     // 1. More epoch when sample size is smaller
-    let epochs = 4000;
+    let epochs = 400;
     let initial_lr = 0.0001;
     let lr = initial_lr;
     let max_lr = initial_lr * 5.0;
@@ -221,7 +221,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
         // Backpropagation
         optimizer.backward_step(&loss)?;
 
-        if epoch % 100 == 0 {
+        if epoch % 10 == 0 {
             println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
             // print the first 10 predictions after "the horse"
             let input = "The horse ".to_string();
@@ -287,7 +287,7 @@ mod tests {
         Ok(())
     }
 
-        #[test]
+    #[test]
     fn test_candle_predictor_lorem_2() -> Result<(), candle_core::Error> {
         let tokens = tokenize("lorem ipsum et dolor sit amet");
 

@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::prelude::*;
 
 use crate::{
     token_utils::{tokenize, tokens_to_dict},
@@ -10,11 +11,22 @@ mod simple_predictor;
 mod lstm_predictor;
 mod attention_predictor;
 
+fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
+    let file = fs::File::open(file_path)?;
+    let mut content = String::new();
+    let mut handle = file.take(n);
+
+    handle.read_to_string(&mut content)?;
+
+    Ok(content)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read args
-    let file_path = "data/corpus/wiki-horse.txt";
-    let content = fs::read_to_string(file_path)?;
-    let tokens: Vec<String> = tokenize(&content)[0..300].to_vec();
+    let file_path = "data/corpus/blogtext.csv";
+    // read 20k chars of the file
+    let content = read_n_chars(file_path, 4000 * 5)?; // approx 4k words
+    let tokens: Vec<String> = tokenize(&content).to_vec();
     let dict = tokens_to_dict(tokens.clone());
 
     let args: Vec<String> = std::env::args().collect();
@@ -22,12 +34,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let device = get_device()?;
 
+    // idea: pre train with a 300 words
+    // see if it responds well in a number of ways:
+    // can learn hello world
+    // can output a sequence of words + spaces
+    // then train with larger dataset if the model is a good one.
+
     if args[0] == "train" {
         println!("Training model");
 
         let model = create_and_train_predictor_model(dict, tokens, true, &device)?;
 
-        model.var_map.save("data/horse.safetensors")?;
+        model.var_map.save("data/model.safetensors")?;
 
         return Ok(());
     }
@@ -37,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut model = create_and_train_predictor_model(dict, tokens, false, &device)?;
 
-        model.var_map.load("data/horse.safetensors")?;
+        model.var_map.load("data/model.safetensors")?;
 
         let args = args[1..].to_vec();
 
