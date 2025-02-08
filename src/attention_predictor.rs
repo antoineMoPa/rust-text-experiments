@@ -147,7 +147,7 @@ impl Mlp {
         self.run(&input, device)
     }
 
-    pub fn train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
+    pub fn train(&mut self, tokens_chain: Vec<String>, epochs: u32, device: &Device) -> Result<(), candle_core::Error> {
         let mut inputs: Vec<Tensor> = Vec::new();
         let mut targets: Vec<Tensor> = Vec::new();
 
@@ -185,10 +185,9 @@ impl Mlp {
         // WARMUP
         // Optimizer settings
         // 1. More epoch when sample size is smaller
-        let epochs = 400;
-        let initial_lr = 0.00008;
+        let initial_lr = 0.00002;
         let lr = initial_lr;
-        let max_lr = initial_lr * 5.0;
+        let max_lr = initial_lr * 3.0;
 
         let params = ParamsAdamW {
             lr,
@@ -248,7 +247,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let mut model = Mlp::new(dict.clone(), varmap, vb)?;
 
     if train {
-        model.train( tokens_chain, device)?;
+        model.train( tokens_chain, 400, device)?;
     }
 
     Ok(model)
@@ -267,7 +266,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
     let file_path = "data/corpus/wiki-horse.txt";
     let content = fs::read_to_string(file_path)?;
-    let tokens: Vec<String> = tokenize(&content)[0..40].to_vec();
+    let tokens: Vec<String> = tokenize(&content)[0..10].to_vec();
     let lorem_tokens = tokenize("lorem ipsum et");
     let hello_world_tokens = tokenize("hello world");
 
@@ -295,7 +294,7 @@ mod tests {
         model.var_map.load("data/horse_pretrain.safetensors")?;
 
         let tokens = tokenize("hello world");
-        model.train( tokens,  &device)?;
+        model.train( tokens, 1000,  &device)?;
 
         assert_eq!(model.predict_next_token("hello", &device)?, " ");
         assert_eq!(model.predict_next_token("hello ", &device)?, "world");
