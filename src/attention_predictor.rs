@@ -144,98 +144,114 @@ impl Mlp {
 
         self.run(&input, device)
     }
-}
 
-pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, train: bool, device: &Device) -> Result<Mlp, candle_core::Error> {
-    let mut inputs: Vec<Tensor> = Vec::new();
-    let mut targets: Vec<Tensor> = Vec::new();
+    pub fn train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
+        let mut inputs: Vec<Tensor> = Vec::new();
+        let mut targets: Vec<Tensor> = Vec::new();
 
-    // pad token chain with context window zeros
-    let mut padding: Vec<String> = Vec::new();
-    let mut tokens_chain = tokens_chain.clone();
+        // pad token chain with context window zeros
+        let mut padding: Vec<String> = Vec::new();
+        let mut tokens_chain = tokens_chain.clone();
 
-    for _ in 0..CONTEXT_WINDOW {
-        padding.push(" ".to_string());
-        tokens_chain.insert(0, " ".to_string());
-    }
-
-    // iterate over tokens_chain
-    for (index, token) in tokens_chain.iter().enumerate() {
-        if index < CONTEXT_WINDOW {
-            continue;
+        for _ in 0..CONTEXT_WINDOW {
+            padding.push(" ".to_string());
+            tokens_chain.insert(0, " ".to_string());
         }
 
-        let input_tokens: Vec<String> = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
-        let input: Vec<f32> = input_tokens.iter().flat_map(|token| dict.get_token_embedding(token)).collect();
-        let output: &String = token;
+        // iterate over tokens_chain
+        for (index, token) in tokens_chain.iter().enumerate() {
+            if index < CONTEXT_WINDOW {
+                continue;
+            }
 
-        let output_token_index: u32 = dict.get_word_index(output)?;
+            let input_tokens: Vec<String> = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
+            let input: Vec<f32> = input_tokens.iter().flat_map(|token| self.dict.get_token_embedding(token)).collect();
+            let output: &String = token;
 
-        let input = Tensor::new(input, &device)?;
-        let target = one_hot(Tensor::new(output_token_index, &device)?, dict.len(), 1.0 as f32, 0.0 as f32)?;
+            let output_token_index: u32 = self.dict.get_word_index(output)?;
 
-        inputs.push(input);
-        targets.push(target);
+            let input = Tensor::new(input, &device)?;
+            let target = one_hot(Tensor::new(output_token_index, &device)?, self.dict.len(), 1.0 as f32, 0.0 as f32)?;
+
+            inputs.push(input);
+            targets.push(target);
+        }
+
+        let inputs = Tensor::stack(&inputs, 0)?;
+        let targets = Tensor::stack(&targets, 0)?;
+
+        // WARMUP
+        // Optimizer settings
+        // 1. More epoch when sample size is smaller
+        let epochs = 1000;
+        let initial_lr = 0.00008;
+        let lr = initial_lr;
+        let max_lr = initial_lr * 5.0;
+
+        let params = ParamsAdamW {
+            lr,
+            ..Default::default()
+        };
+        let mut optimizer = candle_nn::AdamW::new(self.var_map.all_vars(), params)?;
+
+        // Training loop
+        for epoch in 0..epochs {
+            // Forward pass
+            let predictions = self.forward(&inputs)?;
+            let lr = initial_lr + (max_lr - initial_lr) * (epoch as f64 / epochs as f64);
+            optimizer.set_learning_rate(lr);
+
+            // Compute loss
+            // let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
+            // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
+            let loss = nn::loss::mse(&predictions, &targets)?;
+
+            // Backpropagation
+            optimizer.backward_step(&loss)?;
+
+            if epoch % 20 == 0 {
+                println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
+                // print the first 10 predictions after "the horse"
+                let input = "The horse ".to_string();
+                let mut result = input.clone();
+                for _ in 0..10 {
+                    let prediction = self.predict_next_token(result.as_str(), device)?;
+                    result = result + prediction.as_str();
+                }
+                println!("prediction: {}", result);
+            }
+        }
+
+        Ok(())
     }
 
-    let inputs = Tensor::stack(&inputs, 0)?;
-    let targets = Tensor::stack(&targets, 0)?;
+}
 
+pub fn create_model(dict: Dict, device: &Device) -> Result<Mlp, candle_core::Error> {
     // Create Varbuilder
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    let model = Mlp::new(dict, varmap, vb)?;
+    let model = Mlp::new(dict.clone(), varmap, vb)?;
 
-    // WARMUP
-    // Optimizer settings
-    // 1. More epoch when sample size is smaller
-    let epochs = 400;
-    let initial_lr = 0.0001;
-    let lr = initial_lr;
-    let max_lr = initial_lr * 5.0;
-
-    let params = ParamsAdamW {
-        lr,
-        ..Default::default()
-    };
-    let mut optimizer = candle_nn::AdamW::new(model.var_map.all_vars(), params)?;
-
-    if !train {
-        return Ok(model);
-    }
+    Ok(model)
+}
 
 
-    // Training loop
-    for epoch in 0..epochs {
-        // Forward pass
-        let predictions = model.forward(&inputs)?;
-        let lr = initial_lr + (max_lr - initial_lr) * (epoch as f64 / epochs as f64);
-        optimizer.set_learning_rate(lr);
+pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, train: bool, device: &Device) -> Result<Mlp, candle_core::Error> {
+    // Create Varbuilder
+    let varmap = VarMap::new();
+    let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-        // Compute loss
-        // let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
-        // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-        let loss = nn::loss::mse(&predictions, &targets)?;
+    let mut model = Mlp::new(dict.clone(), varmap, vb)?;
 
-        // Backpropagation
-        optimizer.backward_step(&loss)?;
-
-        if epoch % 10 == 0 {
-            println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
-            // print the first 10 predictions after "the horse"
-            let input = "The horse ".to_string();
-            let mut result = input.clone();
-            for _ in 0..10 {
-                let prediction = model.predict_next_token(result.as_str(), device)?;
-                result = result + prediction.as_str();
-            }
-            println!("prediction: {}", result);
-        }
+    if train {
+        model.train( tokens_chain, device)?;
     }
 
     Ok(model)
 }
+
 
 pub fn get_device() -> Result<Device, candle_core::Error> {
     let device = Device::new_metal(0)?;
@@ -253,6 +269,52 @@ mod tests {
     use crate::token_utils::{tokenize, tokens_to_dict};
 
     use super::*;
+
+    #[test]
+    fn test_pretrain() -> Result<(), candle_core::Error> {
+        let file_path = "data/corpus/wiki-horse.txt";
+        let content = fs::read_to_string(file_path)?;
+        let mut tokens: Vec<String> = tokenize(&content)[0..10].to_vec();
+        tokens.push(String::from("hello"));
+        tokens.push(String::from("world"));
+
+        let dict = tokens_to_dict(tokens.clone());
+
+        let device = get_device()?;
+
+        let mut model = create_and_train_predictor_model(dict, tokens, true, &device)?;
+
+        model.var_map.save("data/horse_pretrain.safetensors")?;
+
+        assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
+
+        model.var_map.load("data/horse_pretrain.safetensors")?;
+
+        assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pretrain_then_different_sequence() -> Result<(), candle_core::Error> {
+        let file_path = "data/corpus/wiki-horse.txt";
+        let content = fs::read_to_string(file_path)?;
+        let mut tokens: Vec<String> = tokenize(&content)[0..10].to_vec();
+        tokens.push(String::from("hello"));
+        tokens.push(String::from("world"));
+        let dict = tokens_to_dict(tokens.clone());
+
+        let device = get_device()?;
+
+        let mut model = create_model(dict, &device)?;
+        model.var_map.load("data/horse_pretrain.safetensors")?;
+        let tokens = tokenize("hello world");
+        model.train( tokens,  &device)?;
+
+        assert_eq!(model.predict_next_token("hello", &device)?, " ");
+        assert_eq!(model.predict_next_token("hello ", &device)?, "world");
+        Ok(())
+    }
 
     #[test]
     fn test_candle_predictor_hello_world() -> Result<(), candle_core::Error> {
@@ -328,7 +390,6 @@ mod tests {
         Ok(())
     }
 
-    #[ignore]
     #[test]
     fn test_horse_20() -> Result<(), candle_core::Error> {
         // Define the file path
