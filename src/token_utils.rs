@@ -16,14 +16,12 @@ impl GetTokenEmbedding for Dict {
         embedding.push(value);
 
         while embedding.len() < EMBEDDING_SIZE {
-            for (index, letter) in token.chars().enumerate() {
+            for (_index, letter) in token.chars().enumerate() {
                 if embedding.len() >= EMBEDDING_SIZE {
                     break;
                 }
 
                 let letter_value = letter as i32 as f32 / (EMBEDDING_SIZE as f32);
-
-                //let letter_value = letter_value + (index as f32) / (EMBEDDING_SIZE as f32);
 
                 embedding.push(letter_value.cos());
             }
