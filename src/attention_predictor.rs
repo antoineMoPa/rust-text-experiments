@@ -15,7 +15,7 @@ pub struct Mlp {
     pub dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 3;
+const CONTEXT_WINDOW: usize = 5;
 const HIDDEN_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
@@ -76,7 +76,7 @@ impl Mlp {
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         // position encoding
         let input = (input + self.position_encoding(input)?)?;
-        let input = nn::ops::dropout(&input, 0.8)?;
+        let input = nn::ops::dropout(&input, 0.4)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
