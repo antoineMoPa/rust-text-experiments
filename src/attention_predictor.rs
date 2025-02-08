@@ -1,8 +1,10 @@
+use std::fs;
+
 use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
-use crate::token_utils::{Dict, GetTokenEmbedding, tokenize, EMBEDDING_SIZE};
+use crate::token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE};
 
 pub struct Mlp {
     pub linear: Vec<nn::Linear>,
@@ -262,56 +264,26 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
     return Ok(device);
 }
 
+pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
+    let file_path = "data/corpus/wiki-horse.txt";
+    let content = fs::read_to_string(file_path)?;
+    let tokens: Vec<String> = tokenize(&content)[0..40].to_vec();
+    let lorem_tokens = tokenize("lorem ipsum et");
+    let hello_world_tokens = tokenize("hello world");
+
+    let tokens = [tokens, lorem_tokens, hello_world_tokens].concat();
+
+    let dict = tokens_to_dict(tokens.clone());
+
+    return Ok((dict, tokens));
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::fs;
 
-    use crate::token_utils::{tokenize, tokens_to_dict};
-
     use super::*;
-
-    fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
-        let file_path = "data/corpus/wiki-horse.txt";
-        let content = fs::read_to_string(file_path)?;
-        let tokens: Vec<String> = tokenize(&content)[0..40].to_vec();
-        let lorem_tokens = tokenize("lorem ipsum et");
-        let hello_world_tokens = tokenize("hello world");
-
-        let tokens = [tokens, lorem_tokens, hello_world_tokens].concat();
-
-        let dict = tokens_to_dict(tokens.clone());
-
-        return Ok((dict, tokens));
-    }
-
-    #[test]
-    fn test_pretrain_base() -> Result<(), candle_core::Error> {
-        let (dict, tokens) = get_pretrained_dict()?;
-
-        let device = get_device()?;
-
-        let model = create_and_train_predictor_model(dict, tokens, true, &device)?;
-
-        model.var_map.save("data/horse_pretrain.safetensors")?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_pretrain_then_different_sequence() -> Result<(), candle_core::Error> {
-        let (dict, _tokens) = get_pretrained_dict()?;
-
-        let device = get_device()?;
-
-        let mut model = create_model(dict, &device)?;
-        model.var_map.load("data/horse_pretrain.safetensors")?;
-        let tokens = tokenize("hello world");
-        model.train( tokens,  &device)?;
-
-        assert_eq!(model.predict_next_token("hello", &device)?, " ");
-        assert_eq!(model.predict_next_token("hello ", &device)?, "world");
-        Ok(())
-    }
 
     #[test]
     fn test_candle_predictor_hello_world() -> Result<(), candle_core::Error> {

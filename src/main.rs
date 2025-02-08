@@ -1,6 +1,8 @@
 use std::fs;
 use std::io::prelude::*;
 
+use attention_predictor::get_pretrained_dict;
+
 use crate::{
     token_utils::{tokenize, tokens_to_dict},
     attention_predictor::{create_and_train_predictor_model, get_device}
@@ -20,7 +22,6 @@ fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
 
     Ok(content)
 }
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read args
     let file_path = "data/corpus/blogtext.csv";
@@ -67,6 +68,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             input = input + pred.as_str();
             print!("{}", pred);
         }
+    }
+
+    if args[0] == "pretrain" {
+        println!("Pretraining test model");
+
+        let (dict, tokens) = get_pretrained_dict()?;
+
+        let device = get_device()?;
+
+        let model = create_and_train_predictor_model(dict, tokens, true, &device)?;
+
+        model.var_map.save("data/horse_pretrain.safetensors")?;
+
+        return Ok(());
     }
 
     println!("Please provide a valid command: 'train' or 'run'");
