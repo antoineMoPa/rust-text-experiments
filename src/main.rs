@@ -22,6 +22,7 @@ fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
 
     Ok(content)
 }
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read args
     let file_path = "data/corpus/blogtext.csv";

@@ -99,7 +99,6 @@ impl Mlp {
 
         // Add
         let result = self.fc1.forward(&result)?;
-        let result = nn::ops::dropout(&result, 0.1)?;
         let result = result.relu()?;
         let result = self.fc2.forward(&result)?;
 
@@ -128,6 +127,8 @@ impl Mlp {
         let input = Tensor::new(input, device)?.unsqueeze(0)?;
 
         let output_prob = self.forward(&input)?;
+        let output_prob = (output_prob / 100.0)?;
+
         let output_prob_max_index = output_prob.argmax(1)?;
         let n = output_prob_max_index.to_vec1::<u32>()?[0];
 
@@ -308,7 +309,7 @@ mod tests {
         model.var_map.load("data/horse_pretrain.safetensors")?;
 
         let tokens = tokenize("hello world");
-        model.train( tokens, 400, "hello",  &device)?;
+        model.train( tokens, 250, "hello",  &device)?;
 
         assert_eq!(model.predict_next_token("hello", &device)?, " ");
         assert_eq!(model.predict_next_token("hello ", &device)?, "world");
