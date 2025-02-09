@@ -211,8 +211,11 @@ impl Mlp {
         };
         let mut optimizer = candle_nn::AdamW::new(self.var_map.all_vars(), params)?;
 
+        let mut good_index: i32 = -1;
+
         // Training loop
-        for epoch in 0..epochs {
+        let mut epoch: u32 = 0;
+        while epoch < epochs {
             // Forward pass
             let predictions = self.forward(&inputs)?;
             let lr = initial_lr + (max_lr - initial_lr) * (epoch as f64 / epochs as f64);
@@ -229,13 +232,34 @@ impl Mlp {
             if epoch % 10 == 0 {
                 println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
                 // print the first 10 predictions after "the horse"
-                let mut result = String::from(test_str);
-                for _ in 0..10 {
+                let test_str_tokens = tokenize(test_str);
+                let end = test_str_tokens.len().min(3);
+                let test_str_start = test_str_tokens[0..end].join("");
+
+                let mut result = test_str_start;
+                for _ in end..test_str.len() {
                     let prediction = self.predict_next_token(result.as_str(), device)?;
                     result = result + prediction.as_str();
                 }
+
+                if epoch % 25 == 0 {
+                    if result[0..test_str.len()].to_string() == test_str {
+                        println!("model is GOOD");
+                        self.var_map.save("data/good.safetensors")?;
+                        good_index = epoch as i32;
+                    }
+                    else {
+                        println!("model is BAD result='{}' test_str result='{}'", result, test_str);
+                        if good_index != -1 {
+                            println!("loading good model, going back to epoch {}", good_index);
+                            self.var_map.load("data/good.safetensors")?;
+                            epoch = good_index as u32;
+                        }
+                    }
+                }
                 println!("prediction: {}", result);
             }
+            epoch += 1;
         }
 
         Ok(())
@@ -308,8 +332,9 @@ mod tests {
         let mut model = create_model(dict, &device)?;
         model.var_map.load("data/horse_pretrain.safetensors")?;
 
-        let tokens = tokenize("hello world");
-        model.train( tokens, 250, "hello",  &device)?;
+        let test_str = "hello world";
+        let tokens = tokenize(test_str);
+        model.train( tokens, 250, test_str,  &device)?;
 
         assert_eq!(model.predict_next_token("hello", &device)?, " ");
         assert_eq!(model.predict_next_token("hello ", &device)?, "world");
@@ -319,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_candle_predictor_lorem() -> Result<(), candle_core::Error> {
-        let tokens = tokenize("lorem ipsum et");
+        let test_str = "lorem ipsum et";
 
         let (dict, _tokens) = get_pretrained_dict()?;
 
@@ -328,7 +353,8 @@ mod tests {
         let mut model = create_model(dict, &device)?;
         model.var_map.load("data/horse_pretrain.safetensors")?;
 
-        model.train( tokens,800, "lorem",  &device)?;
+        let tokens = tokenize(test_str);
+        model.train( tokens, 250, test_str,  &device)?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
@@ -339,7 +365,7 @@ mod tests {
 
     #[test]
     fn test_candle_predictor_lorem_2() -> Result<(), candle_core::Error> {
-        let tokens = tokenize("lorem ipsum et dolor sit amet");
+        let test_str = "lorem ipsum et dolor sit amet";
 
         let (dict, _tokens) = get_pretrained_dict()?;
 
@@ -348,7 +374,8 @@ mod tests {
         let mut model = create_model(dict, &device)?;
         model.var_map.load("data/horse_pretrain.safetensors")?;
 
-        model.train( tokens, 1500, "lorem",  &device)?;
+        let tokens = tokenize(test_str);
+        model.train( tokens, 1500, test_str,  &device)?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
