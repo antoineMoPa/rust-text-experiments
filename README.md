@@ -38,7 +38,8 @@ subspecies the subspecies caballus  The horse (Equus ferus caballus) is a domest
 This repo is meant to be used as a test playground for now, so just run tests:
 
 ```bash
-cargo test
+cargo run pretrain
+cargo test attention -- --nocapture --test-threads 1
 ```
 
 ## License
