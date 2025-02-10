@@ -164,9 +164,46 @@ impl Mlp {
         return is_good;
     }
 
-    pub fn training_loop(&mut self, inputs: Tensor, targets: Tensor, test_str: &str, epochs: u32, device: &Device) -> Result<(), candle_core::Error> {
+    pub fn simple_training_loop(&mut self, inputs: Tensor, targets: Tensor, initial_lr: f64, epochs: u32) -> Result<(), candle_core::Error> {
         // 1. More epoch when sample size is smaller
-        let initial_lr = 0.00002;
+        let lr = initial_lr;
+        let max_lr = initial_lr * 6.0;
+
+        let params = ParamsAdamW {
+            lr,
+            ..Default::default()
+        };
+        let mut optimizer = candle_nn::AdamW::new(self.var_map.all_vars(), params)?;
+        let mut epoch: u32 = 0;
+
+        while epoch < epochs {
+            // Forward pass
+            let predictions = self.forward(&inputs)?;
+            let lr = initial_lr + (max_lr - initial_lr) * (epoch as f64 / epochs as f64);
+            optimizer.set_learning_rate(lr);
+
+            // Compute loss
+            // binary cross-entropy is not supported on metal gpu
+            // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
+            let loss = nn::loss::mse(&predictions, &targets)?;
+
+            // Backpropagation
+            optimizer.backward_step(&loss)?;
+
+            if epoch % 20 == 0 {
+                println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
+
+            }
+            epoch += 1;
+        }
+
+        Ok(())
+    }
+
+
+    pub fn good_bad_training_loop(&mut self, inputs: Tensor, targets: Tensor, test_str: &str, epochs: u32, device: &Device) -> Result<(), candle_core::Error> {
+        // 1. More epoch when sample size is smaller
+        let initial_lr = 0.00003;
         let lr = initial_lr;
         let max_lr = initial_lr * 6.0;
 
@@ -191,7 +228,7 @@ impl Mlp {
             optimizer.set_learning_rate(lr);
 
             // Compute loss
-            // let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
+            // binary cross-entropy is not supported on metal gpu
             // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
             let loss = nn::loss::mse(&predictions, &targets)?;
 
@@ -219,10 +256,17 @@ impl Mlp {
                     amount_bad += 1;
                     amount_good = 0;
 
-                    if good_index != -1 && (amount_bad > total_good_yet) {
+                    let should_load_last_good =
+                        epoch > 50 &&
+                        good_index != -1 &&
+                        (amount_bad > total_good_yet ||
+                         amount_bad >= 4);
+
+                    if should_load_last_good {
                         println!("loading good model, going back to epoch {}", good_index);
                         self.var_map.load("data/good.safetensors")?;
-                        epoch = good_index as u32;
+                        // epoch = good_index as u32;
+                        amount_bad = 0;
                     }
                 }
             }
@@ -239,7 +283,7 @@ impl Mlp {
         Ok(())
     }
 
-    pub fn train(&mut self, tokens_chain: Vec<String>, epochs: u32, test_str: &str, device: &Device) -> Result<(), candle_core::Error> {
+    pub fn gen_training_data(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(Tensor, Tensor), candle_core::Error> {
         let mut inputs: Vec<Tensor> = Vec::new();
         let mut targets: Vec<Tensor> = Vec::new();
 
@@ -289,11 +333,27 @@ impl Mlp {
         let inputs = Tensor::stack(&inputs, 0)?;
         let targets = Tensor::stack(&targets, 0)?;
 
-        self.training_loop(inputs, targets, test_str, epochs, device)?;
+
+        return Ok((inputs, targets));
+    }
+
+    pub fn train(&mut self, tokens_chain: Vec<String>, epochs: u32, test_str: &str, device: &Device) -> Result<(), candle_core::Error> {
+
+        let (inputs, targets) = self.gen_training_data(tokens_chain, device)?;
+
+        self.good_bad_training_loop(inputs, targets, test_str, epochs, device)?;
 
         Ok(())
     }
 
+
+    pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, initial_lr: f64, device: &Device) -> Result<(), candle_core::Error> {
+        let (inputs, targets) = self.gen_training_data(tokens_chain, device)?;
+
+        self.simple_training_loop(inputs, targets, initial_lr, epochs)?;
+
+        Ok(())
+    }
 }
 
 pub fn create_model(dict: Dict, device: &Device) -> Result<Mlp, candle_core::Error> {
@@ -334,7 +394,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
     let file_path = "data/corpus/wiki-horse.txt";
     let content = fs::read_to_string(file_path)?;
-    let tokens: Vec<String> = tokenize(&content)[0..10].to_vec();
+    let tokens: Vec<String> = tokenize(&content)[0..25].to_vec();
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
 

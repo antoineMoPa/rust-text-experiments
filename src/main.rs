@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read args
     let file_path = "data/corpus/blogtext.csv";
     // read 20k chars of the file
-    let content = read_n_chars(file_path, 4000 * 5)?; // approx 4k words
+    let content = read_n_chars(file_path, 100 * 5)?; // approximating a word is 5 chars
     let tokens: Vec<String> = tokenize(&content).to_vec();
     let dict = tokens_to_dict(tokens.clone());
 
@@ -45,7 +45,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "train" {
         println!("Training model");
 
-        let model = create_and_train_predictor_model(dict, tokens, true, &device)?;
+        let device = get_device()?;
+
+        let mut model = create_model(dict, &device)?;
+
+        model.simple_train(tokens, 400, 0.0001, &device)?;
 
         model.var_map.save("data/model.safetensors")?;
 
@@ -79,7 +83,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let device = get_device()?;
 
         let mut model = create_model(dict, &device)?;
-        model.train(tokens, 400, "The horse", &device)?;
+
+        model.simple_train(tokens, 200, 0.0001, &device)?;
 
         model.var_map.save("data/horse_pretrain.safetensors")?;
 
