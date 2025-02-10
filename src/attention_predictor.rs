@@ -21,7 +21,7 @@ pub struct Mlp {
 const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
-const HIDDEN_SIZE: usize = 1024;
+const HIDDEN_SIZE: usize = 2048;
 
 impl Mlp {
     pub fn save_to_path(&self, path: &str) {
@@ -51,7 +51,7 @@ impl Mlp {
         Ok(mlp)
     }
 
-    pub fn load_inplace_from_path(&mut self, path: &str, device: &Device) -> Result<(), Error> {
+    pub fn load_inplace_from_path(&mut self, path: &str) -> Result<(), Error> {
         let dict_path = format!("{}.dict", path);
         let file = fs::File::open(dict_path).unwrap();
         let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
@@ -64,7 +64,6 @@ impl Mlp {
 
         Ok(())
     }
-
 
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
         let mut linear: Vec<nn::Linear> = Vec::new();
@@ -121,7 +120,7 @@ impl Mlp {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let input = (input + self.position_encoding(input)?)?;
-        let input = nn::ops::dropout(&input, 0.4)?;
+        let input = nn::ops::dropout(&input, 0.2)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
@@ -245,9 +244,9 @@ impl Mlp {
 
     pub fn good_bad_training_loop(&mut self, inputs: Tensor, targets: Tensor, test_str: &str, epochs: u32, device: &Device) -> Result<(), candle_core::Error> {
         // 1. More epoch when sample size is smaller
-        let initial_lr = 0.00003;
+        let initial_lr = 0.00002;
         let lr = initial_lr;
-        let max_lr = initial_lr * 6.0;
+        let max_lr = initial_lr * 2.0;
 
         let params = ParamsAdamW {
             lr,
@@ -301,12 +300,12 @@ impl Mlp {
                     let should_load_last_good =
                         epoch > 50 &&
                         good_index != -1 &&
-                        (amount_bad > total_good_yet ||
+                        (amount_bad > total_good_yet &&
                          amount_bad >= 5);
 
                     if should_load_last_good {
                         println!("loading good model, going back to epoch {}", good_index);
-                        self.load_inplace_from_path("data/good", device)?;
+                        self.load_inplace_from_path("data/good")?;
                         // epoch = good_index as u32;
                         amount_bad = 0;
                     }
@@ -373,7 +372,7 @@ impl Mlp {
             let output_token_index: u32 = self.dict.get_word_index(&output)?;
 
             let input = Tensor::new(input, &device)?;
-            let target = one_hot(Tensor::new(output_token_index, &device)?, self.dict.len(), 1.0 as f32, 0.0 as f32)?;
+            let target = one_hot(Tensor::new(output_token_index, &device)?, self.dict.len(), 0.95 as f32, 0.0 as f32)?;
 
             inputs.push(input);
             targets.push(target);
@@ -443,7 +442,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
     let file_path = "data/corpus/wiki-horse.txt";
     let content = fs::read_to_string(file_path)?;
-    let tokens: Vec<String> = tokenize(&content)[0..25].to_vec();
+    let tokens: Vec<String> = tokenize(&content)[0..50].to_vec();
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
 

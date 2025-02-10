@@ -4,7 +4,7 @@ use std::io::prelude::*;
 use attention_predictor::{create_model, get_pretrained_dict};
 
 use crate::{
-    token_utils::{tokenize, tokens_to_dict, Dict},
+    token_utils::{tokenize, tokens_to_dict},
     attention_predictor::{create_and_train_predictor_model, get_device, Mlp}
 };
 
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut model = create_model(dict, &device)?;
 
-        model.simple_train(tokens, 250, 0.0001, &device)?;
+        model.simple_train(tokens, 150, 0.00008, &device)?;
 
         model.var_map.save("data/horse_pretrain.safetensors")?;
 
