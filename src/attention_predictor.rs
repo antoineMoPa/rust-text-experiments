@@ -18,7 +18,7 @@ pub struct Mlp {
     pub dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 7;
+const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
 const HIDDEN_SIZE: usize = 1024;
