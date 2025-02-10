@@ -13,6 +13,7 @@ pub struct Mlp {
     pub vs: Vec<nn::Linear>,
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
+    pub fc3: nn::Linear,
     pub var_map: VarMap,
     pub dict: Dict,
 }
@@ -38,9 +39,10 @@ impl Mlp {
 
         let fc1 = nn::linear_b(INPUT_SIZE * NUM_ATTENTION_HEADS, HIDDEN_SIZE, false, vb.pp("fc1"))?;
 
-        let fc2 = nn::linear_b(HIDDEN_SIZE, dict.len(), false, vb.pp("fc2"))?;
+        let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp("fc2"))?;
+        let fc3 = nn::linear_b(HIDDEN_SIZE, dict.len(), false, vb.pp("fc3"))?;
 
-        Ok(Self { linear, qs, ks, fc1, fc2, vs, dict, var_map })
+        Ok(Self { linear, qs, ks, fc1, fc2, fc3, vs, dict, var_map })
     }
 
     fn scaled_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -76,7 +78,6 @@ impl Mlp {
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        // position encoding
         let input = (input + self.position_encoding(input)?)?;
         let input = nn::ops::dropout(&input, 0.4)?;
 
@@ -97,14 +98,13 @@ impl Mlp {
 
         let result = Tensor::cat(&results, D::Minus1)?;
 
-        // Add
         let result = self.fc1.forward(&result)?;
         let result = result.relu()?;
         let result = self.fc2.forward(&result)?;
+        let result = result.relu()?;
+        let result = self.fc3.forward(&result)?;
 
-        //let result = nn::ops::softmax(&result, D::Minus1)?;
         let result = result.tanh()?;
-        //let result = nn::ops::softmax(&result, D::Minus1)?;
 
         return Ok(result);
     }
