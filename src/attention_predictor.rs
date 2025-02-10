@@ -18,7 +18,7 @@ pub struct Mlp {
     pub dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 5;
+const CONTEXT_WINDOW: usize = 6;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
 const HIDDEN_SIZE: usize = 600;
@@ -247,8 +247,8 @@ impl Mlp {
                     amount_bad = 0;
                     amount_good += 1;
 
-                    if amount_good >= 8 {
-                        println!("Model, is good 8 times - stopping training.");
+                    if amount_good >= 5 {
+                        println!("Model, is good 5 times - stopping training.");
                         break;
                     }
                 }
