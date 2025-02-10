@@ -423,7 +423,7 @@ mod tests {
 
         let test_str = "hello world";
         let tokens = tokenize(test_str);
-        model.train( tokens, 250, test_str,  &device)?;
+        model.train(tokens, 250, test_str,  &device)?;
 
         assert_eq!(model.predict_next_token("hello", &device)?, " ");
         assert_eq!(model.predict_next_token("hello ", &device)?, "world");
@@ -443,7 +443,7 @@ mod tests {
         model.var_map.load("data/horse_pretrain.safetensors")?;
 
         let tokens = tokenize(test_str);
-        model.train( tokens, 500, test_str,  &device)?;
+        model.train(tokens, 500, test_str,  &device)?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
@@ -465,7 +465,7 @@ mod tests {
 
         let tokens = tokenize(test_str);
         let test_str = tokens[0..5].to_vec().join("");
-        model.train( tokens, 500, test_str.as_str(),  &device)?;
+        model.train(tokens, 500, test_str.as_str(),  &device)?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
@@ -484,17 +484,16 @@ mod tests {
     fn test_horse_10() -> Result<(), candle_core::Error> {
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
-        let tokens: Vec<String> = tokenize(&content)[0..10].to_vec();
+        let (dict, tokens) = get_pretrained_dict()?;
+        let tokens = tokens[0..10].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
-
-        let dict = tokens_to_dict(tokens.clone());
 
         let device = get_device()?;
 
         let mut model = create_model(dict, &device)?;
         model.var_map.load("data/horse_pretrain.safetensors")?;
 
-        model.train( tokens, 500, test_str.as_str(),  &device)?;
+        model.train(tokens, 500, test_str.as_str(),  &device)?;
 
         assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
 
@@ -505,10 +504,9 @@ mod tests {
     fn test_horse_20() -> Result<(), candle_core::Error> {
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
-        let tokens: Vec<String> = tokenize(&content)[0..20].to_vec();
+        let (dict, tokens) = get_pretrained_dict()?;
+        let tokens = tokens[0..20].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
-
-        let dict = tokens_to_dict(tokens.clone());
 
         let device = get_device()?;
 
@@ -528,9 +526,8 @@ mod tests {
         // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
-        let tokens: Vec<String> = tokenize(&content)[0..40].to_vec();
-
-        let dict = tokens_to_dict(tokens.clone());
+        let (dict, tokens) = get_pretrained_dict()?;
+        let tokens = tokens[0..40].to_vec();
 
         let device = get_device()?;
 
@@ -551,7 +548,8 @@ mod tests {
         // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
-        let tokens: Vec<String> = tokenize(&content)[0..60].to_vec();
+        let (dict, tokens) = get_pretrained_dict()?;
+        let tokens = tokens[0..40].to_vec();
 
         let dict = tokens_to_dict(tokens.clone());
 
