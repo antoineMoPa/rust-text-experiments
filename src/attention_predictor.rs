@@ -352,9 +352,21 @@ impl Mlp {
 
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, initial_lr: f64, device: &Device) -> Result<(), candle_core::Error> {
-        let (inputs, targets) = self.gen_training_data(tokens_chain, device)?;
+        let token_batch_size = 40;
+        let num_batches = tokens_chain.len() / token_batch_size;
 
-        self.simple_training_loop(inputs, targets, initial_lr, epochs)?;
+        for i in 0..epochs {
+            println!("Global epoch {}/{}", i, epochs);
+            for j in 0..num_batches {
+                let start = j * token_batch_size;
+                let end = (j + 1) * token_batch_size;
+                let tokens = tokens_chain[start..end].to_vec();
+
+                let (inputs, targets) = self.gen_training_data(tokens, device)?;
+
+                self.simple_training_loop(inputs, targets, initial_lr, 30)?;
+            }
+        }
 
         Ok(())
     }
@@ -439,7 +451,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
     let file_path = "data/corpus/wiki-horse.txt";
     let content = fs::read_to_string(file_path)?;
-    let tokens: Vec<String> = tokenize(&content)[0..50].to_vec();
+    let tokens: Vec<String> = tokenize(&content)[0..75].to_vec();
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
 

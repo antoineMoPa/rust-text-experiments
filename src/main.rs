@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut model = create_model(dict, &device)?;
 
-        model.simple_train(tokens, 150, 0.00008, &device)?;
+        model.simple_train(tokens, 5, 0.00008, &device)?;
 
         model.var_map.save("data/horse_pretrain.safetensors")?;
 
