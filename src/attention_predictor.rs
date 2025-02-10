@@ -148,6 +148,97 @@ impl Mlp {
         self.run(&input, device)
     }
 
+    pub fn is_good(&self, test_str: &str, device: &Device) -> bool {
+        let mut is_good = true;
+        let tokens = tokenize(test_str);
+
+        for i in 1..(tokens.len()) {
+            let prediction = self.predict_next_token(tokens[0..i].join("").as_str(), device).unwrap();
+
+            if prediction != tokens[i] {
+                is_good = false;
+                break;
+            }
+        }
+
+        return is_good;
+    }
+
+    pub fn training_loop(&mut self, inputs: Tensor, targets: Tensor, test_str: &str, epochs: u32, device: &Device) -> Result<(), candle_core::Error> {
+        // 1. More epoch when sample size is smaller
+        let initial_lr = 0.00002;
+        let lr = initial_lr;
+        let max_lr = initial_lr * 6.0;
+
+        let params = ParamsAdamW {
+            lr,
+            ..Default::default()
+        };
+        let mut optimizer = candle_nn::AdamW::new(self.var_map.all_vars(), params)?;
+
+        let mut good_index: i32 = -1;
+
+        // Training loop
+        let mut epoch: u32 = 0;
+        let mut total_good_yet: u32 = 0;
+        let mut amount_good: u32 = 0;
+        let mut amount_bad: u32 = 0;
+
+        while epoch < epochs {
+            // Forward pass
+            let predictions = self.forward(&inputs)?;
+            let lr = initial_lr + (max_lr - initial_lr) * (epoch as f64 / epochs as f64);
+            optimizer.set_learning_rate(lr);
+
+            // Compute loss
+            // let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
+            // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
+            let loss = nn::loss::mse(&predictions, &targets)?;
+
+            // Backpropagation
+            optimizer.backward_step(&loss)?;
+
+            if epoch % 10 == 0 {
+                let is_good = self.is_good(test_str, device);
+                let is_good_str = if is_good { "GOOD" } else { "BAD" };
+                println!("Epoch {:6}: Loss = {:.6} Lr = {:.6} [{}]", epoch, loss.to_vec0::<f32>()?, lr, is_good_str);
+
+                if is_good {
+                    self.var_map.save("data/good.safetensors")?;
+                    total_good_yet += 1;
+                    good_index = epoch as i32;
+                    amount_bad = 0;
+                    amount_good += 1;
+
+                    if amount_good >= 8 {
+                        println!("Model, is good 8 times - stopping training.");
+                        break;
+                    }
+                }
+                else {
+                    amount_bad += 1;
+                    amount_good = 0;
+
+                    if good_index != -1 && (amount_bad > total_good_yet) {
+                        println!("loading good model, going back to epoch {}", good_index);
+                        self.var_map.load("data/good.safetensors")?;
+                        epoch = good_index as u32;
+                    }
+                }
+            }
+            epoch += 1;
+        }
+
+        if !self.is_good(test_str, device) && good_index != -1 {
+            println!("model is BAD");
+            println!("loading last good model, going back to epoch {}", good_index);
+            self.var_map.load("data/good.safetensors")?;
+        }
+
+
+        Ok(())
+    }
+
     pub fn train(&mut self, tokens_chain: Vec<String>, epochs: u32, test_str: &str, device: &Device) -> Result<(), candle_core::Error> {
         let mut inputs: Vec<Tensor> = Vec::new();
         let mut targets: Vec<Tensor> = Vec::new();
@@ -174,7 +265,7 @@ impl Mlp {
                 input_tokens = tokens_chain[0..index].to_vec();
                 let mut padding: Vec<String> = Vec::new();
 
-                for i in 0..CONTEXT_WINDOW-index {
+                for _i in 0..CONTEXT_WINDOW-index {
                     padding.push(String::from(" "));
                 }
 
@@ -198,69 +289,7 @@ impl Mlp {
         let inputs = Tensor::stack(&inputs, 0)?;
         let targets = Tensor::stack(&targets, 0)?;
 
-        // WARMUP
-        // Optimizer settings
-        // 1. More epoch when sample size is smaller
-        let initial_lr = 0.00002;
-        let lr = initial_lr;
-        let max_lr = initial_lr * 6.0;
-
-        let params = ParamsAdamW {
-            lr,
-            ..Default::default()
-        };
-        let mut optimizer = candle_nn::AdamW::new(self.var_map.all_vars(), params)?;
-
-        let mut good_index: i32 = -1;
-
-        // Training loop
-        let mut epoch: u32 = 0;
-        while epoch < epochs {
-            // Forward pass
-            let predictions = self.forward(&inputs)?;
-            let lr = initial_lr + (max_lr - initial_lr) * (epoch as f64 / epochs as f64);
-            optimizer.set_learning_rate(lr);
-
-            // Compute loss
-            // let loss = (&targets - &predictions)?.sqr()?.mean_all()?;
-            // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-            let loss = nn::loss::mse(&predictions, &targets)?;
-
-            // Backpropagation
-            optimizer.backward_step(&loss)?;
-
-            if epoch % 10 == 0 {
-                println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
-                // print the first 10 predictions after "the horse"
-                let test_str_tokens = tokenize(test_str);
-                let end = test_str_tokens.len().min(3);
-                let test_str_start = test_str_tokens[0..end].join("");
-
-                let mut result = test_str_start;
-                for _ in end..test_str.len() {
-                    let prediction = self.predict_next_token(result.as_str(), device)?;
-                    result = result + prediction.as_str();
-                }
-
-                if epoch % 25 == 0 {
-                    if result[0..test_str.len()].to_string() == test_str {
-                        println!("model is GOOD");
-                        self.var_map.save("data/good.safetensors")?;
-                        good_index = epoch as i32;
-                    }
-                    else {
-                        println!("model is BAD result='{}' test_str result='{}'", result, test_str);
-                        if good_index != -1 {
-                            println!("loading good model, going back to epoch {}", good_index);
-                            self.var_map.load("data/good.safetensors")?;
-                            epoch = good_index as u32;
-                        }
-                    }
-                }
-                println!("prediction: {}", result);
-            }
-            epoch += 1;
-        }
+        self.training_loop(inputs, targets, test_str, epochs, device)?;
 
         Ok(())
     }
@@ -354,7 +383,7 @@ mod tests {
         model.var_map.load("data/horse_pretrain.safetensors")?;
 
         let tokens = tokenize(test_str);
-        model.train( tokens, 250, test_str,  &device)?;
+        model.train( tokens, 500, test_str,  &device)?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
@@ -375,7 +404,8 @@ mod tests {
         model.var_map.load("data/horse_pretrain.safetensors")?;
 
         let tokens = tokenize(test_str);
-        model.train( tokens, 1500, test_str,  &device)?;
+        let test_str = tokens[0..5].to_vec().join("");
+        model.train( tokens, 500, test_str.as_str(),  &device)?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
@@ -392,16 +422,19 @@ mod tests {
 
     #[test]
     fn test_horse_10() -> Result<(), candle_core::Error> {
-        // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
         let tokens: Vec<String> = tokenize(&content)[0..10].to_vec();
+        let test_str = tokens[0..4].to_vec().join("");
 
         let dict = tokens_to_dict(tokens.clone());
 
         let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens, true, &device)?;
+        let mut model = create_model(dict, &device)?;
+        model.var_map.load("data/horse_pretrain.safetensors")?;
+
+        model.train( tokens, 500, test_str.as_str(),  &device)?;
 
         assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
 
@@ -410,16 +443,19 @@ mod tests {
 
     #[test]
     fn test_horse_20() -> Result<(), candle_core::Error> {
-        // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
         let tokens: Vec<String> = tokenize(&content)[0..20].to_vec();
+        let test_str = tokens[0..4].to_vec().join("");
 
         let dict = tokens_to_dict(tokens.clone());
 
         let device = get_device()?;
 
-        let model = create_and_train_predictor_model(dict, tokens, true, &device)?;
+        let mut model = create_model(dict, &device)?;
+        model.var_map.load("data/horse_pretrain.safetensors")?;
+
+        model.train( tokens, 500, test_str.as_str(),  &device)?;
 
         assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
 
