@@ -18,10 +18,10 @@ pub struct Mlp {
     pub dict: Dict,
 }
 
-const CONTEXT_WINDOW: usize = 6;
+const CONTEXT_WINDOW: usize = 7;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
-const HIDDEN_SIZE: usize = 600;
+const HIDDEN_SIZE: usize = 1024;
 
 impl Mlp {
     pub fn save_to_path(&self, path: &str) {
@@ -302,7 +302,7 @@ impl Mlp {
                         epoch > 50 &&
                         good_index != -1 &&
                         (amount_bad > total_good_yet ||
-                         amount_bad >= 4);
+                         amount_bad >= 5);
 
                     if should_load_last_good {
                         println!("loading good model, going back to epoch {}", good_index);
@@ -310,6 +310,13 @@ impl Mlp {
                         // epoch = good_index as u32;
                         amount_bad = 0;
                     }
+                }
+
+                if amount_bad > 15 {
+                    println!("model is BAD for 15 times, giving it a kick");
+                    optimizer.set_learning_rate(lr * 100.0);
+                    optimizer.backward_step(&loss)?;
+                    amount_bad = 0;
                 }
             }
             epoch += 1;
@@ -506,8 +513,7 @@ mod tests {
         model.var_map.load("data/horse_pretrain.safetensors")?;
 
         let tokens = tokenize(test_str);
-        let test_str = tokens[0..5].to_vec().join("");
-        model.train(tokens, 500, test_str.as_str(),  &device)?;
+        model.train(tokens, 500, test_str,  &device)?;
 
         assert_eq!(model.predict_next_token("lorem", &device)?, " ");
         assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
@@ -524,8 +530,6 @@ mod tests {
 
     #[test]
     fn test_horse_10() -> Result<(), candle_core::Error> {
-        let file_path = "data/corpus/wiki-horse.txt";
-        let content = fs::read_to_string(file_path)?;
         let (dict, tokens) = get_pretrained_dict()?;
         let tokens = tokens[0..10].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
@@ -544,8 +548,6 @@ mod tests {
 
     #[test]
     fn test_horse_20() -> Result<(), candle_core::Error> {
-        let file_path = "data/corpus/wiki-horse.txt";
-        let content = fs::read_to_string(file_path)?;
         let (dict, tokens) = get_pretrained_dict()?;
         let tokens = tokens[0..20].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
@@ -565,9 +567,6 @@ mod tests {
     #[ignore]
     #[test]
     fn test_horse_40() -> Result<(), candle_core::Error> {
-        // Define the file path
-        let file_path = "data/corpus/wiki-horse.txt";
-        let content = fs::read_to_string(file_path)?;
         let (dict, tokens) = get_pretrained_dict()?;
         let tokens = tokens[0..40].to_vec();
 
@@ -587,10 +586,7 @@ mod tests {
     #[ignore]
     #[test]
     fn test_horse_60() -> Result<(), candle_core::Error> {
-        // Define the file path
-        let file_path = "data/corpus/wiki-horse.txt";
-        let content = fs::read_to_string(file_path)?;
-        let (dict, tokens) = get_pretrained_dict()?;
+        let (_dict, tokens) = get_pretrained_dict()?;
         let tokens = tokens[0..40].to_vec();
 
         let dict = tokens_to_dict(tokens.clone());
@@ -614,7 +610,6 @@ mod tests {
     #[ignore]
     #[test]
     fn test_horse_100() -> Result<(), candle_core::Error> {
-        // Define the file path
         let file_path = "data/corpus/wiki-horse.txt";
         let content = fs::read_to_string(file_path)?;
         let tokens: Vec<String> = tokenize(&content)[0..100].to_vec();
