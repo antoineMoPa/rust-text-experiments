@@ -24,47 +24,6 @@ const NUM_ATTENTION_HEADS: usize = 8;
 const HIDDEN_SIZE: usize = 2048;
 
 impl Mlp {
-    pub fn save_to_path(&self, path: &str) {
-        let var_map_path = format!("{}.safetensors", path);
-        self.var_map.save(var_map_path.as_str()).unwrap();
-
-        let dict_words = self.dict.iter().map(|(word, _)| word.clone()).collect::<Vec<String>>();
-
-        let dict_path = format!("{}.dict", path);
-        let file = fs::File::create(dict_path).unwrap();
-        serde_json::to_writer(file, &dict_words).unwrap();
-    }
-
-    pub fn load_from_path(path: &str, device: &Device) -> Result<Self, Error> {
-
-        let dict_path = format!("{}.dict", path);
-        let file = fs::File::open(dict_path).unwrap();
-        let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
-
-        let dict = tokens_to_dict(dict_words);
-
-        let mut mlp = create_model(dict, device).unwrap();
-
-        let var_map_path = format!("{}.safetensors", path);
-        mlp.var_map.load(var_map_path.as_str()).unwrap();
-
-        Ok(mlp)
-    }
-
-    pub fn load_inplace_from_path(&mut self, path: &str) -> Result<(), Error> {
-        let dict_path = format!("{}.dict", path);
-        let file = fs::File::open(dict_path).unwrap();
-        let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
-
-        let dict = tokens_to_dict(dict_words);
-        self.dict = dict;
-
-        let var_map_path = format!("{}.safetensors", path);
-        self.var_map.load(var_map_path.as_str()).unwrap();
-
-        Ok(())
-    }
-
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
         let mut linear: Vec<nn::Linear> = Vec::new();
         let mut qs: Vec<nn::Linear> = Vec::new();
@@ -120,18 +79,22 @@ impl Mlp {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let input = (input + self.position_encoding(input)?)?;
-        let input = nn::ops::dropout(&input, 0.2)?;
+        let input = nn::ops::dropout(&input, 0.15)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
         for i in 0..NUM_ATTENTION_HEADS {
             let linear_output = input.apply(&self.linear[i])?;
 
+            let linear_output = nn::ops::dropout(&linear_output, 0.1)?;
+
             let q = linear_output.apply(&self.qs[i])?;
             let k = linear_output.apply(&self.ks[i])?;
             let v = linear_output.apply(&self.vs[i])?;
 
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
+
+            // would love to use norm instead here, but it's not supported on metal gpu
             let result = (((result * 0.7)? + input.clone())? * 0.3)?;
 
             results.push(result);
@@ -310,13 +273,6 @@ impl Mlp {
                         amount_bad = 0;
                     }
                 }
-
-                if amount_bad > 15 {
-                    println!("model is BAD for 15 times, giving it a kick");
-                    optimizer.set_learning_rate(lr * 100.0);
-                    optimizer.backward_step(&loss)?;
-                    amount_bad = 0;
-                }
             }
             epoch += 1;
         }
@@ -399,6 +355,47 @@ impl Mlp {
         let (inputs, targets) = self.gen_training_data(tokens_chain, device)?;
 
         self.simple_training_loop(inputs, targets, initial_lr, epochs)?;
+
+        Ok(())
+    }
+
+        pub fn save_to_path(&self, path: &str) {
+        let var_map_path = format!("{}.safetensors", path);
+        self.var_map.save(var_map_path.as_str()).unwrap();
+
+        let dict_words = self.dict.iter().map(|(word, _)| word.clone()).collect::<Vec<String>>();
+
+        let dict_path = format!("{}.dict", path);
+        let file = fs::File::create(dict_path).unwrap();
+        serde_json::to_writer(file, &dict_words).unwrap();
+    }
+
+    pub fn load_from_path(path: &str, device: &Device) -> Result<Self, Error> {
+
+        let dict_path = format!("{}.dict", path);
+        let file = fs::File::open(dict_path).unwrap();
+        let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
+
+        let dict = tokens_to_dict(dict_words);
+
+        let mut mlp = create_model(dict, device).unwrap();
+
+        let var_map_path = format!("{}.safetensors", path);
+        mlp.var_map.load(var_map_path.as_str()).unwrap();
+
+        Ok(mlp)
+    }
+
+    pub fn load_inplace_from_path(&mut self, path: &str) -> Result<(), Error> {
+        let dict_path = format!("{}.dict", path);
+        let file = fs::File::open(dict_path).unwrap();
+        let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
+
+        let dict = tokens_to_dict(dict_words);
+        self.dict = dict;
+
+        let var_map_path = format!("{}.safetensors", path);
+        self.var_map.load(var_map_path.as_str()).unwrap();
 
         Ok(())
     }
