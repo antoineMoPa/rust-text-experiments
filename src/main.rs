@@ -4,8 +4,8 @@ use std::io::prelude::*;
 use attention_predictor::{create_model, get_pretrained_dict};
 
 use crate::{
-    token_utils::{tokenize, tokens_to_dict},
-    attention_predictor::{create_and_train_predictor_model, get_device}
+    token_utils::{tokenize, tokens_to_dict, Dict},
+    attention_predictor::{create_and_train_predictor_model, get_device, Mlp}
 };
 
 mod token_utils;
@@ -51,17 +51,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         model.simple_train(tokens, 400, 0.0001, &device)?;
 
-        model.var_map.save("data/model.safetensors")?;
+        model.save_to_path("data/main_model");
 
         return Ok(());
     }
 
     if args[0] == "run" {
         println!("Loading model");
-
-        let mut model = create_and_train_predictor_model(dict, tokens, false, &device)?;
-
-        model.var_map.load("data/model.safetensors")?;
+        let model = Mlp::load_from_path("data/main_model", &device)?;
 
         let args = args[1..].to_vec();
 

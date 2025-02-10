@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, io::Error};
 
 use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
@@ -24,6 +24,48 @@ const NUM_ATTENTION_HEADS: usize = 8;
 const HIDDEN_SIZE: usize = 600;
 
 impl Mlp {
+    pub fn save_to_path(&self, path: &str) {
+        let var_map_path = format!("{}.safetensors", path);
+        self.var_map.save(var_map_path.as_str()).unwrap();
+
+        let dict_words = self.dict.iter().map(|(word, _)| word.clone()).collect::<Vec<String>>();
+
+        let dict_path = format!("{}.dict", path);
+        let file = fs::File::create(dict_path).unwrap();
+        serde_json::to_writer(file, &dict_words).unwrap();
+    }
+
+    pub fn load_from_path(path: &str, device: &Device) -> Result<Self, Error> {
+
+        let dict_path = format!("{}.dict", path);
+        let file = fs::File::open(dict_path).unwrap();
+        let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
+
+        let dict = tokens_to_dict(dict_words);
+
+        let mut mlp = create_model(dict, device).unwrap();
+
+        let var_map_path = format!("{}.safetensors", path);
+        mlp.var_map.load(var_map_path.as_str()).unwrap();
+
+        Ok(mlp)
+    }
+
+    pub fn load_inplace_from_path(&mut self, path: &str, device: &Device) -> Result<(), Error> {
+        let dict_path = format!("{}.dict", path);
+        let file = fs::File::open(dict_path).unwrap();
+        let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
+
+        let dict = tokens_to_dict(dict_words);
+        self.dict = dict;
+
+        let var_map_path = format!("{}.safetensors", path);
+        self.var_map.load(var_map_path.as_str()).unwrap();
+
+        Ok(())
+    }
+
+
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
         let mut linear: Vec<nn::Linear> = Vec::new();
         let mut qs: Vec<nn::Linear> = Vec::new();
@@ -241,7 +283,7 @@ impl Mlp {
                 println!("Epoch {:6}: Loss = {:.6} Lr = {:.6} [{}]", epoch, loss.to_vec0::<f32>()?, lr, is_good_str);
 
                 if is_good {
-                    self.var_map.save("data/good.safetensors")?;
+                    self.save_to_path("data/good");
                     total_good_yet += 1;
                     good_index = epoch as i32;
                     amount_bad = 0;
@@ -264,7 +306,7 @@ impl Mlp {
 
                     if should_load_last_good {
                         println!("loading good model, going back to epoch {}", good_index);
-                        self.var_map.load("data/good.safetensors")?;
+                        self.load_inplace_from_path("data/good", device)?;
                         // epoch = good_index as u32;
                         amount_bad = 0;
                     }
