@@ -18,9 +18,9 @@ pub struct Mlp {
 }
 
 const CONTEXT_WINDOW: usize = 5;
-const HIDDEN_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
+const HIDDEN_SIZE: usize = 600;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
@@ -31,20 +31,20 @@ impl Mlp {
 
         for i in 0..NUM_ATTENTION_HEADS {
             linear.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("linear{}", i)))?);
-            qs.push(nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp(&format!("q{}", i)))?);
-            ks.push(nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp(&format!("k{}", i)))?);
-            vs.push(nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp(&format!("v{}", i)))?);
+            qs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("q{}", i)))?);
+            ks.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("k{}", i)))?);
+            vs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("v{}", i)))?);
         }
 
-        let fc1 = nn::linear_b(HIDDEN_SIZE * NUM_ATTENTION_HEADS, INPUT_SIZE, false, vb.pp("fc1"))?;
+        let fc1 = nn::linear_b(INPUT_SIZE * NUM_ATTENTION_HEADS, HIDDEN_SIZE, false, vb.pp("fc1"))?;
 
-        let fc2 = nn::linear_b(EMBEDDING_SIZE * CONTEXT_WINDOW, dict.len(), false, vb.pp("fc2"))?;
+        let fc2 = nn::linear_b(HIDDEN_SIZE, dict.len(), false, vb.pp("fc2"))?;
 
         Ok(Self { linear, qs, ks, fc1, fc2, vs, dict, var_map })
     }
 
     fn scaled_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let scale = 1.0 / ((HIDDEN_SIZE) as f64).sqrt();
+        let scale = 1.0 / ((INPUT_SIZE) as f64).sqrt();
         let result = q.matmul(&k.t()?)?;
         let result = (result * scale)?;
         let result = nn::ops::softmax(&result, D::Minus1)?;
