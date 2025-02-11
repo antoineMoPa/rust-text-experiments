@@ -21,7 +21,7 @@ pub struct Mlp {
 const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
-const HIDDEN_SIZE: usize = 2048;
+const HIDDEN_SIZE: usize = 4096;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
@@ -131,7 +131,7 @@ impl Mlp {
         let input = Tensor::new(input, device)?.unsqueeze(0)?;
 
         let output_prob = self.forward(&input)?;
-        let output_prob = (output_prob / 100.0)?;
+        let output_prob = (output_prob / 10.0)?;
 
         let output_prob_max_index = output_prob.argmax(1)?;
         let n = output_prob_max_index.to_vec1::<u32>()?[0];
@@ -155,15 +155,19 @@ impl Mlp {
     pub fn is_good(&self, test_str: &str, device: &Device) -> bool {
         let mut is_good = true;
         let tokens = tokenize(test_str);
-
+        let mut prediction_str = String::new();
         for i in 1..(tokens.len()) {
             let prediction = self.predict_next_token(tokens[0..i].join("").as_str(), device).unwrap();
+
+            prediction_str = prediction_str + prediction.as_str();
 
             if prediction != tokens[i] {
                 is_good = false;
                 break;
             }
         }
+
+        println!("Predicted: {}", prediction_str);
 
         return is_good;
     }
@@ -207,9 +211,9 @@ impl Mlp {
 
     pub fn good_bad_training_loop(&mut self, inputs: Tensor, targets: Tensor, test_str: &str, epochs: u32, device: &Device) -> Result<(), candle_core::Error> {
         // 1. More epoch when sample size is smaller
-        let initial_lr = 0.00002;
+        let initial_lr = 0.00008;
         let lr = initial_lr;
-        let max_lr = initial_lr * 2.0;
+        let max_lr = initial_lr * 3.0;
 
         let params = ParamsAdamW {
             lr,
@@ -352,7 +356,7 @@ impl Mlp {
 
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, initial_lr: f64, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 40;
+        let token_batch_size = 60;
         let num_batches = tokens_chain.len() / token_batch_size;
 
         for i in 0..epochs {
@@ -364,7 +368,7 @@ impl Mlp {
 
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
 
-                self.simple_training_loop(inputs, targets, initial_lr, 30)?;
+                self.simple_training_loop(inputs, targets, initial_lr, 4)?;
             }
         }
 
@@ -451,7 +455,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
     let file_path = "data/corpus/wiki-horse.txt";
     let content = fs::read_to_string(file_path)?;
-    let tokens: Vec<String> = tokenize(&content)[0..75].to_vec();
+    let tokens: Vec<String> = tokenize(&content)[0..1000].to_vec();
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
 

@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args[0] == "run" {
         println!("Loading model");
-        let model = Mlp::load_from_path("data/main_model", &device)?;
+        let model = Mlp::load_from_path("data/horse_pretrain", &device)?;
 
         let args = args[1..].to_vec();
 
@@ -81,9 +81,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut model = create_model(dict, &device)?;
 
-        model.simple_train(tokens, 5, 0.00008, &device)?;
+        model.simple_train(tokens, 8, 0.00005, &device)?;
 
         model.var_map.save("data/horse_pretrain.safetensors")?;
+        model.save_to_path("data/horse_pretrain");
 
         return Ok(());
     }
