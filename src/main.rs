@@ -65,10 +65,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut input = args.join(" ") + " ";
         println!("Predicting next token for: '{:?}'", input);
 
+        let mut buf = String::new();
         loop {
             let pred = model.predict_next_token(input.as_str(), &device)?;
             input = input + pred.as_str();
-            print!("{}", pred);
+
+            buf.push_str(pred.as_str());
+
+            if buf.len() > 100 {
+                println!("{}", buf);
+                buf.clear()
+            }
         }
     }
 
@@ -81,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut model = create_model(dict, &device)?;
 
-        model.simple_train(tokens, 8, 0.00005, &device)?;
+        model.simple_train(tokens, 10, 0.000001, &device)?;
 
         model.var_map.save("data/horse_pretrain.safetensors")?;
         model.save_to_path("data/horse_pretrain");

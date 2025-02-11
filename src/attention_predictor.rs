@@ -6,47 +6,44 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
 use crate::token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE};
 
-pub struct Mlp {
+const CONTEXT_WINDOW: usize = 10;
+const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
+const NUM_ATTENTION_HEADS: usize = 5;
+const HIDDEN_SIZE: usize = 1024;
+const NUM_BLOCKS: usize = 5;
+const TOKENS_TO_TRAIN_ON: usize = 200;
+
+pub struct AttentionBlock {
     pub linear: Vec<nn::Linear>,
     pub qs: Vec<nn::Linear>,
     pub ks: Vec<nn::Linear>,
     pub vs: Vec<nn::Linear>,
-    pub fc1: nn::Linear,
-    pub fc2: nn::Linear,
-    pub fc3: nn::Linear,
-    pub var_map: VarMap,
-    pub dict: Dict,
+    pub out_linear: nn::Linear,
 }
 
-const CONTEXT_WINDOW: usize = 10;
-const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 8;
-// const HIDDEN_SIZE: usize = 4096;
-const HIDDEN_SIZE: usize = 1024;
-const NUM_BLOCKS: usize = 2;
-
-impl Mlp {
-    pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
+impl AttentionBlock {
+    pub fn new(vb: VarBuilder) -> Result<Self, candle_core::Error> {
         let mut linear: Vec<nn::Linear> = Vec::new();
         let mut qs: Vec<nn::Linear> = Vec::new();
         let mut ks: Vec<nn::Linear> = Vec::new();
         let mut vs: Vec<nn::Linear> = Vec::new();
 
-        for b in 0..NUM_BLOCKS {
-            for i in 0..NUM_ATTENTION_HEADS {
-                qs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("q{}_{}", i, b)))?);
-                ks.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("k{}_{}", i, b)))?);
-                vs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("v{}_{}", i, b)))?);
-                linear.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("linear{}_{}", i, b)))?);
-            }
+        for i in 0..NUM_ATTENTION_HEADS {
+            linear.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("linear{}", i)))?);
+            qs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("q{}", i)))?);
+            ks.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("k{}", i)))?);
+            vs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("v{}", i)))?);
+
         }
 
-        let fc1 = nn::linear_b(INPUT_SIZE * NUM_ATTENTION_HEADS, HIDDEN_SIZE, false, vb.pp("fc1"))?;
+        let out_linear = nn::linear_b(
+            INPUT_SIZE * NUM_ATTENTION_HEADS,
+            INPUT_SIZE,
+            false,
+            vb.pp("out_linear")
+        )?;
 
-        let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp("fc2"))?;
-        let fc3 = nn::linear_b(HIDDEN_SIZE, dict.len(), false, vb.pp("fc3"))?;
-
-        Ok(Self { linear, qs, ks, fc1, fc2, fc3, vs, dict, var_map })
+        Ok(Self { linear, qs, ks, vs, out_linear })
     }
 
     fn scaled_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -82,39 +79,76 @@ impl Mlp {
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let input = (input + self.position_encoding(input)?)?;
+        let input = self.position_encoding(input)?;
         let input = nn::ops::dropout(&input, 0.15)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
-        for b in 0..NUM_BLOCKS {
-            for i in 0..NUM_ATTENTION_HEADS {
-                let linear_output = input.apply(&self.linear[i])?;
+        for i in 0..NUM_ATTENTION_HEADS {
+            let linear_output = input.apply(&self.linear[i])?;
 
-                let linear_output = nn::ops::dropout(&linear_output, 0.1)?;
+            let q = linear_output.apply(&self.qs[i])?;
+            let k = linear_output.apply(&self.ks[i])?;
+            let v = linear_output.apply(&self.vs[i])?;
 
-                let q = linear_output.apply(&self.qs[i])?;
-                let k = linear_output.apply(&self.ks[i])?;
-                let v = linear_output.apply(&self.vs[i])?;
+            let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
-                let result = self.scaled_dot_product_attention(&q, &k, &v)?;
+            // would love to use norm instead here, but it's not supported on metal gpu
+            let result = (((result * 0.7)? + input.clone())? * 0.3)?;
 
-                // would love to use norm instead here, but it's not supported on metal gpu
-                let result = (((result * 0.7)? + input.clone())? * 0.3)?;
-
-                results.push(result);
-            }
+            results.push(result);
         }
 
         let result = Tensor::cat(&results, D::Minus1)?;
-
-        let result = self.fc1.forward(&result)?;
-        let result = result.relu()?;
-        let result = self.fc2.forward(&result)?;
-        let result = result.relu()?;
-        let result = self.fc3.forward(&result)?;
-
         let result = result.tanh()?;
+        let result = self.out_linear.forward(&result)?;
+
+        return Ok(result);
+    }
+
+}
+
+pub struct Mlp {
+    pub blocks: Vec<AttentionBlock>,
+    pub fc1: nn::Linear,
+    pub fc2: nn::Linear,
+    pub fc3: nn::Linear,
+    pub var_map: VarMap,
+    pub dict: Dict,
+}
+
+impl Mlp {
+    pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder) -> Result<Self, candle_core::Error> {
+        let mut blocks = Vec::new();
+
+        for b in 0..NUM_BLOCKS {
+            let block = AttentionBlock::new(vb.push_prefix(&format!("block_{}", b)))?;
+            blocks.push(block);
+        }
+
+        let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, false, vb.pp("fc1"))?;
+        let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp("fc2"))?;
+        let fc3 = nn::linear_b(HIDDEN_SIZE, dict.len(), false, vb.pp("fc3"))?;
+
+        Ok(Self { fc1, fc2, fc3, blocks, dict, var_map })
+    }
+
+    fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
+        let mut result: Tensor = input.clone();
+
+        for block in &self.blocks {
+            result = block.forward(&result)?;
+        }
+
+        //let result = result.relu()?;
+        let result = (result + input)?;
+        let result = (result * 0.2)?;
+        let result = self.fc1.forward(&result)?;
+        //let result = result.tanh()?;
+        //let result = result.relu()?;
+        let result = self.fc2.forward(&result)?;
+        //let result = result.tanh()?;
+        let result = self.fc3.forward(&result)?;
 
         return Ok(result);
     }
@@ -137,7 +171,8 @@ impl Mlp {
         let input = Tensor::new(input, device)?.unsqueeze(0)?;
 
         let output_prob = self.forward(&input)?;
-        let output_prob = (output_prob / 10.0)?;
+
+        // let output_prob = (output_prob / 10.0)?;
 
         let output_prob_max_index = output_prob.argmax(1)?;
         let n = output_prob_max_index.to_vec1::<u32>()?[0];
@@ -217,7 +252,7 @@ impl Mlp {
 
     pub fn good_bad_training_loop(&mut self, inputs: Tensor, targets: Tensor, test_str: &str, epochs: u32, device: &Device) -> Result<(), candle_core::Error> {
         // 1. More epoch when sample size is smaller
-        let initial_lr = 0.00008;
+        let initial_lr = 0.00002;
         let lr = initial_lr;
         let max_lr = initial_lr * 3.0;
 
@@ -461,7 +496,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
     let file_path = "data/corpus/wiki-horse.txt";
     let content = fs::read_to_string(file_path)?;
-    let tokens: Vec<String> = tokenize(&content)[0..1000].to_vec();
+    let tokens: Vec<String> = tokenize(&content)[0..TOKENS_TO_TRAIN_ON].to_vec();
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
 
