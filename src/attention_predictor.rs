@@ -21,7 +21,9 @@ pub struct Mlp {
 const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
-const HIDDEN_SIZE: usize = 4096;
+// const HIDDEN_SIZE: usize = 4096;
+const HIDDEN_SIZE: usize = 1024;
+const NUM_BLOCKS: usize = 2;
 
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
@@ -30,11 +32,13 @@ impl Mlp {
         let mut ks: Vec<nn::Linear> = Vec::new();
         let mut vs: Vec<nn::Linear> = Vec::new();
 
-        for i in 0..NUM_ATTENTION_HEADS {
-            linear.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("linear{}", i)))?);
-            qs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("q{}", i)))?);
-            ks.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("k{}", i)))?);
-            vs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("v{}", i)))?);
+        for b in 0..NUM_BLOCKS {
+            for i in 0..NUM_ATTENTION_HEADS {
+                qs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("q{}_{}", i, b)))?);
+                ks.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("k{}_{}", i, b)))?);
+                vs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("v{}_{}", i, b)))?);
+                linear.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("linear{}_{}", i, b)))?);
+            }
         }
 
         let fc1 = nn::linear_b(INPUT_SIZE * NUM_ATTENTION_HEADS, HIDDEN_SIZE, false, vb.pp("fc1"))?;
@@ -83,21 +87,23 @@ impl Mlp {
 
         let mut results: Vec<Tensor> = Vec::new();
 
-        for i in 0..NUM_ATTENTION_HEADS {
-            let linear_output = input.apply(&self.linear[i])?;
+        for b in 0..NUM_BLOCKS {
+            for i in 0..NUM_ATTENTION_HEADS {
+                let linear_output = input.apply(&self.linear[i])?;
 
-            let linear_output = nn::ops::dropout(&linear_output, 0.1)?;
+                let linear_output = nn::ops::dropout(&linear_output, 0.1)?;
 
-            let q = linear_output.apply(&self.qs[i])?;
-            let k = linear_output.apply(&self.ks[i])?;
-            let v = linear_output.apply(&self.vs[i])?;
+                let q = linear_output.apply(&self.qs[i])?;
+                let k = linear_output.apply(&self.ks[i])?;
+                let v = linear_output.apply(&self.vs[i])?;
 
-            let result = self.scaled_dot_product_attention(&q, &k, &v)?;
+                let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
-            // would love to use norm instead here, but it's not supported on metal gpu
-            let result = (((result * 0.7)? + input.clone())? * 0.3)?;
+                // would love to use norm instead here, but it's not supported on metal gpu
+                let result = (((result * 0.7)? + input.clone())? * 0.3)?;
 
-            results.push(result);
+                results.push(result);
+            }
         }
 
         let result = Tensor::cat(&results, D::Minus1)?;
