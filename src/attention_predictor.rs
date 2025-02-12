@@ -4,14 +4,14 @@ use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
-use crate::token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE};
+use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE}, read_n_chars};
 
 const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 5;
-const HIDDEN_SIZE: usize = 1024;
-const NUM_BLOCKS: usize = 5;
-const TOKENS_TO_TRAIN_ON: usize = 200;
+const HIDDEN_SIZE: usize = 4096;
+const NUM_BLOCKS: usize = 8;
+pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 14) as usize;
 
 pub struct AttentionBlock {
     pub linear: Vec<nn::Linear>,
@@ -80,7 +80,7 @@ impl AttentionBlock {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let input = self.position_encoding(input)?;
-        let input = nn::ops::dropout(&input, 0.15)?;
+        let input = nn::ops::dropout(&input, 0.3)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
@@ -141,7 +141,7 @@ impl Mlp {
         }
 
         //let result = result.relu()?;
-        let result = (result + input)?;
+        let result = (result + (input * 0.2)?)?;
         let result = (result * 0.2)?;
         let result = self.fc1.forward(&result)?;
         //let result = result.tanh()?;
@@ -239,7 +239,7 @@ impl Mlp {
             // Backpropagation
             optimizer.backward_step(&loss)?;
 
-            if epoch % 20 == 0 {
+            if epoch > 0 && epoch % 20 == 0 {
                 println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
 
             }
@@ -396,21 +396,25 @@ impl Mlp {
     }
 
 
-    pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, initial_lr: f64, device: &Device) -> Result<(), candle_core::Error> {
+    pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, sub_epochs: u32, initial_lr: f64, device: &Device) -> Result<(), candle_core::Error> {
         let token_batch_size = 60;
         let num_batches = tokens_chain.len() / token_batch_size;
 
         for i in 0..epochs {
-            println!("Global epoch {}/{}", i, epochs);
+            println!("Global epoch {:6} / {}", i, epochs);
             for j in 0..num_batches {
+                if j % 20 == 0 {
+                    println!("Batch        {:6} / {}", j, num_batches);
+                }
                 let start = j * token_batch_size;
                 let end = (j + 1) * token_batch_size;
                 let tokens = tokens_chain[start..end].to_vec();
 
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
 
-                self.simple_training_loop(inputs, targets, initial_lr, 4)?;
+                self.simple_training_loop(inputs, targets, initial_lr, sub_epochs)?;
             }
+            self.save_to_path("data/model");
         }
 
         Ok(())
@@ -495,8 +499,19 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
     let file_path = "data/corpus/wiki-horse.txt";
-    let content = fs::read_to_string(file_path)?;
-    let tokens: Vec<String> = tokenize(&content)[0..TOKENS_TO_TRAIN_ON].to_vec();
+
+    // Experiments with char count
+    // exponent 15+ makes no sense, no spaces, etc.
+    // exponent 14+ has some spaces after 8 iterations
+    let char_count = CHARS_TO_TRAIN_ON as u64;
+
+    println!("Reading {} chars from file: {}", char_count, file_path);
+    let content = read_n_chars(file_path, char_count)?;
+    println!("Read {} chars", content.len());
+    let tokens: Vec<String> = tokenize(&content).to_vec();
+    let dict = tokens_to_dict(tokens.clone());
+    println!("Dict size: {}", dict.len());
+
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
 
@@ -516,12 +531,8 @@ mod tests {
 
     #[test]
     fn test_candle_predictor_hello_world() -> Result<(), candle_core::Error> {
-        let (dict, _tokens) = get_pretrained_dict()?;
-
         let device = get_device()?;
-
-        let mut model = create_model(dict, &device)?;
-        model.var_map.load("data/horse_pretrain.safetensors")?;
+        let mut model = Mlp::load_from_path("data/model", &device)?;
 
         let test_str = "hello world";
         let tokens = tokenize(test_str);
@@ -537,12 +548,8 @@ mod tests {
     fn test_candle_predictor_lorem() -> Result<(), candle_core::Error> {
         let test_str = "lorem ipsum et";
 
-        let (dict, _tokens) = get_pretrained_dict()?;
-
         let device = get_device()?;
-
-        let mut model = create_model(dict, &device)?;
-        model.var_map.load("data/horse_pretrain.safetensors")?;
+        let mut model = Mlp::load_from_path("data/model", &device)?;
 
         let tokens = tokenize(test_str);
         model.train(tokens, 500, test_str,  &device)?;
@@ -558,12 +565,8 @@ mod tests {
     fn test_candle_predictor_lorem_2() -> Result<(), candle_core::Error> {
         let test_str = "lorem ipsum et dolor sit amet";
 
-        let (dict, _tokens) = get_pretrained_dict()?;
-
         let device = get_device()?;
-
-        let mut model = create_model(dict, &device)?;
-        model.var_map.load("data/horse_pretrain.safetensors")?;
+        let mut model = Mlp::load_from_path("data/model", &device)?;
 
         let tokens = tokenize(test_str);
         model.train(tokens, 500, test_str,  &device)?;
@@ -583,14 +586,12 @@ mod tests {
 
     #[test]
     fn test_horse_10() -> Result<(), candle_core::Error> {
-        let (dict, tokens) = get_pretrained_dict()?;
+        let (_dict, tokens) = get_pretrained_dict()?;
         let tokens = tokens[0..10].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
 
         let device = get_device()?;
-
-        let mut model = create_model(dict, &device)?;
-        model.var_map.load("data/horse_pretrain.safetensors")?;
+        let mut model = Mlp::load_from_path("data/model", &device)?;
 
         model.train(tokens, 500, test_str.as_str(),  &device)?;
 
@@ -601,14 +602,12 @@ mod tests {
 
     #[test]
     fn test_horse_20() -> Result<(), candle_core::Error> {
-        let (dict, tokens) = get_pretrained_dict()?;
+        let (_dict, tokens) = get_pretrained_dict()?;
         let tokens = tokens[0..20].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
 
         let device = get_device()?;
-
-        let mut model = create_model(dict, &device)?;
-        model.var_map.load("data/horse_pretrain.safetensors")?;
+        let mut model = Mlp::load_from_path("data/model", &device)?;
 
         model.train( tokens, 500, test_str.as_str(),  &device)?;
 
@@ -620,12 +619,14 @@ mod tests {
     #[ignore]
     #[test]
     fn test_horse_40() -> Result<(), candle_core::Error> {
-        let (dict, tokens) = get_pretrained_dict()?;
+        let (_dict, tokens) = get_pretrained_dict()?;
         let tokens = tokens[0..40].to_vec();
+        let test_str = tokens[0..4].to_vec().join("");
 
         let device = get_device()?;
+        let mut model = Mlp::load_from_path("data/model", &device)?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
+        model.train( tokens.clone(), 500, test_str.as_str(),  &device)?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -640,13 +641,13 @@ mod tests {
     #[test]
     fn test_horse_60() -> Result<(), candle_core::Error> {
         let (_dict, tokens) = get_pretrained_dict()?;
-        let tokens = tokens[0..40].to_vec();
-
-        let dict = tokens_to_dict(tokens.clone());
+        let tokens = tokens[0..60].to_vec();
+        let test_str = tokens[0..4].to_vec().join("");
 
         let device = get_device()?;
+        let mut model = Mlp::load_from_path("data/model", &device)?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
+        model.train( tokens.clone(), 500, test_str.as_str(),  &device)?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -663,15 +664,14 @@ mod tests {
     #[ignore]
     #[test]
     fn test_horse_100() -> Result<(), candle_core::Error> {
-        let file_path = "data/corpus/wiki-horse.txt";
-        let content = fs::read_to_string(file_path)?;
-        let tokens: Vec<String> = tokenize(&content)[0..100].to_vec();
-
-        let dict = tokens_to_dict(tokens.clone());
+        let (_dict, tokens) = get_pretrained_dict()?;
+        let tokens = tokens[0..100].to_vec();
+        let test_str = tokens[0..4].to_vec().join("");
 
         let device = get_device()?;
+        let mut model = Mlp::load_from_path("data/model", &device)?;
 
-        let model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
+        model.train( tokens.clone(), 200, test_str.as_str(),  &device)?;
 
         let substring = tokens[35..38].to_vec().join("");
         assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
@@ -684,104 +684,4 @@ mod tests {
 
         Ok(())
     }
-
-    // #[test]
-    // fn test_horse_200() -> Result<(), candle_core::Error> {
-    //     // Define the file path
-    //     let file_path = "data/corpus/wiki-horse.txt";
-    //     let content = fs::read_to_string(file_path)?;
-    //     let tokens: Vec<String> = tokenize(&content)[0..200].to_vec();
-    //
-    //     let dict = tokens_to_dict(tokens.clone());
-    //
-    //     let device = get_device()?;
-    //
-    //     let model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
-    //
-    //     let substring = tokens[35..38].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-    //
-    //
-    //     let substring = tokens[63..69].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
-    //
-    //     let substring = tokens[102..113].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[113]);
-    //
-    //     let substring = tokens[102..114].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[114]);
-    //
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_horse_400() -> Result<(), candle_core::Error> {
-    //     // Define the file path
-    //     let file_path = "data/corpus/wiki-horse.txt";
-    //     let content = fs::read_to_string(file_path)?;
-    //     let tokens: Vec<String> = tokenize(&content)[0..400].to_vec();
-    //
-    //     let dict = tokens_to_dict(tokens.clone());
-    //
-    //     let device = get_device()?;
-    //
-    //     let model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
-    //
-    //     let substring = tokens[35..38].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-    //
-    //
-    //     let substring = tokens[63..69].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
-    //
-    //
-    //     let substring = tokens[102..114].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[114]);
-    //
-    //     let substring = tokens[162..182].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[182]);
-    //
-    //     let substring = tokens[190..211].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[211]);
-    //
-    //     let substring = tokens[330..341].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[341]);
-    //
-    //     let substring = tokens[330..342].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[342]);
-    //
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_horse_1000() -> Result<(), candle_core::Error> {
-    //     // Define the file path
-    //     let file_path = "data/corpus/wiki-horse.txt";
-    //     let content = fs::read_to_string(file_path)?;
-    //     let tokens: Vec<String> = tokenize(&content)[0..1000].to_vec();
-    //
-    //     let dict = tokens_to_dict(tokens.clone());
-    //
-    //     let device = get_device()?;
-    //
-    //     let model = create_and_train_predictor_model(dict, tokens.clone(), true, &device)?;
-    //
-    //     let substring = tokens[35..38].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-    //
-    //
-    //     let substring = tokens[63..69].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
-    //
-    //     let substring = tokens[330..341].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[341]);
-    //
-    //     let substring = tokens[810..831].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[831]);
-    //
-    //     let substring = tokens[810..832].to_vec().join("");
-    //     assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[832]);
-    //
-    //     Ok(())
-    // }
 }

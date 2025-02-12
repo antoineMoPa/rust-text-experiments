@@ -5,7 +5,7 @@ use attention_predictor::{create_model, get_pretrained_dict};
 
 use crate::{
     token_utils::{tokenize, tokens_to_dict},
-    attention_predictor::{create_and_train_predictor_model, get_device, Mlp}
+    attention_predictor::{create_and_train_predictor_model, get_device, Mlp, CHARS_TO_TRAIN_ON}
 };
 
 mod token_utils;
@@ -24,12 +24,6 @@ fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Read args
-    let file_path = "data/corpus/blogtext.csv";
-    // read 20k chars of the file
-    let content = read_n_chars(file_path, 100 * 5)?; // approximating a word is 5 chars
-    let tokens: Vec<String> = tokenize(&content).to_vec();
-    let dict = tokens_to_dict(tokens.clone());
 
     let args: Vec<String> = std::env::args().collect();
     let args = args[1..].to_vec();
@@ -42,23 +36,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // can output a sequence of words + spaces
     // then train with larger dataset if the model is a good one.
 
-    if args[0] == "train" {
-        println!("Training model");
+    if args[0] == "pretrain" {
+        println!("Pretraining test model");
+
+        let (dict, tokens) = get_pretrained_dict()?;
 
         let device = get_device()?;
 
         let mut model = create_model(dict, &device)?;
 
-        model.simple_train(tokens, 400, 0.0001, &device)?;
+        model.simple_train(tokens, 10, 1, 0.000001, &device)?;
 
-        model.save_to_path("data/main_model");
+        model.save_to_path("data/model");
 
         return Ok(());
     }
 
     if args[0] == "run" {
-        println!("Loading model");
-        let model = Mlp::load_from_path("data/horse_pretrain", &device)?;
+        println!("Loading test model");
+        let model = Mlp::load_from_path("data/model", &device)?;
 
         let args = args[1..].to_vec();
 
@@ -77,23 +73,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 buf.clear()
             }
         }
-    }
-
-    if args[0] == "pretrain" {
-        println!("Pretraining test model");
-
-        let (dict, tokens) = get_pretrained_dict()?;
-
-        let device = get_device()?;
-
-        let mut model = create_model(dict, &device)?;
-
-        model.simple_train(tokens, 10, 0.000001, &device)?;
-
-        model.var_map.save("data/horse_pretrain.safetensors")?;
-        model.save_to_path("data/horse_pretrain");
-
-        return Ok(());
     }
 
     println!("Please provide a valid command: 'train' or 'run'");
