@@ -489,12 +489,16 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 
 
 pub fn get_device() -> Result<Device, candle_core::Error> {
-    let device = Device::new_metal(0)?;
-    match &device {
-        Device::Metal(m) => m,
-        _ => panic!("Device is not Metal"),
-    };
-    return Ok(device);
+    if cfg!(target_os = "macos") {
+        let device = Device::new_metal(0)?;
+        match &device {
+            Device::Metal(m) => m,
+            _ => panic!("Device is not Metal"),
+        };
+        return Ok(device);
+    } else {
+        return Device::new_cuda(0);
+    }
 }
 
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
