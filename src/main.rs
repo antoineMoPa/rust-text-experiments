@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut model = create_model(dict, &device)?;
 
-        model.simple_train(tokens, 10, 1, 0.000001, &device)?;
+        model.simple_train(tokens, 30, 1, 0.000002, &device)?;
 
         model.save_to_path("data/model");
 

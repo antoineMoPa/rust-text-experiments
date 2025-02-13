@@ -13,6 +13,7 @@ const NUM_ATTENTION_HEADS: usize = 5;
 const HIDDEN_SIZE: usize = 4096;
 const NUM_BLOCKS: usize = 8;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
+const FILE_PATH: &str = "data/corpus/blogtext.csv";
 
 pub struct AttentionBlock {
     pub linear: Vec<nn::Linear>,
@@ -502,7 +503,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 }
 
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
-    let file_path = "data/corpus/wiki-horse.txt";
+    let file_path = FILE_PATH;
 
     // Experiments with char count
     // exponent 15+ makes no sense, no spaces, etc.
