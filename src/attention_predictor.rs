@@ -11,7 +11,7 @@ const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 5;
 const HIDDEN_SIZE: usize = 4096;
 const NUM_BLOCKS: usize = 8;
-pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 14) as usize;
+pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 12) as usize;
 
 pub struct AttentionBlock {
     pub linear: Vec<nn::Linear>,
@@ -62,7 +62,7 @@ impl AttentionBlock {
         for i in 0..CONTEXT_WINDOW {
             for j in 0..EMBEDDING_SIZE {
                 let val = (i as f32) / (10000 as f32).powf(2.0 * (j as f32) / EMBEDDING_SIZE as f32);
-                if i % 2 == 0 {
+                if j % 2 == 0 {
                     position.push(val.sin());
                 } else {
                     position.push(val.cos());
@@ -79,7 +79,7 @@ impl AttentionBlock {
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let input = self.position_encoding(input)?;
+        let input = (self.position_encoding(input)? + input)?;
         let input = nn::ops::dropout(&input, 0.3)?;
 
         let mut results: Vec<Tensor> = Vec::new();
@@ -105,7 +105,6 @@ impl AttentionBlock {
 
         return Ok(result);
     }
-
 }
 
 pub struct Mlp {

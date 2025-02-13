@@ -63,7 +63,7 @@ impl AttentionBlock {
         for i in 0..CONTEXT_WINDOW {
             for j in 0..EMBEDDING_SIZE {
                 let val = (i as f32) / (10000 as f32).powf(2.0 * (j as f32) / EMBEDDING_SIZE as f32);
-                if i % 2 == 0 {
+                if j % 2 == 0 {
                     position.push(val.sin());
                 } else {
                     position.push(val.cos());
@@ -80,7 +80,7 @@ impl AttentionBlock {
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let input = self.position_encoding(input)?;
+        let input = (self.position_encoding(input)? + input)?;
         let input = nn::ops::dropout(&input, 0.3)?;
 
         let mut results: Vec<Tensor> = Vec::new();
@@ -106,7 +106,6 @@ impl AttentionBlock {
 
         return Ok(result);
     }
-
 }
 
 pub struct Mlp {
@@ -503,7 +502,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 }
 
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
-    let file_path = "data/corpus/blogtext.csv";
+    let file_path = "data/corpus/wiki-horse.txt";
 
     // Experiments with char count
     // exponent 15+ makes no sense, no spaces, etc.
