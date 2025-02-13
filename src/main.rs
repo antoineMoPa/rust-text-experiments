@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::prelude::*;
 
-use attention_predictor::{create_model, get_pretrained_dict};
+use attention_predictor_large::{create_model, get_pretrained_dict};
 
 use crate::{
     token_utils::{tokenize, tokens_to_dict},
