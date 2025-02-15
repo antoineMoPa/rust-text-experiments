@@ -98,7 +98,6 @@ impl AttentionBlock {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let input = (self.position_encoding(input)? + input)?;
-        let input = nn::ops::dropout(&input, 0.3)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
@@ -126,6 +125,8 @@ impl AttentionBlock {
             let v = linear_output.apply(&self.vs[i])?;
 
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
+
+            let result = nn::ops::dropout(&result, 0.3)?;
 
             // would love to use norm instead here, but it's not supported on metal gpu
 
