@@ -1,6 +1,6 @@
 pub type Dict = std::collections::BTreeMap<String, f32>;
 
-pub const EMBEDDING_SIZE: usize = 100;
+pub const EMBEDDING_SIZE: usize = 40;
 
 pub trait GetTokenEmbedding {
     fn get_token_embedding(&self, token: &str) -> Vec<f32>;

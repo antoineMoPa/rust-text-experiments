@@ -51,7 +51,6 @@ impl AttentionBlock {
             qs.push(nn::linear_b(s, s, false, vb.pp(&format!("q{}", i)))?);
             ks.push(nn::linear_b(s, s, false, vb.pp(&format!("k{}", i)))?);
             vs.push(nn::linear_b(s, s, false, vb.pp(&format!("v{}", i)))?);
-
         }
 
         let out_linear = nn::linear_b(
