@@ -8,26 +8,27 @@ use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMB
 
 
 // smoll
-const CONTEXT_WINDOW: usize = 10;
-const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 8;
-const ATTENTION_HEAD_INPUT_SIZE: usize =
-    (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
-    * CONTEXT_WINDOW;
-const HIDDEN_SIZE: usize = 4096;
-const NUM_BLOCKS: usize = 10;
-pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 12) as usize;
+// const CONTEXT_WINDOW: usize = 10;
+// const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
+// const NUM_ATTENTION_HEADS: usize = 8;
+// const ATTENTION_HEAD_INPUT_SIZE: usize =
+//     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
+//     * CONTEXT_WINDOW;
+// const HIDDEN_SIZE: usize = 4096;
+// const NUM_BLOCKS: usize = 10;
+// pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 12) as usize;
+// const FILE_PATH: &str = "data/corpus/wiki-horse.txt";
 
 
 // large
-// const CONTEXT_WINDOW: usize = 40;
-// const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-// const NUM_ATTENTION_HEADS: usize = 5;
-// const ATTENTION_HEAD_INPUT_SIZE: usize = (EMBEDDING_SIZE / NUM_ATTENTION_HEADS) * CONTEXT_WINDOW;
-// const HIDDEN_SIZE: usize = 4096;
-// const NUM_BLOCKS: usize = 8;
-// pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
-
+const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
+const NUM_ATTENTION_HEADS: usize = 8;
+const ATTENTION_HEAD_INPUT_SIZE: usize = (EMBEDDING_SIZE / NUM_ATTENTION_HEADS) * CONTEXT_WINDOW;
+const CONTEXT_WINDOW: usize = 40;
+const HIDDEN_SIZE: usize = 4096;
+const NUM_BLOCKS: usize = 10;
+pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
+const FILE_PATH: &str = "data/corpus/blogtext.csv";
 
 pub struct AttentionBlock {
     pub linear: Vec<nn::Linear>,
@@ -536,7 +537,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 }
 
 pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
-    let file_path = "data/corpus/wiki-horse.txt";
+    let file_path = FILE_PATH;
 
     // Experiments with char count
     // exponent 15+ makes no sense, no spaces, etc.
