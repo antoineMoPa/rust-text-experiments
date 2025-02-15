@@ -6,12 +6,28 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE}, read_n_chars};
 
+
+// smoll
 const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 5;
+const ATTENTION_HEAD_INPUT_SIZE: usize =
+    (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
+    * CONTEXT_WINDOW;
 const HIDDEN_SIZE: usize = 4096;
 const NUM_BLOCKS: usize = 8;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 12) as usize;
+
+
+// large
+// const CONTEXT_WINDOW: usize = 40;
+// const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
+// const NUM_ATTENTION_HEADS: usize = 5;
+// const ATTENTION_HEAD_INPUT_SIZE: usize = (EMBEDDING_SIZE / NUM_ATTENTION_HEADS) * CONTEXT_WINDOW;
+// const HIDDEN_SIZE: usize = 4096;
+// const NUM_BLOCKS: usize = 8;
+// pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
+
 
 pub struct AttentionBlock {
     pub linear: Vec<nn::Linear>,
@@ -28,16 +44,18 @@ impl AttentionBlock {
         let mut ks: Vec<nn::Linear> = Vec::new();
         let mut vs: Vec<nn::Linear> = Vec::new();
 
+        let s = ATTENTION_HEAD_INPUT_SIZE;
+
         for i in 0..NUM_ATTENTION_HEADS {
-            linear.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("linear{}", i)))?);
-            qs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("q{}", i)))?);
-            ks.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("k{}", i)))?);
-            vs.push(nn::linear_b(INPUT_SIZE, INPUT_SIZE, false, vb.pp(&format!("v{}", i)))?);
+            linear.push(nn::linear_b(s, s, false, vb.pp(&format!("linear{}", i)))?);
+            qs.push(nn::linear_b(s, s, false, vb.pp(&format!("q{}", i)))?);
+            ks.push(nn::linear_b(s, s, false, vb.pp(&format!("k{}", i)))?);
+            vs.push(nn::linear_b(s, s, false, vb.pp(&format!("v{}", i)))?);
 
         }
 
         let out_linear = nn::linear_b(
-            INPUT_SIZE * NUM_ATTENTION_HEADS,
+            INPUT_SIZE,
             INPUT_SIZE,
             false,
             vb.pp("out_linear")
@@ -85,7 +103,23 @@ impl AttentionBlock {
         let mut results: Vec<Tensor> = Vec::new();
 
         for i in 0..NUM_ATTENTION_HEADS {
-            let linear_output = input.apply(&self.linear[i])?;
+            let portion_size = EMBEDDING_SIZE / NUM_ATTENTION_HEADS;
+            // Take a portion of every embedded token
+            // input is a vector of size EMBEDDING_SIZE * CONTEXT_WINDOW with tokens next to each other, I want to take just a portion of each token
+            let mut portions: Vec<Tensor> = Vec::new();
+
+            for j in 0..CONTEXT_WINDOW {
+                let start = j * EMBEDDING_SIZE;
+                let end = start + portion_size;
+                let indexes: Vec<u32> = ((start as u32)..(end as u32)).collect();
+                let indexes = Tensor::new(indexes, input.device())?;
+                let portion = input.index_select(&indexes, D::Minus1)?;
+                portions.push(portion);
+            }
+
+            let portions = Tensor::cat(&portions, D::Minus1)?;
+
+            let linear_output = portions.apply(&self.linear[i])?;
 
             let q = linear_output.apply(&self.qs[i])?;
             let k = linear_output.apply(&self.ks[i])?;
@@ -94,7 +128,8 @@ impl AttentionBlock {
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
             // would love to use norm instead here, but it's not supported on metal gpu
-            let result = (((result * 0.7)? + input.clone())? * 0.3)?;
+
+            let result = (((result * 0.7)? + portions.clone())? * 0.3)?;
 
             results.push(result);
         }
@@ -402,7 +437,7 @@ impl Mlp {
         for i in 0..epochs {
             println!("Global epoch {:6} / {}", i, epochs);
             for j in 0..num_batches {
-                if j % 20 == 0 {
+                if j % 2 == 0 {
                     println!("Batch        {:6} / {}", j, num_batches);
                 }
                 let start = j * token_batch_size;

@@ -1,3 +1,6 @@
-test:
+run:
+	cargo run run
+pretrain:
 	cargo run pretrain
-	cargo test attention
+test:
+	cargo test attention -- --nocapture --test-threads 1

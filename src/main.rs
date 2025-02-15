@@ -1,19 +1,17 @@
 use std::fs;
 use std::io::prelude::*;
 
-use attention_predictor_large::{create_model, get_pretrained_dict};
+use attention_predictor::{create_model, get_pretrained_dict};
 
 use crate::{
     token_utils::{tokenize, tokens_to_dict},
-    attention_predictor_large::{create_and_train_predictor_model, get_device, Mlp, CHARS_TO_TRAIN_ON}
+    attention_predictor::{create_and_train_predictor_model, get_device, Mlp, CHARS_TO_TRAIN_ON}
 };
 
 mod token_utils;
 mod simple_predictor;
 mod lstm_predictor;
 mod attention_predictor;
-mod attention_predictor_large;
-
 
 fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
     let file = fs::File::open(file_path)?;
