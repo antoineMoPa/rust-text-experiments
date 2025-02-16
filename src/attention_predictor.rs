@@ -6,7 +6,6 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot, LayerNor
 
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE}, read_n_chars};
 
-
 // smoll
 const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -16,18 +15,8 @@ const ATTENTION_HEAD_INPUT_SIZE: usize =
     * CONTEXT_WINDOW;
 const HIDDEN_SIZE: usize = 4096;
 const NUM_BLOCKS: usize = 10;
-pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 12) as usize;
+pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 14) as usize;
 const FILE_PATH: &str = "data/corpus/corpus.txt";
-
-// Custom param-less LayerNorm implementation due to:
-// Error: Metal error no metal implementation for layer-norm
-fn layer_norm_no_params(x: &Tensor, eps: f64) -> Result<Tensor, candle_core::Error> {
-    let mean = x.mean(D::Minus1)?.unsqueeze(D::Minus1)?;
-    let var = x.var(D::Minus1)?.unsqueeze(D::Minus1)?;
-    let std = (var + eps)?.sqrt()?;
-
-    return (x.broadcast_sub(&mean))?.broadcast_div(&std);
-}
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -38,6 +27,16 @@ fn layer_norm_no_params(x: &Tensor, eps: f64) -> Result<Tensor, candle_core::Err
 // const NUM_BLOCKS: usize = 10;
 // pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
 // const FILE_PATH: &str = "data/corpus/blogtext.csv";
+
+// Custom param-less LayerNorm implementation due to:
+// Error: Metal error no metal implementation for layer-norm
+fn layer_norm_no_params(x: &Tensor, eps: f64) -> Result<Tensor, candle_core::Error> {
+    let mean = x.mean(D::Minus1)?.unsqueeze(D::Minus1)?;
+    let var = x.var(D::Minus1)?.unsqueeze(D::Minus1)?;
+    let std = (var + eps)?.sqrt()?;
+
+    return (x.broadcast_sub(&mean))?.broadcast_div(&std);
+}
 
 pub struct AttentionBlock {
     pub linear: Vec<nn::Linear>,
