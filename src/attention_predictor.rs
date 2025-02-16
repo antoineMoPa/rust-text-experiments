@@ -415,7 +415,7 @@ impl Model {
         // iterate over tokens_chain
         for index in 0..(tokens_chain.len()) {
             let token = tokens_chain[index].clone();
-            let  mut input_tokens: Vec<String>;
+            let mut input_tokens: Vec<String>;
 
             if index == 0 {
                 continue;
@@ -508,12 +508,12 @@ impl Model {
 
         let dict = tokens_to_dict(dict_words);
 
-        let mut mlp = create_model(dict, device).unwrap();
+        let mut model = create_model(dict, device).unwrap();
 
         let var_map_path = format!("{}.safetensors", path);
-        mlp.var_map.load(var_map_path.as_str()).unwrap();
+        model.var_map.load(var_map_path.as_str()).unwrap();
 
-        Ok(mlp)
+        Ok(model)
     }
 
     pub fn load_inplace_from_path(&mut self, path: &str) -> Result<(), Error> {
