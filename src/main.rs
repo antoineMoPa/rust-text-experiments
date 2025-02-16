@@ -5,7 +5,7 @@ use attention_predictor::{create_model, get_pretrained_dict};
 
 use crate::{
     token_utils::{tokenize, tokens_to_dict},
-    attention_predictor::{create_and_train_predictor_model, get_device, Mlp, CHARS_TO_TRAIN_ON}
+    attention_predictor::{create_and_train_predictor_model, get_device, Model, CHARS_TO_TRAIN_ON}
 };
 
 mod token_utils;
@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args[0] == "run" {
         println!("Loading test model");
-        let model = Mlp::load_from_path("data/model", &device)?;
+        let model = Model::load_from_path("data/model", &device)?;
 
         let args = args[1..].to_vec();
 

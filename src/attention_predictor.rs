@@ -7,7 +7,7 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot, LayerNor
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE}, read_n_chars};
 
 // smoll
-const CONTEXT_WINDOW: usize = 40;
+const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
@@ -151,7 +151,7 @@ impl AttentionBlock {
     }
 }
 
-pub struct Mlp {
+pub struct Model {
     pub blocks: Vec<AttentionBlock>,
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
@@ -160,7 +160,7 @@ pub struct Mlp {
     pub dict: Dict,
 }
 
-impl Mlp {
+impl Model {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder) -> Result<Self, candle_core::Error> {
         let mut blocks = Vec::new();
 
@@ -531,23 +531,23 @@ impl Mlp {
     }
 }
 
-pub fn create_model(dict: Dict, device: &Device) -> Result<Mlp, candle_core::Error> {
+pub fn create_model(dict: Dict, device: &Device) -> Result<Model, candle_core::Error> {
     // Create Varbuilder
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    let model = Mlp::new(dict.clone(), varmap, vb)?;
+    let model = Model::new(dict.clone(), varmap, vb)?;
 
     Ok(model)
 }
 
 
-pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, train: bool, device: &Device) -> Result<Mlp, candle_core::Error> {
+pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, train: bool, device: &Device) -> Result<Model, candle_core::Error> {
     // Create Varbuilder
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    let mut model = Mlp::new(dict.clone(), varmap, vb)?;
+    let mut model = Model::new(dict.clone(), varmap, vb)?;
 
     if train {
         model.train( tokens_chain, 400, &"The horse", device)?;
@@ -605,7 +605,7 @@ mod tests {
     #[test]
     fn test_candle_predictor_hello_world() -> Result<(), candle_core::Error> {
         let device = get_device()?;
-        let mut model = Mlp::load_from_path("data/model", &device)?;
+        let mut model = Model::load_from_path("data/model", &device)?;
 
         let test_str = "hello world";
         let tokens = tokenize(test_str);
@@ -622,7 +622,7 @@ mod tests {
         let test_str = "lorem ipsum et";
 
         let device = get_device()?;
-        let mut model = Mlp::load_from_path("data/model", &device)?;
+        let mut model = Model::load_from_path("data/model", &device)?;
 
         let tokens = tokenize(test_str);
         model.train(tokens, 500, test_str,  &device)?;
@@ -639,7 +639,7 @@ mod tests {
         let test_str = "lorem ipsum et dolor sit amet";
 
         let device = get_device()?;
-        let mut model = Mlp::load_from_path("data/model", &device)?;
+        let mut model = Model::load_from_path("data/model", &device)?;
 
         let tokens = tokenize(test_str);
         model.train(tokens, 500, test_str,  &device)?;
@@ -664,7 +664,7 @@ mod tests {
         let test_str = tokens[0..4].to_vec().join("");
 
         let device = get_device()?;
-        let mut model = Mlp::load_from_path("data/model", &device)?;
+        let mut model = Model::load_from_path("data/model", &device)?;
 
         model.train(tokens, 500, test_str.as_str(),  &device)?;
 
@@ -680,7 +680,7 @@ mod tests {
         let test_str = tokens[0..4].to_vec().join("");
 
         let device = get_device()?;
-        let mut model = Mlp::load_from_path("data/model", &device)?;
+        let mut model = Model::load_from_path("data/model", &device)?;
 
         model.train( tokens, 500, test_str.as_str(),  &device)?;
 
@@ -697,7 +697,7 @@ mod tests {
         let test_str = tokens[0..4].to_vec().join("");
 
         let device = get_device()?;
-        let mut model = Mlp::load_from_path("data/model", &device)?;
+        let mut model = Model::load_from_path("data/model", &device)?;
 
         model.train( tokens.clone(), 500, test_str.as_str(),  &device)?;
 
@@ -718,7 +718,7 @@ mod tests {
         let test_str = tokens[0..4].to_vec().join("");
 
         let device = get_device()?;
-        let mut model = Mlp::load_from_path("data/model", &device)?;
+        let mut model = Model::load_from_path("data/model", &device)?;
 
         model.train( tokens.clone(), 500, test_str.as_str(),  &device)?;
 
@@ -742,7 +742,7 @@ mod tests {
         let test_str = tokens[0..4].to_vec().join("");
 
         let device = get_device()?;
-        let mut model = Mlp::load_from_path("data/model", &device)?;
+        let mut model = Model::load_from_path("data/model", &device)?;
 
         model.train( tokens.clone(), 200, test_str.as_str(),  &device)?;
 
