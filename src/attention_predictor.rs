@@ -7,7 +7,7 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot, LayerNor
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE}, read_n_chars};
 
 // smoll
-const CONTEXT_WINDOW: usize = 10;
+const CONTEXT_WINDOW: usize = 40;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
@@ -15,7 +15,7 @@ const ATTENTION_HEAD_INPUT_SIZE: usize =
     * CONTEXT_WINDOW;
 const HIDDEN_SIZE: usize = 4096;
 const NUM_BLOCKS: usize = 10;
-pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 14) as usize;
+pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 const FILE_PATH: &str = "data/corpus/corpus.txt";
 
 // large
