@@ -137,7 +137,7 @@ pub struct EncoderDecoder {
 
 impl EncoderDecoder {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder) -> Result<Self, candle_core::Error> {
-        let hidden_size = 40;
+        let hidden_size = 80;
 
         let fc1 = nn::linear_b(dict.len(), hidden_size, false, vb.pp("fc1"))?;
         let fc2 = nn::linear_b(hidden_size, hidden_size, false, vb.pp("fc2"))?;
@@ -158,7 +158,7 @@ impl EncoderDecoder {
         return Ok(result);
     }
 
-    fn run(&mut self, input: String, device: &Device) -> Result<String, candle_core::Error> {
+    fn run(&self, input: String, device: &Device) -> Result<String, candle_core::Error> {
         let input: &Tensor = &self.token_to_tensor(input.as_str(), &device)?;
         let output_prob = self.forward(input)?;
         let output_prob_max_index = output_prob.argmax(1)?;
@@ -185,7 +185,7 @@ impl EncoderDecoder {
         let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), 0.003)?;
 
         for epoch in 0..epochs {
-            let batch_size = 400;
+            let batch_size = 200;
             let last_batch = self.dict.len() / batch_size;
             for i in 0..last_batch {
                 let mut inputs = Vec::new();
@@ -209,11 +209,36 @@ impl EncoderDecoder {
 
                 if epoch % 1 == 0 {
                     println!("Epoch {:6}: Loss = {:.6} {}/{}", epoch, loss.to_vec0::<f32>()?, i, last_batch);
+
+                    if i % 5 == 0 {
+                        self.evaluate(device)?;
+                    }
                 }
             }
         }
 
         Ok(())
+    }
+
+    pub fn evaluate(&self, device: &Device) -> Result<f32, candle_core::Error> {
+        let mut successes = 0;
+        let mut failures = 0;
+
+        for token in self.dict.keys() {
+            let result = self.run(token.clone(), &device)?;
+
+            if &result == token {
+                successes += 1;
+            } else {
+                failures += 1;
+            }
+        }
+
+        println!("Successes: {}, Failures: {}", successes, failures);
+
+        let success_rate = successes as f32 / (successes + failures) as f32;
+
+        return Ok(success_rate);
     }
 
     pub fn save_to_path(&self, path: &str) {
@@ -299,7 +324,7 @@ mod tests {
         encoder_decoder.train(&device)?;
 
         encoder_decoder.save_to_path("data/encdec");
-        let mut encoder_decoder = EncoderDecoder::load_from_path("data/encdec", &device)?;
+        let encoder_decoder = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
         assert_eq!(encoder_decoder.run("Hello".to_string(), &device)?, "Hello");
         assert_eq!(encoder_decoder.run("world".to_string(), &device)?, "world");
@@ -346,22 +371,7 @@ mod tests {
         println!("Training");
         encoder_decoder.train(&device)?;
 
-        let mut successes = 0;
-        let mut failures = 0;
-
-        for token in vocabulary {
-            let result = encoder_decoder.run(token.clone(), &device)?;
-
-            if result == token {
-                successes += 1;
-            } else {
-                failures += 1;
-            }
-        }
-
-        println!("Successes: {}, Failures: {}", successes, failures);
-
-        let success_rate = successes as f32 / (successes + failures) as f32;
+        let success_rate = encoder_decoder.evaluate(&device)?;
 
         assert!(success_rate > 0.9);
 
@@ -388,22 +398,7 @@ mod tests {
         encoder_decoder.train(&device)?;
         encoder_decoder.save_to_path("data/encdec");
 
-        let mut successes = 0;
-        let mut failures = 0;
-
-        for token in vocabulary {
-            let result = encoder_decoder.run(token.clone(), &device)?;
-
-            if result == token {
-                successes += 1;
-            } else {
-                failures += 1;
-            }
-        }
-
-        println!("Successes: {}, Failures: {}", successes, failures);
-
-        let success_rate = successes as f32 / (successes + failures) as f32;
+        let success_rate = encoder_decoder.evaluate(&device)?;
 
         assert!(success_rate > 0.9);
 
