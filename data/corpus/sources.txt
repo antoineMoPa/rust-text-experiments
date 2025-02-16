@@ -1,3 +1,0 @@
-curl -L -o sample-blog-corpus.zip https://www.kaggle.com/api/v1/datasets/download/saurabhbagchi/sample-blog-corpus
-unzip sample-blog-corpus.zip
-rm sample-blog-corpus.zip
