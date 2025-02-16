@@ -17,7 +17,7 @@ const ATTENTION_HEAD_INPUT_SIZE: usize =
 const HIDDEN_SIZE: usize = 4096;
 const NUM_BLOCKS: usize = 10;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 12) as usize;
-const FILE_PATH: &str = "data/corpus/wiki-horse.txt";
+const FILE_PATH: &str = "data/corpus/corpus.txt";
 
 // Custom param-less LayerNorm implementation due to:
 // Error: Metal error no metal implementation for layer-norm
@@ -191,7 +191,7 @@ impl Mlp {
 
         let result = self.fc1.forward(&result)?;
         //let result = result.tanh()?;
-        //let result = result.relu()?;
+        let result = result.relu()?;
         let result = self.fc2.forward(&result)?;
 
         let result = layer_norm_no_params(&result, 1e-5)?;
