@@ -462,7 +462,6 @@ impl Model {
         Ok(())
     }
 
-
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, sub_epochs: u32, initial_lr: f64, device: &Device) -> Result<(), candle_core::Error> {
         let token_batch_size = 60;
         let num_batches = tokens_chain.len() / token_batch_size;
@@ -555,7 +554,6 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
 
     Ok(model)
 }
-
 
 pub fn get_device() -> Result<Device, candle_core::Error> {
     if cfg!(target_os = "macos") {

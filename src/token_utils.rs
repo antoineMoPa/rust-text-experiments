@@ -1,3 +1,12 @@
+use std::fs;
+use std::io::prelude::*;
+
+use candle_core::{Device, Tensor};
+use candle_nn::VarMap;
+use candle_nn::{self as nn, Module};
+use nn::{VarBuilder, AdamW, Optimizer};
+use nn::encoding::one_hot;
+
 pub type Dict = std::collections::BTreeMap<String, f32>;
 
 pub const EMBEDDING_SIZE: usize = 80;
@@ -118,6 +127,139 @@ pub fn tokens_to_dict(vocabulary: Vec<String>) -> Dict {
     return vocabulary_dict;
 }
 
+pub struct EncoderDecoder {
+    pub fc1: nn::Linear,
+    pub fc2: nn::Linear,
+    pub fc3: nn::Linear,
+    pub var_map: VarMap,
+    pub dict: Dict,
+}
+
+impl EncoderDecoder {
+    pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder) -> Result<Self, candle_core::Error> {
+        let hidden_size = 40;
+
+        let fc1 = nn::linear_b(dict.len(), hidden_size, false, vb.pp("fc1"))?;
+        let fc2 = nn::linear_b(hidden_size, hidden_size, false, vb.pp("fc2"))?;
+        let fc3 = nn::linear_b(hidden_size, dict.len(), false, vb.pp("fc3"))?;
+
+        Ok(Self { fc1, fc2, fc3, dict, var_map })
+    }
+
+    fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
+        let result = self.fc1.forward(&input)?;
+        let result = result.tanh()?;
+        let result = self.fc2.forward(&result)?;
+        let result = result.tanh()?;
+        let result = self.fc3.forward(&result)?;
+
+        let result = result.tanh()?;
+
+        return Ok(result);
+    }
+
+    fn run(&mut self, input: String, device: &Device) -> Result<String, candle_core::Error> {
+        let input: &Tensor = &self.token_to_tensor(input.as_str(), &device)?;
+        let output_prob = self.forward(input)?;
+        let output_prob_max_index = output_prob.argmax(1)?;
+
+        let n = output_prob_max_index.to_vec1::<u32>()?[0];
+
+        let max_token = self.dict.iter().nth(n as usize).unwrap();
+
+        return Ok(max_token.0.clone());
+    }
+
+    pub fn token_to_tensor(&self, input: &str, device: &Device) -> Result<Tensor, candle_core::Error> {
+        let token_index = self.dict.get_word_index(input)?;
+        let arr = vec![token_index as u32];
+        let input = one_hot(Tensor::new(arr, &device)?, self.dict.len(), 0.95 as f32, 0.0 as f32)?;
+
+        return Ok(input);
+    }
+
+    pub fn train(&mut self, device: &Device) -> Result<(), candle_core::Error> {
+        // 1. More epoch when sample size is smaller
+        let epochs = 10;
+
+        let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), 0.003)?;
+
+        for epoch in 0..epochs {
+            let batch_size = 400;
+            let last_batch = self.dict.len() / batch_size;
+            for i in 0..last_batch {
+                let mut inputs = Vec::new();
+
+                for (token, _token_index) in self.dict.iter().skip(i*batch_size).take(batch_size) {
+                    let input = self.token_to_tensor(token, device)?;
+
+                    inputs.push(input);
+                }
+
+                let inputs = Tensor::stack(&inputs, 0)?;
+                let targets = inputs.clone();
+
+                let predictions = self.forward(&inputs)?;
+
+                // Compute loss
+                let loss = nn::loss::mse(&predictions, &targets)?;
+
+                // Backpropagation
+                optimizer.backward_step(&loss)?;
+
+                if epoch % 1 == 0 {
+                    println!("Epoch {:6}: Loss = {:.6} {}/{}", epoch, loss.to_vec0::<f32>()?, i, last_batch);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn save_to_path(&self, path: &str) {
+        let var_map_path = format!("{}.safetensors", path);
+        self.var_map.save(var_map_path.as_str()).unwrap();
+
+        let dict_words = self.dict.iter().map(|(word, _)| word.clone()).collect::<Vec<String>>();
+
+        let dict_path = format!("{}.dict", path);
+        let file = fs::File::create(dict_path).unwrap();
+        serde_json::to_writer(file, &dict_words).unwrap();
+    }
+
+    pub fn load_from_path(path: &str, device: &Device) -> Result<Self, candle_core::Error> {
+        let dict_path = format!("{}.dict", path);
+        let file = fs::File::open(dict_path).unwrap();
+        let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
+
+        let dict = tokens_to_dict(dict_words);
+
+        let varmap = VarMap::new();
+        let var_map_path = format!("{}.safetensors", path);
+
+        let vb = VarBuilder::from_varmap(&varmap, candle_core::DType::F32, &device);
+
+        let mut model = Self::new(dict, varmap, vb)?;
+        model.var_map.load(var_map_path.as_str()).unwrap();
+
+        return Ok(model);
+    }
+
+    pub fn get_device() -> Result<Device, candle_core::Error> {
+        if cfg!(target_os = "macos") {
+            let device = Device::new_metal(0)?;
+            match &device {
+                Device::Metal(m) => m,
+                _ => panic!("Device is not Metal"),
+            };
+        return Ok(device);
+        } else {
+            return Device::new_cuda(0);
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,4 +287,126 @@ mod tests {
         assert!(*vocabulary_dict.get("world").unwrap() > 0.0);
     }
 
+    #[test]
+    fn test_encoder_decoder() -> Result<(), candle_core::Error> {
+        let vocabulary = tokenize("Hello, world!");
+        let dict = tokens_to_dict(vocabulary);
+        let device = EncoderDecoder::get_device()?;
+        let vm = VarMap::new();
+        let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
+        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb)?;
+
+        encoder_decoder.train(&device)?;
+
+        encoder_decoder.save_to_path("data/encdec");
+        let mut encoder_decoder = EncoderDecoder::load_from_path("data/encdec", &device)?;
+
+        assert_eq!(encoder_decoder.run("Hello".to_string(), &device)?, "Hello");
+        assert_eq!(encoder_decoder.run("world".to_string(), &device)?, "world");
+        assert_eq!(encoder_decoder.run(" ".to_string(), &device)?, " ");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_encoder_decoder_lorem() -> Result<(), candle_core::Error> {
+        let vocabulary = tokenize("Lorem ipsum et dolor sit amet.");
+        let dict = tokens_to_dict(vocabulary);
+        let device = EncoderDecoder::get_device()?;
+        let vm = VarMap::new();
+        let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
+        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb)?;
+
+        encoder_decoder.train(&device)?;
+
+        assert_eq!(encoder_decoder.run("Lorem".to_string(), &device)?, "Lorem");
+        assert_eq!(encoder_decoder.run("ipsum".to_string(), &device)?, "ipsum");
+        assert_eq!(encoder_decoder.run(" ".to_string(), &device)?, " ");
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_encoder_decoder_level0() -> Result<(), candle_core::Error> {
+        let level_file_path = "data/corpus/level_0/corpus.corpus";
+        let mut file = fs::File::open(level_file_path)?;
+        let mut content: String = String::new();
+        file.read_to_string(&mut content)?;
+
+        println!("Parsing content");
+        let vocabulary = tokenize(content.as_str());
+        println!("Building dictionary");
+        let dict = tokens_to_dict(vocabulary.clone());
+        let device = EncoderDecoder::get_device()?;
+        let vm = VarMap::new();
+        let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
+        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb)?;
+
+        println!("Training");
+        encoder_decoder.train(&device)?;
+
+        let mut successes = 0;
+        let mut failures = 0;
+
+        for token in vocabulary {
+            let result = encoder_decoder.run(token.clone(), &device)?;
+
+            if result == token {
+                successes += 1;
+            } else {
+                failures += 1;
+            }
+        }
+
+        println!("Successes: {}, Failures: {}", successes, failures);
+
+        let success_rate = successes as f32 / (successes + failures) as f32;
+
+        assert!(success_rate > 0.9);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_encoder_decoder_whole_corpus() -> Result<(), candle_core::Error> {
+        let level_file_path = "data/corpus/corpus.txt";
+        let mut file = fs::File::open(level_file_path)?;
+        let mut content: String = String::new();
+        file.read_to_string(&mut content)?;
+
+        println!("Parsing content");
+        let vocabulary = tokenize(content.as_str());
+        println!("Building dictionary");
+        let dict = tokens_to_dict(vocabulary.clone());
+        let device = EncoderDecoder::get_device()?;
+        let vm = VarMap::new();
+        let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
+        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb)?;
+
+        println!("Training");
+        encoder_decoder.train(&device)?;
+        encoder_decoder.save_to_path("data/encdec");
+
+        let mut successes = 0;
+        let mut failures = 0;
+
+        for token in vocabulary {
+            let result = encoder_decoder.run(token.clone(), &device)?;
+
+            if result == token {
+                successes += 1;
+            } else {
+                failures += 1;
+            }
+        }
+
+        println!("Successes: {}, Failures: {}", successes, failures);
+
+        let success_rate = successes as f32 / (successes + failures) as f32;
+
+        assert!(success_rate > 0.9);
+
+        Ok(())
+    }
 }
