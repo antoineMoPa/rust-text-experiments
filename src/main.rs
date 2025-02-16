@@ -39,14 +39,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "pretrain" {
         println!("Pretraining test model");
 
-        let (dict, tokens) = get_pretrained_dict()?;
+        let (dict, _tokens) = get_pretrained_dict()?;
 
         let device = get_device()?;
 
         let mut model = create_model(dict, &device)?;
 
-        model.simple_train(tokens, 10, 30, 0.00003, &device)?;
+        // train on data/corpus/level_1/corpus.txt
+        let level_file_path = "data/corpus/level_0/corpus.txt";
+        let mut file = fs::File::open(level_file_path)?;
+        let mut content: String = String::new();
+        file.read_to_string(&mut content)?;
+        let tokens = tokenize(content.as_str());
 
+        println!("Training level 0 on {} tokens", tokens.len());
+
+        model.simple_train(tokens, 10, 1, 0.00003, &device)?;
+        model.save_to_path("data/model_l0");
         model.save_to_path("data/model");
 
         return Ok(());
