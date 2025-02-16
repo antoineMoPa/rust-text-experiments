@@ -1,8 +1,9 @@
 #!/bin/bash
 
 ARGS="--silent-prompt -p "
-SYSTEM=$(cat system.txt)
-OUT="llm_generated_corpus.txt"
+SYSTEM="You are a generator to create a corpus of text to train a text generation model. You generate content about random diverse topics, formatted as list of sentences with line breaks, following user instructions. You never write anything else in the output than the content of the corpus. Make sure to generate a diverse set of sentences.\n\nGenerate 10 example per user question.\n\nExample: Generate simple english sentences.\nThe cat sat on the mat.\nI like to eat apples.\nShe is reading a book.\nThey went to the park.\nHe plays soccer every day.\nWe are happy to see you.\nThe sun is shining bright.\nBirds fly in the sky.\nMy favorite color is blue.\nThe dog barks loudly."
+
+OUT="llm_generated_corpus.tmp"
 
 # 1. Everyday Life and Common Objects
 $MODEL $ARGS "$SYSTEM Write simple English sentences about household items like spoons, plates, cups, and brooms." >> $OUT

@@ -1,14 +1,25 @@
 #!/bin/bash
 
-cat ./generated_curated_corpus.txt > corpus.txt
+echo "" > corpus.txt
 
-for file in ./text_dumps/*; do
-    echo "Processing $file"
-    cat $file >> corpus.txt
+for dir in ./level_*/; do
+    # reset level corpus
+    echo "" >> $dir/corpus.txt
+    for file in $dir/*.txt; do
+        # if file is corpus.txt, skip
+        if [ $file == $dir/corpus.txt ]; then
+            continue
+        fi
+
+        echo "Processing $file"
+        cat $file >> corpus.txt
+        cat $file >> $dir/corpus.txt
+    done
 done
 
+pushd .
+cd level_3
 python3 gen_text.py >> corpus.txt
-
-# cat wiki-horse.txt >> corpus.txt
+popd
 
 du -h corpus.txt
