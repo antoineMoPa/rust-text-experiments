@@ -2,33 +2,42 @@ use std::{fs, io::Error};
 
 use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
-use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
+use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot, LayerNormConfig, BatchNormConfig};
 
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE}, read_n_chars};
 
 
 // smoll
-// const CONTEXT_WINDOW: usize = 10;
-// const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-// const NUM_ATTENTION_HEADS: usize = 8;
-// const ATTENTION_HEAD_INPUT_SIZE: usize =
-//     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
-//     * CONTEXT_WINDOW;
-// const HIDDEN_SIZE: usize = 4096;
-// const NUM_BLOCKS: usize = 10;
-// pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 12) as usize;
-// const FILE_PATH: &str = "data/corpus/wiki-horse.txt";
-
-
-// large
+const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
-const ATTENTION_HEAD_INPUT_SIZE: usize = (EMBEDDING_SIZE / NUM_ATTENTION_HEADS) * CONTEXT_WINDOW;
-const CONTEXT_WINDOW: usize = 40;
+const ATTENTION_HEAD_INPUT_SIZE: usize =
+    (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
+    * CONTEXT_WINDOW;
 const HIDDEN_SIZE: usize = 4096;
 const NUM_BLOCKS: usize = 10;
-pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
-const FILE_PATH: &str = "data/corpus/blogtext.csv";
+pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 12) as usize;
+const FILE_PATH: &str = "data/corpus/wiki-horse.txt";
+
+// Custom param-less LayerNorm implementation due to:
+// Error: Metal error no metal implementation for layer-norm
+fn layer_norm_no_params(x: &Tensor, eps: f64) -> Result<Tensor, candle_core::Error> {
+    let mean = x.mean(D::Minus1)?.unsqueeze(D::Minus1)?;
+    let var = x.var(D::Minus1)?.unsqueeze(D::Minus1)?;
+    let std = (var + eps)?.sqrt()?;
+
+    return (x.broadcast_sub(&mean))?.broadcast_div(&std);
+}
+
+// large
+// const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
+// const NUM_ATTENTION_HEADS: usize = 8;
+// const ATTENTION_HEAD_INPUT_SIZE: usize = (EMBEDDING_SIZE / NUM_ATTENTION_HEADS) * CONTEXT_WINDOW;
+// const CONTEXT_WINDOW: usize = 40;
+// const HIDDEN_SIZE: usize = 4096;
+// const NUM_BLOCKS: usize = 10;
+// pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
+// const FILE_PATH: &str = "data/corpus/blogtext.csv";
 
 pub struct AttentionBlock {
     pub linear: Vec<nn::Linear>,
@@ -126,11 +135,9 @@ impl AttentionBlock {
 
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
-            let result = nn::ops::dropout(&result, 0.3)?;
+            let result = (result + portions.clone())?;
 
-            // would love to use norm instead here, but it's not supported on metal gpu
-
-            let result = (((result * 0.7)? + portions.clone())? * 0.3)?;
+            let result = layer_norm_no_params(&result, 1e-5)?;
 
             results.push(result);
         }
@@ -138,6 +145,8 @@ impl AttentionBlock {
         let result = Tensor::cat(&results, D::Minus1)?;
         let result = result.tanh()?;
         let result = self.out_linear.forward(&result)?;
+
+        let result = layer_norm_no_params(&result, 1e-5)?;
 
         return Ok(result);
     }
@@ -176,12 +185,17 @@ impl Mlp {
         }
 
         //let result = result.relu()?;
-        let result = (result + (input * 0.2)?)?;
-        let result = (result * 0.2)?;
+        let result = (result + input * 1.5)?;
+
+        let result = layer_norm_no_params(&result, 1e-5)?;
+
         let result = self.fc1.forward(&result)?;
         //let result = result.tanh()?;
         //let result = result.relu()?;
         let result = self.fc2.forward(&result)?;
+
+        let result = layer_norm_no_params(&result, 1e-5)?;
+
         //let result = result.tanh()?;
         let result = self.fc3.forward(&result)?;
 
@@ -215,6 +229,25 @@ impl Mlp {
         let max_token = self.dict.iter().nth(n as usize).unwrap();
 
         return Ok(max_token.0.clone());
+    }
+
+    pub fn run_str(&self, input: &str, len: usize, device: &Device) -> Result<String, candle_core::Error> {
+        let mut output = String::new();
+        let tokens = tokenize(input);
+        let mut input: Vec<Vec<f32>> = Vec::new();
+
+        for token in tokens {
+            input.push(self.dict.get_token_embedding(token.as_str()));
+        }
+
+        for _ in 0..len {
+            let prediction = self.run(&input, device)?;
+            let token_embedding = self.dict.get_token_embedding(prediction.as_str());
+            input.push(token_embedding);
+            output.push_str(prediction.as_str());
+        }
+
+        return Ok(output);
     }
 
     pub fn predict_next_token(&self, input: &str, device: &Device) -> Result<String, candle_core::Error> {
@@ -440,6 +473,8 @@ impl Mlp {
             for j in 0..num_batches {
                 if j % 2 == 0 {
                     println!("Batch        {:6} / {}", j, num_batches);
+                    let prediction = self.run_str(" ", 10, device)?;
+                    println!("Prediction: {}", prediction);
                 }
                 let start = j * token_batch_size;
                 let end = (j + 1) * token_batch_size;
@@ -455,7 +490,7 @@ impl Mlp {
         Ok(())
     }
 
-        pub fn save_to_path(&self, path: &str) {
+    pub fn save_to_path(&self, path: &str) {
         let var_map_path = format!("{}.safetensors", path);
         self.var_map.save(var_map_path.as_str()).unwrap();
 
