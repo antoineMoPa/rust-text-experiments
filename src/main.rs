@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut model = create_model(dict, &device)?;
 
         // train on data/corpus/level_1/corpus.txt
-        let level_file_path = "data/corpus/level_0/corpus.txt";
+        let level_file_path = "data/corpus/level_0/corpus.corpus";
         let mut file = fs::File::open(level_file_path)?;
         let mut content: String = String::new();
         file.read_to_string(&mut content)?;
