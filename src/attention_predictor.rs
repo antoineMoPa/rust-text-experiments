@@ -1,6 +1,6 @@
 use std::{fs, io::Error, collections::BTreeMap};
 
-use candle_core::{Device, Tensor, DType, D};
+use candle_core::{Device, Tensor, DType, D, Var};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
@@ -106,6 +106,7 @@ impl AttentionBlock {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let input = (self.position_encoding(input)? + input)?;
+        let input = nn::ops::dropout(&input, 0.3)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
@@ -136,7 +137,7 @@ impl AttentionBlock {
 
             let result = (result + (portions.clone() * 1.5)?)?;
 
-            //let result = layer_norm_no_params(&result, 1e-5)?;
+            let result = layer_norm_no_params(&result, 1e-5)?;
 
             results.push(result);
         }
@@ -145,7 +146,7 @@ impl AttentionBlock {
         let result = result.tanh()?;
         let result = self.out_linear.forward(&result)?;
 
-        //let result = layer_norm_no_params(&result, 1e-5)?;
+        let result = layer_norm_no_params(&result, 1e-5)?;
 
         return Ok(result);
     }
@@ -189,17 +190,18 @@ impl Model {
         //let result = result.relu()?;
         let result = (result + input)?;
 
-        //let result = layer_norm_no_params(&result, 1e-5)?;
+        let result = layer_norm_no_params(&result, 1e-5)?;
 
         let result = self.fc1.forward(&result)?;
-        //let result = result.tanh()?;
-        let result = result.relu()?;
+        let result = result.tanh()?;
+        //let result = result.relu()?;
         let result = self.fc2.forward(&result)?;
 
-        // let result = layer_norm_no_params(&result, 1e-5)?;
+        let result = layer_norm_no_params(&result, 1e-5)?;
+
+        let result = self.fc3.forward(&result)?;
 
         let result = result.tanh()?;
-        let result = self.fc3.forward(&result)?;
 
         return Ok(result);
     }
@@ -437,9 +439,8 @@ impl Model {
             }
 
             let input: Vec<f32> = input_tokens.iter().flat_map(|token| token_embedding_map.get(token).unwrap().to_vec()).collect();
-            let output: String = token.clone();
 
-            let output_token_index: u32 = token_index[&output];
+            let output_token_index: u32 = token_index[&token];
 
             let input = Tensor::new(input, &device)?;
             let target = one_hot(Tensor::new(output_token_index, &device)?, self.dict.len(), 1.0 as f32, 0.0 as f32)?;
@@ -463,8 +464,8 @@ impl Model {
         Ok(())
     }
 
-    pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, sub_epochs: u32, lr: f64, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 200;
+    pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, lr: f64, device: &Device) -> Result<(), candle_core::Error> {
+        let token_batch_size = 400;
         let num_batches = tokens_chain.len() / token_batch_size;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
@@ -492,16 +493,35 @@ impl Model {
 
                 println!("Epoch {:6}: Loss = {:.6}", epoch, loss.to_vec0::<f32>()?);
 
-                if j % 2 == 0 {
+                if j % 2 == 0 && j > 0 {
                     println!("Batch        {:6} / {}", j, num_batches);
                     if j % 4 == 0 {
                         let prediction = self.run_str(" ", 10, device)?;
                         println!("Prediction: {}", prediction);
                     }
+                    if j % 10 == 0 {
+                        self.print_stats()?;
+                    }
                 }
 
             }
             self.save_to_path("data/model");
+        }
+
+        Ok(())
+    }
+
+    pub fn print_stats(&self) -> Result<(), candle_core::Error> {
+        println!("Model stats:");
+        println!("Dict size: {}", self.dict.len());
+
+        // print min, max, mean, std of all tensors
+        for var in self.var_map.all_vars().iter() {
+            let min = var.flatten_all()?.min(D::Minus1)?.to_vec0::<f32>()?;
+            let max = var.flatten_all()?.max(D::Minus1)?.to_vec0::<f32>()?;
+            let mean = var.flatten_all()?.mean(D::Minus1)?.to_vec0::<f32>()?;
+            let variance = var.flatten_all()?.var(D::Minus1)?.to_vec0::<f32>()?;
+            println!("{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3}", "", min, max, mean, variance);
         }
 
         Ok(())

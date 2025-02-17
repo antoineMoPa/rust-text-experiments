@@ -78,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("Training level 0 on {} tokens", tokens.len());
 
-        model.simple_train(tokens, 10, 1, 0.00001, &device)?;
+        model.simple_train(tokens, 10, 0.00002, &device)?;
         model.save_to_path("data/model_l0");
         model.save_to_path("data/model");
 
