@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::prelude::*;
 
@@ -50,7 +51,9 @@ impl GetTokenEmbedding for Dict {
             }
         }
 
-        return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Token not found"));
+        println!("Token not found: {}", token);
+
+        panic!("Token not found");
     }
 
     fn build_index(&self) -> DictIndex {
@@ -212,9 +215,9 @@ impl EncoderDecoder {
     }
 
     pub fn train(&mut self) -> Result<(), candle_core::Error> {
-        let epochs = 40;
+        let epochs = 60;
         let lr = 0.003;
-        let batch_size = 40;
+        let batch_size = 20;
         let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
@@ -309,6 +312,18 @@ impl EncoderDecoder {
         } else {
             return Device::new_cuda(0);
         }
+    }
+
+    pub fn build_token_embedding_map(&self) -> Result<BTreeMap<String, Vec<f32>>, candle_core::Error> {
+        let mut token_embedding_map: BTreeMap<String, Vec<f32>> = BTreeMap::new();
+        let tokens_chain: Vec<String> = self.dict.keys().cloned().collect();
+        let unique_tokens: Vec<String> = tokens_chain.iter().cloned().collect::<std::collections::HashSet<String>>().into_iter().collect();
+        for token in unique_tokens {
+            let token_embedding = self.get_token_embedding_vec(token.as_str())?;
+            token_embedding_map.insert(token, token_embedding);
+        }
+
+        return Ok(token_embedding_map);
     }
 }
 

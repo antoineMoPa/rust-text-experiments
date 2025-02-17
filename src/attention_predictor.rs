@@ -9,7 +9,7 @@ use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMB
 // smoll
 const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 4;
+const NUM_ATTENTION_HEADS: usize = 8;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
@@ -27,6 +27,9 @@ pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
 // const NUM_BLOCKS: usize = 10;
 // pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
 // const FILE_PATH: &str = "data/corpus/blogtext.csv";
+
+
+const NOT_FOUND: &str = "<notfound>";
 
 // Custom param-less LayerNorm implementation due to:
 // Error: Metal error no metal implementation for layer-norm
@@ -135,9 +138,7 @@ impl AttentionBlock {
 
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
-            let result = (result + (portions.clone() * 1.5)?)?;
-
-            let result = layer_norm_no_params(&result, 1e-5)?;
+            let result = (((result * 0.7)? + portions.clone())? * 0.3)?;
 
             results.push(result);
         }
@@ -145,8 +146,6 @@ impl AttentionBlock {
         let result = Tensor::cat(&results, D::Minus1)?;
         let result = result.tanh()?;
         let result = self.out_linear.forward(&result)?;
-
-        let result = layer_norm_no_params(&result, 1e-5)?;
 
         return Ok(result);
     }
@@ -187,21 +186,12 @@ impl Model {
             result = block.forward(&result)?;
         }
 
-        //let result = result.relu()?;
-        let result = (result + input)?;
-
-        let result = layer_norm_no_params(&result, 1e-5)?;
+        let result = (result + (input * 0.2)?)?;
+        let result = (result * 0.2)?;
 
         let result = self.fc1.forward(&result)?;
-        let result = result.tanh()?;
-        //let result = result.relu()?;
         let result = self.fc2.forward(&result)?;
-
-        let result = layer_norm_no_params(&result, 1e-5)?;
-
         let result = self.fc3.forward(&result)?;
-
-        let result = result.tanh()?;
 
         return Ok(result);
     }
@@ -256,11 +246,17 @@ impl Model {
     }
 
     pub fn predict_next_token(&self, input: &str, device: &Device) -> Result<String, candle_core::Error> {
+        let token_embedding_map: BTreeMap<String, Vec<f32>> = self.encdec.build_token_embedding_map()?;
         let tokens = tokenize(&input);
         let mut input: Vec<Vec<f32>> = Vec::new();
 
         for token in tokens {
-            input.push(self.encdec.get_token_embedding_vec(token.as_str())?);
+            match token_embedding_map.get(token.as_str()) {
+                Some(embedding) => input.push(embedding.clone()),
+                None => {
+                    input.push(token_embedding_map.get(NOT_FOUND).unwrap().clone());
+                },
+            }
         }
 
         self.run(&input, device)
@@ -409,12 +405,7 @@ impl Model {
         }
 
         let token_index = self.dict.build_index();
-        let unique_tokens: Vec<String> = tokens_chain.iter().cloned().collect::<std::collections::HashSet<String>>().into_iter().collect();
-        let mut token_embedding_map: BTreeMap<String, Vec<f32>> = BTreeMap::new();
-        for token in unique_tokens {
-            let token_embedding = self.encdec.get_token_embedding_vec(token.as_str())?;
-            token_embedding_map.insert(token, token_embedding);
-        }
+        let token_embedding_map: BTreeMap<String, Vec<f32>> = self.encdec.build_token_embedding_map()?;
 
         // iterate over tokens_chain
         for index in 0..(tokens_chain.len()) {
@@ -464,14 +455,15 @@ impl Model {
         Ok(())
     }
 
-    pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, lr: f64, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 400;
+    pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
+        let token_batch_size = 100;
+        let epochs: u32 = 40;
         let num_batches = tokens_chain.len() / token_batch_size;
+        let lr = 0.000002;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
-            println!("Global epoch {:6} / {}", epoch, epochs);
-            for j in 0..num_batches {
+            for j in 0..(num_batches + 1) {
                 let start = j * token_batch_size;
                 let overlap = 10;
                 let end = start + token_batch_size + overlap;
@@ -479,34 +471,34 @@ impl Model {
                 let tokens = tokens_chain[start..end].to_vec();
 
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
+                let mut loss_stat = 0.0;
 
-                // Forward pass
-                let predictions = self.forward(&inputs)?;
+                for _sub_epoch in 0..20 {
+                    // Forward pass
+                    let predictions = self.forward(&inputs)?;
 
-                // Compute loss
-                // binary cross-entropy is not supported on metal gpu
-                // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-                let loss = nn::loss::mse(&predictions, &targets)?;
+                    // Compute loss
+                    // binary cross-entropy is not supported on metal gpu
+                    // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
+                    let loss = nn::loss::mse(&predictions, &targets)?;
 
-                // Backpropagation
-                optimizer.backward_step(&loss)?;
+                    // Backpropagation
+                    optimizer.backward_step(&loss)?;
 
-                println!("Epoch {:6}: Loss = {:.6}", epoch, loss.to_vec0::<f32>()?);
-
-                if j % 2 == 0 && j > 0 {
-                    println!("Batch        {:6} / {}", j, num_batches);
-                    if j % 4 == 0 {
-                        let prediction = self.run_str(" ", 10, device)?;
-                        println!("Prediction: {}", prediction);
-                    }
-                    if j % 10 == 0 {
-                        self.print_stats()?;
-                    }
+                    loss_stat = loss.to_vec0::<f32>()?;
                 }
 
+                if j % 2 == 0 && j > 0 {
+                    println!("Epoch {:6}: Loss = {:.6}", epoch, loss_stat);
+                    println!("Batch        {:6} / {}", j, num_batches);
+                    let prediction = self.run_str(" ", 10, device)?;
+                    println!("Prediction: {}", prediction);
+                }
             }
             self.save_to_path("data/model");
         }
+
+        self.print_stats()?;
 
         Ok(())
     }
@@ -622,8 +614,9 @@ pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candl
 
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
+    let sys_tokens = tokenize(NOT_FOUND);
 
-    let tokens = [tokens, lorem_tokens, hello_world_tokens].concat();
+    let tokens = [tokens, lorem_tokens, hello_world_tokens, sys_tokens].concat();
 
     let dict = tokens_to_dict(tokens.clone());
 

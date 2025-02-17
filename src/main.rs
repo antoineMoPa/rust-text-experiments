@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut model = create_model(encdec.dict, &device)?;
 
-        // train on data/corpus/level_1/corpus.txt
+        // train on data/corpus/level_/corpus.txt
         let level_file_path = FILE_PATH;
         let mut file = fs::File::open(level_file_path)?;
         let mut content: String = String::new();
@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("Training level 0 on {} tokens", tokens.len());
 
-        model.simple_train(tokens, 10, 0.00002, &device)?;
+        model.simple_train(tokens, &device)?;
         model.save_to_path("data/model_l0");
         model.save_to_path("data/model");
 
@@ -94,8 +94,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             buf.push_str(pred.as_str());
 
-            if buf.len() > 100 {
-                println!("{}", buf);
+            if buf.len() > 40 {
+                println!("{} - ", buf);
                 buf.clear()
             }
         }
