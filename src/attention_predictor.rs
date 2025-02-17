@@ -9,7 +9,7 @@ use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMB
 // smoll
 const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 8;
+const NUM_ATTENTION_HEADS: usize = 4;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
@@ -198,7 +198,7 @@ impl Model {
 
         // let result = layer_norm_no_params(&result, 1e-5)?;
 
-        //let result = result.tanh()?;
+        let result = result.tanh()?;
         let result = self.fc3.forward(&result)?;
 
         return Ok(result);
@@ -284,23 +284,13 @@ impl Model {
         return is_good;
     }
 
-    pub fn simple_training_loop(&mut self, inputs: Tensor, targets: Tensor, initial_lr: f64, epochs: u32) -> Result<(), candle_core::Error> {
-        // 1. More epoch when sample size is smaller
-        let lr = initial_lr;
-        let max_lr = initial_lr * 6.0;
-
-        let params = ParamsAdamW {
-            lr,
-            ..Default::default()
-        };
-        let mut optimizer = candle_nn::AdamW::new(self.var_map.all_vars(), params)?;
+    pub fn simple_training_loop(&mut self, inputs: Tensor, targets: Tensor, lr: f64, epochs: u32) -> Result<(), candle_core::Error> {
+        let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
         let mut epoch: u32 = 0;
 
         while epoch < epochs {
             // Forward pass
             let predictions = self.forward(&inputs)?;
-            let lr = initial_lr + (max_lr - initial_lr) * (epoch as f64 / epochs as f64);
-            optimizer.set_learning_rate(lr);
 
             // Compute loss
             // binary cross-entropy is not supported on metal gpu
