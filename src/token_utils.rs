@@ -12,12 +12,12 @@ pub type Dict = std::collections::BTreeMap<String, f32>;
 pub const EMBEDDING_SIZE: usize = 80;
 
 pub trait GetTokenEmbedding {
-    fn get_token_embedding(&self, token: &str) -> Vec<f32>;
+    fn get_token_cos_encoding(&self, token: &str) -> Vec<f32>;
     fn get_word_index(&self, token: &str) -> Result<u32, std::io::Error>;
 }
 
 impl GetTokenEmbedding for Dict {
-    fn get_token_embedding(&self, token: &str) -> Vec<f32> {
+    fn get_token_cos_encoding(&self, token: &str) -> Vec<f32> {
         let default = 0.0 as f32;
         let value = *self.get(token).unwrap_or(&default);
         let mut embedding: Vec<f32> = Vec::new();
@@ -133,18 +133,40 @@ pub struct EncoderDecoder {
     pub fc3: nn::Linear,
     pub var_map: VarMap,
     pub dict: Dict,
+    pub device: Device,
 }
 
 impl EncoderDecoder {
-    pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder) -> Result<Self, candle_core::Error> {
-        let hidden_size = 80;
+    pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, device: &Device) -> Result<Self, candle_core::Error> {
+        let hidden_size = EMBEDDING_SIZE;
 
         let fc1 = nn::linear_b(dict.len(), hidden_size, false, vb.pp("fc1"))?;
         let fc2 = nn::linear_b(hidden_size, hidden_size, false, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(hidden_size, dict.len(), false, vb.pp("fc3"))?;
+        let device = device.clone();
 
-        Ok(Self { fc1, fc2, fc3, dict, var_map })
+        Ok(Self { fc1, fc2, fc3, dict, var_map, device })
     }
+
+    pub fn get_token_embedding(&self, token: &str) -> Result<Tensor, candle_core::Error> {
+        let tensor = self.token_to_tensor(token)?;
+
+        let result = self.fc1.forward(&tensor)?;
+        let result = result.tanh()?;
+        let result = self.fc2.forward(&result)?;
+        let result = result.tanh()?;
+
+        return Ok(result);
+    }
+
+    pub fn get_token_embedding_vec(&self, token: &str) -> Result<Vec<f32>, candle_core::Error> {
+        let result = self.get_token_embedding(token)?;
+        let result = result.squeeze(0)?;
+        let vec = result.to_vec1::<f32>()?;
+
+        return Ok(vec);
+    }
+
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let result = self.fc1.forward(&input)?;
@@ -158,8 +180,8 @@ impl EncoderDecoder {
         return Ok(result);
     }
 
-    fn run(&self, input: String, device: &Device) -> Result<String, candle_core::Error> {
-        let input: &Tensor = &self.token_to_tensor(input.as_str(), &device)?;
+    fn run(&self, input: String) -> Result<String, candle_core::Error> {
+        let input: &Tensor = &self.token_to_tensor(input.as_str())?;
         let output_prob = self.forward(input)?;
         let output_prob_max_index = output_prob.argmax(1)?;
 
@@ -170,15 +192,15 @@ impl EncoderDecoder {
         return Ok(max_token.0.clone());
     }
 
-    pub fn token_to_tensor(&self, input: &str, device: &Device) -> Result<Tensor, candle_core::Error> {
+    pub fn token_to_tensor(&self, input: &str) -> Result<Tensor, candle_core::Error> {
         let token_index = self.dict.get_word_index(input)?;
         let arr = vec![token_index as u32];
-        let input = one_hot(Tensor::new(arr, &device)?, self.dict.len(), 0.95 as f32, 0.0 as f32)?;
+        let input = one_hot(Tensor::new(arr, &self.device)?, self.dict.len(), 0.95 as f32, 0.0 as f32)?;
 
         return Ok(input);
     }
 
-    pub fn train(&mut self, device: &Device) -> Result<(), candle_core::Error> {
+    pub fn train(&mut self) -> Result<(), candle_core::Error> {
         // 1. More epoch when sample size is smaller
         let epochs = 10;
 
@@ -191,7 +213,7 @@ impl EncoderDecoder {
                 let mut inputs = Vec::new();
 
                 for (token, _token_index) in self.dict.iter().skip(i*batch_size).take(batch_size) {
-                    let input = self.token_to_tensor(token, device)?;
+                    let input = self.token_to_tensor(token)?;
 
                     inputs.push(input);
                 }
@@ -211,7 +233,7 @@ impl EncoderDecoder {
                     println!("Epoch {:6}: Loss = {:.6} {}/{}", epoch, loss.to_vec0::<f32>()?, i, last_batch);
 
                     if i % 5 == 0 {
-                        self.evaluate(device)?;
+                        self.evaluate()?;
                     }
                 }
             }
@@ -220,12 +242,12 @@ impl EncoderDecoder {
         Ok(())
     }
 
-    pub fn evaluate(&self, device: &Device) -> Result<f32, candle_core::Error> {
+    pub fn evaluate(&self) -> Result<f32, candle_core::Error> {
         let mut successes = 0;
         let mut failures = 0;
 
         for token in self.dict.keys() {
-            let result = self.run(token.clone(), &device)?;
+            let result = self.run(token.clone())?;
 
             if &result == token {
                 successes += 1;
@@ -264,7 +286,7 @@ impl EncoderDecoder {
 
         let vb = VarBuilder::from_varmap(&varmap, candle_core::DType::F32, &device);
 
-        let mut model = Self::new(dict, varmap, vb)?;
+        let mut model = Self::new(dict, varmap, vb, &device)?;
         model.var_map.load(var_map_path.as_str()).unwrap();
 
         return Ok(model);
@@ -319,16 +341,16 @@ mod tests {
         let device = EncoderDecoder::get_device()?;
         let vm = VarMap::new();
         let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
-        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb)?;
+        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb, &device)?;
 
-        encoder_decoder.train(&device)?;
+        encoder_decoder.train()?;
 
         encoder_decoder.save_to_path("data/encdec");
         let encoder_decoder = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
-        assert_eq!(encoder_decoder.run("Hello".to_string(), &device)?, "Hello");
-        assert_eq!(encoder_decoder.run("world".to_string(), &device)?, "world");
-        assert_eq!(encoder_decoder.run(" ".to_string(), &device)?, " ");
+        assert_eq!(encoder_decoder.run("Hello".to_string())?, "Hello");
+        assert_eq!(encoder_decoder.run("world".to_string())?, "world");
+        assert_eq!(encoder_decoder.run(" ".to_string())?, " ");
 
         Ok(())
     }
@@ -340,13 +362,13 @@ mod tests {
         let device = EncoderDecoder::get_device()?;
         let vm = VarMap::new();
         let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
-        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb)?;
+        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb, &device)?;
 
-        encoder_decoder.train(&device)?;
+        encoder_decoder.train()?;
 
-        assert_eq!(encoder_decoder.run("Lorem".to_string(), &device)?, "Lorem");
-        assert_eq!(encoder_decoder.run("ipsum".to_string(), &device)?, "ipsum");
-        assert_eq!(encoder_decoder.run(" ".to_string(), &device)?, " ");
+        assert_eq!(encoder_decoder.run("Lorem".to_string())?, "Lorem");
+        assert_eq!(encoder_decoder.run("ipsum".to_string())?, "ipsum");
+        assert_eq!(encoder_decoder.run(" ".to_string())?, " ");
 
         Ok(())
     }
@@ -366,12 +388,12 @@ mod tests {
         let device = EncoderDecoder::get_device()?;
         let vm = VarMap::new();
         let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
-        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb)?;
+        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb, &device)?;
 
         println!("Training");
-        encoder_decoder.train(&device)?;
+        encoder_decoder.train()?;
 
-        let success_rate = encoder_decoder.evaluate(&device)?;
+        let success_rate = encoder_decoder.evaluate()?;
 
         assert!(success_rate > 0.9);
 
@@ -392,13 +414,13 @@ mod tests {
         let device = EncoderDecoder::get_device()?;
         let vm = VarMap::new();
         let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
-        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb)?;
+        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb, &device)?;
 
         println!("Training");
-        encoder_decoder.train(&device)?;
+        encoder_decoder.train()?;
         encoder_decoder.save_to_path("data/encdec");
 
-        let success_rate = encoder_decoder.evaluate(&device)?;
+        let success_rate = encoder_decoder.evaluate()?;
 
         assert!(success_rate > 0.9);
 

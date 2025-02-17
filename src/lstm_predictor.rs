@@ -70,7 +70,7 @@ impl Mlp {
         let tokens_chain = tokenize(&input);
         let input = tokens_chain.to_vec();
 
-        let input_embedding: Vec<Vec<f32> > = input.iter().map(|token| self.dict.get_token_embedding(token)).collect();
+        let input_embedding: Vec<Vec<f32> > = input.iter().map(|token| self.dict.get_token_cos_encoding(token)).collect();
 
         self.run(&input_embedding, device)
     }
@@ -110,7 +110,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
         // print input and output
         println!("input: {:?}, output: {:?}", input, output);
 
-        let input: Vec<Tensor> = input.iter().map(|token| Tensor::new(model.dict.get_token_embedding(token), &device)).collect::<Result<Vec<Tensor>, candle_core::Error>>()?;
+        let input: Vec<Tensor> = input.iter().map(|token| Tensor::new(model.dict.get_token_cos_encoding(token), &device)).collect::<Result<Vec<Tensor>, candle_core::Error>>()?;
 
         let output = model.dict.get_word_index(output.as_str())?;
 

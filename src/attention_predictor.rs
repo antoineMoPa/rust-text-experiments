@@ -4,7 +4,7 @@ use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot, LayerNormConfig, BatchNormConfig};
 
-use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE}, read_n_chars};
+use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE, self}, read_n_chars};
 
 // smoll
 const CONTEXT_WINDOW: usize = 10;
@@ -158,10 +158,11 @@ pub struct Model {
     pub fc3: nn::Linear,
     pub var_map: VarMap,
     pub dict: Dict,
+    pub encdec: token_utils::EncoderDecoder,
 }
 
 impl Model {
-    pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder) -> Result<Self, candle_core::Error> {
+    pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, device: &Device) -> Result<Self, candle_core::Error> {
         let mut blocks = Vec::new();
 
         for b in 0..NUM_BLOCKS {
@@ -173,7 +174,9 @@ impl Model {
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(HIDDEN_SIZE, dict.len(), false, vb.pp("fc3"))?;
 
-        Ok(Self { fc1, fc2, fc3, blocks, dict, var_map })
+        let encdec = token_utils::EncoderDecoder::load_from_path("data/encdec", &device)?;
+
+        Ok(Self { fc1, fc2, fc3, blocks, dict, var_map, encdec })
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -184,7 +187,7 @@ impl Model {
         }
 
         //let result = result.relu()?;
-        let result = (result + input * 1.5)?;
+        let result = (result + input)?;
 
         let result = layer_norm_no_params(&result, 1e-5)?;
 
@@ -236,12 +239,13 @@ impl Model {
         let mut input: Vec<Vec<f32>> = Vec::new();
 
         for token in tokens {
-            input.push(self.dict.get_token_embedding(token.as_str()));
+            let result = self.encdec.get_token_embedding_vec(token.as_str())?;
+            input.push(result);
         }
 
         for _ in 0..len {
             let prediction = self.run(&input, device)?;
-            let token_embedding = self.dict.get_token_embedding(prediction.as_str());
+            let token_embedding = self.encdec.get_token_embedding_vec(prediction.as_str())?;
             input.push(token_embedding);
             output.push_str(prediction.as_str());
         }
@@ -254,7 +258,7 @@ impl Model {
         let mut input: Vec<Vec<f32>> = Vec::new();
 
         for token in tokens {
-            input.push(self.dict.get_token_embedding(token.as_str()));
+            input.push(self.encdec.get_token_embedding_vec(token.as_str())?);
         }
 
         self.run(&input, device)
@@ -434,7 +438,7 @@ impl Model {
                 input_tokens = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
             }
 
-            let input: Vec<f32> = input_tokens.iter().flat_map(|token| self.dict.get_token_embedding(token)).collect();
+            let input: Vec<f32> = input_tokens.iter().flat_map(|token| self.encdec.get_token_embedding_vec(token).unwrap()).collect();
             let output: String = token.clone();
 
             let output_token_index: u32 = self.dict.get_word_index(&output)?;
@@ -535,7 +539,7 @@ pub fn create_model(dict: Dict, device: &Device) -> Result<Model, candle_core::E
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    let model = Model::new(dict.clone(), varmap, vb)?;
+    let model = Model::new(dict.clone(), varmap, vb, device)?;
 
     Ok(model)
 }
@@ -546,7 +550,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    let mut model = Model::new(dict.clone(), varmap, vb)?;
+    let mut model = Model::new(dict.clone(), varmap, vb, device)?;
 
     if train {
         model.train( tokens_chain, 400, &"The horse", device)?;

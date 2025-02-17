@@ -66,7 +66,7 @@ impl Mlp {
         let mut input: Vec<Vec<f32>> = Vec::new();
 
         for token in tokens {
-            input.push(self.dict.get_token_embedding(token.as_str()));
+            input.push(self.dict.get_token_cos_encoding(token.as_str()));
         }
 
         self.run(&input, device)
@@ -93,7 +93,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
         }
 
         let input_tokens: Vec<String> = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
-        let input: Vec<f32> = input_tokens.iter().flat_map(|token| dict.get_token_embedding(token)).collect();
+        let input: Vec<f32> = input_tokens.iter().flat_map(|token| dict.get_token_cos_encoding(token)).collect();
 
         let output: &String = token;
 
