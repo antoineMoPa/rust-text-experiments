@@ -1,4 +1,4 @@
-use std::{fs, io::Error};
+use std::{fs, io::Error, collections::BTreeMap};
 
 use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
@@ -406,6 +406,14 @@ impl Model {
             tokens_chain.insert(0, " ".to_string());
         }
 
+        let token_index = self.dict.build_index();
+        let unique_tokens: Vec<String> = tokens_chain.iter().cloned().collect::<std::collections::HashSet<String>>().into_iter().collect();
+        let mut token_embedding_map: BTreeMap<String, Vec<f32>> = BTreeMap::new();
+        for token in unique_tokens {
+            let token_embedding = self.encdec.get_token_embedding_vec(token.as_str())?;
+            token_embedding_map.insert(token, token_embedding);
+        }
+
         // iterate over tokens_chain
         for index in 0..(tokens_chain.len()) {
             let token = tokens_chain[index].clone();
@@ -428,13 +436,13 @@ impl Model {
                 input_tokens = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
             }
 
-            let input: Vec<f32> = input_tokens.iter().flat_map(|token| self.encdec.get_token_embedding_vec(token).unwrap()).collect();
+            let input: Vec<f32> = input_tokens.iter().flat_map(|token| token_embedding_map.get(token).unwrap().to_vec()).collect();
             let output: String = token.clone();
 
-            let output_token_index: u32 = self.dict.get_word_index(&output)?;
+            let output_token_index: u32 = token_index[&output];
 
             let input = Tensor::new(input, &device)?;
-            let target = one_hot(Tensor::new(output_token_index, &device)?, self.dict.len(), 0.95 as f32, 0.0 as f32)?;
+            let target = one_hot(Tensor::new(output_token_index, &device)?, self.dict.len(), 1.0 as f32, 0.0 as f32)?;
 
             inputs.push(input);
             targets.push(target);
@@ -442,7 +450,6 @@ impl Model {
 
         let inputs = Tensor::stack(&inputs, 0)?;
         let targets = Tensor::stack(&targets, 0)?;
-
 
         return Ok((inputs, targets));
     }
@@ -456,25 +463,43 @@ impl Model {
         Ok(())
     }
 
-    pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, sub_epochs: u32, initial_lr: f64, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 60;
+    pub fn simple_train(&mut self, tokens_chain: Vec<String>, epochs: u32, sub_epochs: u32, lr: f64, device: &Device) -> Result<(), candle_core::Error> {
+        let token_batch_size = 200;
         let num_batches = tokens_chain.len() / token_batch_size;
+        let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
-        for i in 0..epochs {
-            println!("Global epoch {:6} / {}", i, epochs);
+        for epoch in 0..epochs {
+            println!("Global epoch {:6} / {}", epoch, epochs);
             for j in 0..num_batches {
-                if j % 2 == 0 {
-                    println!("Batch        {:6} / {}", j, num_batches);
-                    let prediction = self.run_str(" ", 10, device)?;
-                    println!("Prediction: {}", prediction);
-                }
                 let start = j * token_batch_size;
-                let end = (j + 1) * token_batch_size;
+                let overlap = 10;
+                let end = start + token_batch_size + overlap;
+                let end = end.min(tokens_chain.len());
                 let tokens = tokens_chain[start..end].to_vec();
 
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
 
-                self.simple_training_loop(inputs, targets, initial_lr, sub_epochs)?;
+                // Forward pass
+                let predictions = self.forward(&inputs)?;
+
+                // Compute loss
+                // binary cross-entropy is not supported on metal gpu
+                // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
+                let loss = nn::loss::mse(&predictions, &targets)?;
+
+                // Backpropagation
+                optimizer.backward_step(&loss)?;
+
+                println!("Epoch {:6}: Loss = {:.6}", epoch, loss.to_vec0::<f32>()?);
+
+                if j % 2 == 0 {
+                    println!("Batch        {:6} / {}", j, num_batches);
+                    if j % 4 == 0 {
+                        let prediction = self.run_str(" ", 10, device)?;
+                        println!("Prediction: {}", prediction);
+                    }
+                }
+
             }
             self.save_to_path("data/model");
         }

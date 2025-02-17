@@ -8,12 +8,14 @@ use nn::{VarBuilder, AdamW, Optimizer};
 use nn::encoding::one_hot;
 
 pub type Dict = std::collections::BTreeMap<String, f32>;
+pub type DictIndex = std::collections::BTreeMap<String, u32>;
 
 pub const EMBEDDING_SIZE: usize = 80;
 
 pub trait GetTokenEmbedding {
     fn get_token_cos_encoding(&self, token: &str) -> Vec<f32>;
     fn get_word_index(&self, token: &str) -> Result<u32, std::io::Error>;
+    fn build_index(&self) -> DictIndex;
 }
 
 impl GetTokenEmbedding for Dict {
@@ -49,6 +51,14 @@ impl GetTokenEmbedding for Dict {
         }
 
         return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Token not found"));
+    }
+
+    fn build_index(&self) -> DictIndex {
+        let mut dict_index = DictIndex::new();
+        for (i, (token, _b)) in self.iter().enumerate() {
+            dict_index.insert(token.clone(), i as u32);
+        }
+        return dict_index;
     }
 }
 
