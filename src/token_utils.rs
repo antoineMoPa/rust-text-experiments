@@ -180,6 +180,7 @@ impl EncoderDecoder {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let result = self.fc1.forward(&input)?;
+        let result = nn::ops::dropout(&result, 0.3)?;
         let result = result.tanh()?;
         let result = self.fc2.forward(&result)?;
         let result = result.tanh()?;
@@ -211,13 +212,13 @@ impl EncoderDecoder {
     }
 
     pub fn train(&mut self) -> Result<(), candle_core::Error> {
-        let epochs = 10;
-        let lr = 0.01;
+        let epochs = 40;
+        let lr = 0.003;
+        let batch_size = 40;
         let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
-            let batch_size = 20;
-            let last_batch = self.dict.len() / batch_size;
+            let last_batch = self.dict.len() / batch_size + 1;
             for i in 0..last_batch {
                 let mut inputs = Vec::new();
 
@@ -238,12 +239,9 @@ impl EncoderDecoder {
                 // Backpropagation
                 optimizer.backward_step(&loss)?;
 
-                if epoch % 1 == 0 {
+                if epoch % 10 == 0 {
                     println!("Epoch {:6}: Loss = {:.6} {}/{}", epoch, loss.to_vec0::<f32>()?, i, last_batch);
-
-                    if i % 5 == 0 {
-                        self.evaluate()?;
-                    }
+                    self.evaluate()?;
                 }
             }
         }
@@ -264,7 +262,6 @@ impl EncoderDecoder {
                 failures += 1;
             }
         }
-
         println!("Successes: {}, Failures: {}", successes, failures);
 
         let success_rate = successes as f32 / (successes + failures) as f32;

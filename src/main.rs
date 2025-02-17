@@ -39,14 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args[0] == "pretrain_encoder_decoder" {
         let level_file_path = FILE_PATH;
-        let mut file = fs::File::open(level_file_path)?;
-        let mut content: String = String::new();
-        file.read_to_string(&mut content)?;
-
-        println!("Parsing content");
-        let vocabulary = tokenize(content.as_str());
-        println!("Building dictionary");
-        let dict = tokens_to_dict(vocabulary.clone());
+        let (dict, _tokens) = get_pretrained_dict(level_file_path)?;
         let device = EncoderDecoder::get_device()?;
         let vm = VarMap::new();
         let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
