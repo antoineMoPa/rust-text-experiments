@@ -2,7 +2,7 @@ use std::{fs, io::Error};
 
 use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
-use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot, LayerNormConfig, BatchNormConfig};
+use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE, self}, read_n_chars};
 
@@ -16,7 +16,7 @@ const ATTENTION_HEAD_INPUT_SIZE: usize =
 const HIDDEN_SIZE: usize = 4096;
 const NUM_BLOCKS: usize = 10;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
-const FILE_PATH: &str = "data/corpus/corpus.txt";
+pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -134,9 +134,9 @@ impl AttentionBlock {
 
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
-            let result = (result + portions.clone())?;
+            let result = (result + (portions.clone() * 1.5)?)?;
 
-            let result = layer_norm_no_params(&result, 1e-5)?;
+            //let result = layer_norm_no_params(&result, 1e-5)?;
 
             results.push(result);
         }
@@ -145,7 +145,7 @@ impl AttentionBlock {
         let result = result.tanh()?;
         let result = self.out_linear.forward(&result)?;
 
-        let result = layer_norm_no_params(&result, 1e-5)?;
+        //let result = layer_norm_no_params(&result, 1e-5)?;
 
         return Ok(result);
     }
@@ -189,14 +189,14 @@ impl Model {
         //let result = result.relu()?;
         let result = (result + input)?;
 
-        let result = layer_norm_no_params(&result, 1e-5)?;
+        //let result = layer_norm_no_params(&result, 1e-5)?;
 
         let result = self.fc1.forward(&result)?;
         //let result = result.tanh()?;
         let result = result.relu()?;
         let result = self.fc2.forward(&result)?;
 
-        let result = layer_norm_no_params(&result, 1e-5)?;
+        // let result = layer_norm_no_params(&result, 1e-5)?;
 
         //let result = result.tanh()?;
         let result = self.fc3.forward(&result)?;
@@ -572,9 +572,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
     }
 }
 
-pub fn get_pretrained_dict() -> Result<(Dict, Vec<String>), candle_core::Error> {
-    let file_path = FILE_PATH;
-
+pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candle_core::Error> {
     // Experiments with char count
     // exponent 15+ makes no sense, no spaces, etc.
     // exponent 14+ has some spaces after 8 iterations
@@ -661,7 +659,7 @@ mod tests {
 
     #[test]
     fn test_horse_10() -> Result<(), candle_core::Error> {
-        let (_dict, tokens) = get_pretrained_dict()?;
+        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
         let tokens = tokens[0..10].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
 
@@ -677,7 +675,7 @@ mod tests {
 
     #[test]
     fn test_horse_20() -> Result<(), candle_core::Error> {
-        let (_dict, tokens) = get_pretrained_dict()?;
+        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
         let tokens = tokens[0..20].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
 
@@ -694,7 +692,7 @@ mod tests {
     #[ignore]
     #[test]
     fn test_horse_40() -> Result<(), candle_core::Error> {
-        let (_dict, tokens) = get_pretrained_dict()?;
+        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
         let tokens = tokens[0..40].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
 
@@ -715,7 +713,7 @@ mod tests {
     #[ignore]
     #[test]
     fn test_horse_60() -> Result<(), candle_core::Error> {
-        let (_dict, tokens) = get_pretrained_dict()?;
+        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
         let tokens = tokens[0..60].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
 
@@ -739,7 +737,7 @@ mod tests {
     #[ignore]
     #[test]
     fn test_horse_100() -> Result<(), candle_core::Error> {
-        let (_dict, tokens) = get_pretrained_dict()?;
+        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
         let tokens = tokens[0..100].to_vec();
         let test_str = tokens[0..4].to_vec().join("");
 

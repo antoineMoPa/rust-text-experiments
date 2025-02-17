@@ -195,19 +195,18 @@ impl EncoderDecoder {
     pub fn token_to_tensor(&self, input: &str) -> Result<Tensor, candle_core::Error> {
         let token_index = self.dict.get_word_index(input)?;
         let arr = vec![token_index as u32];
-        let input = one_hot(Tensor::new(arr, &self.device)?, self.dict.len(), 0.95 as f32, 0.0 as f32)?;
+        let input = one_hot(Tensor::new(arr, &self.device)?, self.dict.len(), 1.0 as f32, 0.0 as f32)?;
 
         return Ok(input);
     }
 
     pub fn train(&mut self) -> Result<(), candle_core::Error> {
-        // 1. More epoch when sample size is smaller
         let epochs = 10;
-
-        let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), 0.003)?;
+        let lr = 0.01;
+        let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
-            let batch_size = 200;
+            let batch_size = 20;
             let last_batch = self.dict.len() / batch_size;
             for i in 0..last_batch {
                 let mut inputs = Vec::new();
@@ -309,6 +308,8 @@ impl EncoderDecoder {
 
 #[cfg(test)]
 mod tests {
+    use crate::attention_predictor::FILE_PATH;
+
     use super::*;
 
     #[test]
@@ -402,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_encoder_decoder_whole_corpus() -> Result<(), candle_core::Error> {
-        let level_file_path = "data/corpus/corpus.txt";
+        let level_file_path = FILE_PATH;
         let mut file = fs::File::open(level_file_path)?;
         let mut content: String = String::new();
         file.read_to_string(&mut content)?;

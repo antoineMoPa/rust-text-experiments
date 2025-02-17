@@ -2,10 +2,11 @@ use std::fs;
 use std::io::prelude::*;
 
 use attention_predictor::{create_model, get_pretrained_dict};
+use candle_nn::{VarMap, VarBuilder};
 
 use crate::{
-    token_utils::{tokenize, tokens_to_dict},
-    attention_predictor::{create_and_train_predictor_model, get_device, Model, CHARS_TO_TRAIN_ON}
+    token_utils::{tokenize, EncoderDecoder, tokens_to_dict},
+    attention_predictor::{get_device, Model, FILE_PATH}
 };
 
 mod token_utils;
@@ -36,17 +37,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // can output a sequence of words + spaces
     // then train with larger dataset if the model is a good one.
 
+    if args[0] == "pretrain_encoder_decoder" {
+        let level_file_path = FILE_PATH;
+        let mut file = fs::File::open(level_file_path)?;
+        let mut content: String = String::new();
+        file.read_to_string(&mut content)?;
+
+        println!("Parsing content");
+        let vocabulary = tokenize(content.as_str());
+        println!("Building dictionary");
+        let dict = tokens_to_dict(vocabulary.clone());
+        let device = EncoderDecoder::get_device()?;
+        let vm = VarMap::new();
+        let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
+        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb, &device)?;
+
+        println!("Training encoder decoder");
+        encoder_decoder.train()?;
+        encoder_decoder.save_to_path("data/encdec");
+
+        encoder_decoder.evaluate()?;
+
+        return Ok(());
+    }
+
     if args[0] == "pretrain" {
         println!("Pretraining test model");
 
-        let (dict, _tokens) = get_pretrained_dict()?;
-
         let device = get_device()?;
+        let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
-        let mut model = create_model(dict, &device)?;
+        let mut model = create_model(encdec.dict, &device)?;
 
         // train on data/corpus/level_1/corpus.txt
-        let level_file_path = "data/corpus/level_0/corpus.corpus";
+        let level_file_path = FILE_PATH;
         let mut file = fs::File::open(level_file_path)?;
         let mut content: String = String::new();
         file.read_to_string(&mut content)?;
@@ -54,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("Training level 0 on {} tokens", tokens.len());
 
-        model.simple_train(tokens, 10, 1, 0.00003, &device)?;
+        model.simple_train(tokens, 10, 1, 0.00001, &device)?;
         model.save_to_path("data/model_l0");
         model.save_to_path("data/model");
 
