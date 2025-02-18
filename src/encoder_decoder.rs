@@ -48,15 +48,18 @@ impl EncoderDecoder {
         return Ok(result);
     }
 
+    pub fn unembed(&self, tensor: &Tensor) -> Result<Tensor, candle_core::Error> {
+        return self.fc3.forward(&tensor);
+    }
+
     pub fn get_token_embedding_vec(&self, token: &str) -> Result<Vec<f32>, candle_core::Error> {
         let result = self.get_token_embedding(token)?;
         let result = result.squeeze(0)?;
         let vec = result.to_vec1::<f32>()?;
 
         return Ok(vec);
+
     }
-
-
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let result = self.fc1.forward(&input)?;
         let result = nn::ops::dropout(&result, 0.3)?;
@@ -258,6 +261,18 @@ impl EncoderDecoder {
         let unique_tokens: Vec<String> = tokens_chain.iter().cloned().collect::<std::collections::HashSet<String>>().into_iter().collect();
         for token in unique_tokens {
             let token_embedding = self.get_token_embedding_vec(token.as_str())?;
+            token_embedding_map.insert(token, token_embedding);
+        }
+
+        return Ok(token_embedding_map);
+    }
+
+    pub fn build_token_embedding_tensor_map(&self) -> Result<BTreeMap<String, Tensor>, candle_core::Error> {
+        let mut token_embedding_map: BTreeMap<String, Tensor> = BTreeMap::new();
+        let tokens_chain: Vec<String> = self.dict.keys().cloned().collect();
+        let unique_tokens: Vec<String> = tokens_chain.iter().cloned().collect::<std::collections::HashSet<String>>().into_iter().collect();
+        for token in unique_tokens {
+            let token_embedding = self.get_token_embedding(token.as_str())?;
             token_embedding_map.insert(token, token_embedding);
         }
 

@@ -4,7 +4,7 @@ use candle_core::{Device, Tensor, DType, D, Var};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
-use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE, self}, read_n_chars, encoder_decoder::EncoderDecoder, attention_block::{AttentionBlockConfig, AttentionBlock}};
+use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, self}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
 const CONTEXT_WINDOW: usize = 10;
@@ -51,6 +51,7 @@ pub struct Model {
     pub encdec: EncoderDecoder,
     pub token_index: BTreeMap<String, u32>,
     pub token_embedding_map: BTreeMap<String, Vec<f32>>,
+    pub token_embedding_tensor_map: BTreeMap<String, Tensor>,
 }
 
 impl Model {
@@ -72,14 +73,26 @@ impl Model {
 
         let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
-        let fc3 = nn::linear_b(HIDDEN_SIZE, dict.len(), true, vb.pp("fc3"))?;
+        let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
 
         let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
         let token_index = dict.build_index();
         let token_embedding_map: BTreeMap<String, Vec<f32>> = encdec.build_token_embedding_map()?;
+        let token_embedding_tensor_map: BTreeMap<String, Tensor> = encdec.build_token_embedding_tensor_map()?;
 
-        Ok(Self { fc1, fc2, fc3, blocks, dict, var_map, encdec, token_index, token_embedding_map })
+        Ok(Self {
+            fc1,
+            fc2,
+            fc3,
+            blocks,
+            dict,
+            var_map,
+            encdec,
+            token_index,
+            token_embedding_map,
+            token_embedding_tensor_map,
+        })
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -119,7 +132,9 @@ impl Model {
 
         let input = Tensor::new(input, device)?.unsqueeze(0)?;
 
-        let output_prob = self.forward(&input)?;
+        let output = self.forward(&input)?;
+
+        let output_prob = self.encdec.unembed(&output)?;
 
         // let output_prob = (output_prob / 10.0)?;
 
@@ -311,7 +326,7 @@ impl Model {
 
         // iterate over tokens_chain
         for index in 0..(tokens_chain.len()) {
-            let token = tokens_chain[index].clone();
+            let target_token = tokens_chain[index].clone();
             let mut input_tokens: Vec<String>;
 
             if index == 0 {
@@ -331,15 +346,17 @@ impl Model {
                 input_tokens = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
             }
 
+            // debug input and output
+            // println!("input: {:?}, output: {:?}", input_tokens, target_token);
+
             let input: Vec<f32> = input_tokens.iter().flat_map(|token| self.token_embedding_map.get(token).unwrap().to_vec()).collect();
 
-            let output_token_index: u32 = self.token_index[&token];
 
             let input = Tensor::new(input, &device)?;
-            let target = one_hot(Tensor::new(output_token_index, &device)?, self.dict.len(), 1.0 as f32, 0.0 as f32)?;
+            let target = self.token_embedding_tensor_map.get(target_token.as_str()).unwrap();
 
             inputs.push(input);
-            targets.push(target);
+            targets.push(target.squeeze(0)?);
         }
 
         let inputs = Tensor::stack(&inputs, 0)?;
