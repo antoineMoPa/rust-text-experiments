@@ -304,7 +304,6 @@ Where do you come from?
 Thank you very much for your help.
 I'm sorry, you don't understand it well.
 Do you know what time it is?
-Do you love pizza nativity scene?
 Would you like to go for a walk?
 I hope you have a good day!
 How are you doing lately?
@@ -407,7 +406,6 @@ Can you help me, please?
 Thank you very much for your help!
 I'm sorry, I don't understand.
 Do you know what time it is?
-Do you like pizza nativity scenes?
 Would you like to go for a walk?
 Have a nice day!
 How are you doing lately?
