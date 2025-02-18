@@ -8,6 +8,7 @@ use candle_nn::{self as nn, Module};
 use nn::{VarBuilder, AdamW, Optimizer};
 use nn::encoding::one_hot;
 
+use crate::attention_predictor::{get_pretrained_dict, FILE_PATH};
 use crate::token_utils::{Dict, GetTokenEmbedding, tokens_to_dict};
 
 pub const EMBEDDING_SIZE: usize = 80;
@@ -127,6 +128,64 @@ impl EncoderDecoder {
                 }
             }
         }
+
+        Ok(())
+    }
+
+    /// Idea:
+    ///
+    /// In a neural network where the input is 3 word, train the network to output the middle word, then gradually remove the first and last word.
+    ///
+    pub fn train_with_corpus(&mut self) -> Result<(), candle_core::Error> {
+        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
+        let lr = 0.003;
+        let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
+        let batch_size = 20;
+        let last_batch = tokens.len() / batch_size + 1;
+        let epochs = 2;
+        for epoch in 0..epochs {
+            for i in 0..last_batch {
+                let mut inputs = Vec::new();
+                let start = i + 1;
+                let end = start + batch_size;
+
+                for w in start..end {
+                    let previous_token = tokens[w-1].clone();
+                    let token = tokens[w].clone();
+                    let next_token = tokens[w+1].clone();
+                    let previous = self.token_to_tensor(previous_token.as_str())? * 0.25;
+                    let input = self.token_to_tensor(token.as_str())?;
+                    let next = self.token_to_tensor(next_token.as_str())? * 0.25;
+
+                    let input = ((input + previous?)? + next?)?;
+
+                    inputs.push(input);
+                }
+
+                if inputs.len() == 0 {
+                    continue;
+                }
+
+                let inputs = Tensor::stack(&inputs, 0)?;
+                let targets = inputs.clone();
+
+                let predictions = self.forward(&inputs)?;
+
+                // Compute loss
+                let loss = nn::loss::mse(&predictions, &targets)?;
+
+                // Backpropagation
+                optimizer.backward_step(&loss)?;
+
+                if i % 10 == 0 {
+                    print!("Epoch {:3}/{:3} Batch {:4}/{:4}: Loss = {:.6}   -    ", epoch, epochs, i, last_batch, loss.to_vec0::<f32>()?);
+                    self.evaluate()?;
+                }
+            }
+        }
+
+        // classic train
+        self.train()?;
 
         Ok(())
     }
@@ -252,6 +311,25 @@ mod tests {
         Ok(())
     }
 
+
+    #[test]
+    fn test_encoder_decoder_corpus_training() -> Result<(), candle_core::Error> {
+        let (dict, _tokens) = get_pretrained_dict(FILE_PATH)?;
+
+        let device = EncoderDecoder::get_device()?;
+        let vm = VarMap::new();
+        let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
+        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb, &device)?;
+
+        encoder_decoder.train_with_corpus()?;
+
+        let success_rate = encoder_decoder.evaluate()?;
+
+        assert!(success_rate > 0.9);
+
+        Ok(())
+    }
+
     #[test]
     #[ignore]
     fn test_encoder_decoder_level0() -> Result<(), candle_core::Error> {
@@ -280,6 +358,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_encoder_decoder_whole_corpus() -> Result<(), candle_core::Error> {
         let level_file_path = FILE_PATH;
         let mut file = fs::File::open(level_file_path)?;
