@@ -9,12 +9,12 @@ use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, sel
 // smoll
 const CONTEXT_WINDOW: usize = 10;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 8;
+const NUM_ATTENTION_HEADS: usize = 4;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
-const HIDDEN_SIZE: usize = 2048;
-const NUM_BLOCKS: usize = 10;
+const HIDDEN_SIZE: usize = 4096;
+const NUM_BLOCKS: usize = 3;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
 
