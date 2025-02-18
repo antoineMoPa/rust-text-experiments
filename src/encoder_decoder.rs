@@ -11,7 +11,7 @@ use nn::encoding::one_hot;
 use crate::attention_predictor::{get_pretrained_dict, FILE_PATH};
 use crate::token_utils::{Dict, GetTokenEmbedding, tokens_to_dict};
 
-pub const EMBEDDING_SIZE: usize = 80;
+pub const EMBEDDING_SIZE: usize = 64;
 
 pub struct EncoderDecoder {
     pub fc1: nn::Linear,
@@ -143,22 +143,43 @@ impl EncoderDecoder {
         let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
         let lr = 0.003;
         let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
-        let batch_size = 20;
+        let batch_size = 50;
         let last_batch = tokens.len() / batch_size + 1;
-        let epochs = 8;
+        let epochs = 20;
         for epoch in 0..epochs {
             for i in 0..last_batch {
                 let mut inputs = Vec::new();
                 let start = i + 1;
                 let end = start + batch_size;
 
+                // Gradually remove previous and next token from input
+                let f = match epoch {
+                    0 => 0.0,
+                    1 => 0.0,
+                    2 => 0.0,
+                    3 => 0.0,
+                    4 => 0.0,
+                    5 => 0.0,
+                    6 => 0.0,
+                    7 => 0.0,
+                    8 => 0.0,
+                    9 => 0.0,
+                    10 => -0.01,
+                    12 => -0.05,
+                    14 => -0.1,
+                    16 => -0.1,
+                    18 => -0.05,
+                    _ => 0.0,
+                };
+
                 for w in start..end {
                     let previous_token = tokens[w-1].clone();
                     let token = tokens[w].clone();
                     let next_token = tokens[w+1].clone();
-                    let previous = self.token_to_tensor(previous_token.as_str())? * 0.25;
+
+                    let previous = self.token_to_tensor(previous_token.as_str())? * f;
                     let input = self.token_to_tensor(token.as_str())?;
-                    let next = self.token_to_tensor(next_token.as_str())? * 0.25;
+                    let next = self.token_to_tensor(next_token.as_str())? * f;
 
                     let input = ((input + previous?)? + next?)?;
 
@@ -181,14 +202,11 @@ impl EncoderDecoder {
                 optimizer.backward_step(&loss)?;
 
                 if i % 10 == 0 {
-                    print!("Epoch {:3}/{:3} Batch {:4}/{:4}: Loss = {:.6}   -    ", epoch, epochs, i, last_batch, loss.to_vec0::<f32>()?);
+                    print!("Epoch {:3}/{:3} Batch {:4}/{:4}: Loss = {:.6} f = {:.2} -    ", epoch, epochs, i, last_batch, loss.to_vec0::<f32>()?, f);
                     self.evaluate()?;
                 }
             }
         }
-
-        // classic train
-        self.train()?;
 
         Ok(())
     }

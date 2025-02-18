@@ -7,14 +7,14 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, self}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
-const CONTEXT_WINDOW: usize = 10;
+const CONTEXT_WINDOW: usize = 3;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 4;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
-const HIDDEN_SIZE: usize = 4096;
-const NUM_BLOCKS: usize = 3;
+const HIDDEN_SIZE: usize = 1024;
+const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
 
@@ -353,7 +353,14 @@ impl Model {
 
 
             let input = Tensor::new(input, &device)?;
-            let target = self.token_embedding_tensor_map.get(target_token.as_str()).unwrap();
+            let target = self.token_embedding_tensor_map.get(target_token.as_str());
+            let target = match target {
+                Some(t) => t.clone(),
+                None => {
+                    println!("Token not found: {}", target_token);
+                    self.token_embedding_tensor_map.get(NOT_FOUND).unwrap().clone()
+                },
+            };
 
             inputs.push(input);
             targets.push(target.squeeze(0)?);
@@ -535,7 +542,7 @@ pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candl
 
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
-    let sys_tokens = tokenize(NOT_FOUND);
+    let sys_tokens = vec![String::from(NOT_FOUND)];
 
     let tokens = [tokens, lorem_tokens, hello_world_tokens, sys_tokens].concat();
 
@@ -547,8 +554,6 @@ pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candl
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::*;
 
     #[test]
