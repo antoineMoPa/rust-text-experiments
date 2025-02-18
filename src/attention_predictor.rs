@@ -4,7 +4,7 @@ use candle_core::{Device, Tensor, DType, D, Var};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
-use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE, self}, read_n_chars};
+use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE, self}, read_n_chars, encoder_decoder::EncoderDecoder};
 
 // smoll
 const CONTEXT_WINDOW: usize = 10;
@@ -13,7 +13,7 @@ const NUM_ATTENTION_HEADS: usize = 8;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
-const HIDDEN_SIZE: usize = 4096;
+const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 10;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
@@ -59,10 +59,10 @@ impl AttentionBlock {
         let s = ATTENTION_HEAD_INPUT_SIZE;
 
         for i in 0..NUM_ATTENTION_HEADS {
-            linear.push(nn::linear_b(s, s, false, vb.pp(&format!("linear{}", i)))?);
-            qs.push(nn::linear_b(s, s, false, vb.pp(&format!("q{}", i)))?);
-            ks.push(nn::linear_b(s, s, false, vb.pp(&format!("k{}", i)))?);
-            vs.push(nn::linear_b(s, s, false, vb.pp(&format!("v{}", i)))?);
+            linear.push(nn::linear_b(s, s, true, vb.pp(&format!("linear{}", i)))?);
+            qs.push(nn::linear_b(s, s, true, vb.pp(&format!("q{}", i)))?);
+            ks.push(nn::linear_b(s, s, true, vb.pp(&format!("k{}", i)))?);
+            vs.push(nn::linear_b(s, s, true, vb.pp(&format!("v{}", i)))?);
         }
 
         let out_linear = nn::linear_b(
@@ -109,7 +109,7 @@ impl AttentionBlock {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let input = (self.position_encoding(input)? + input)?;
-        let input = nn::ops::dropout(&input, 0.3)?;
+        let input = nn::ops::dropout(&input, 0.2)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
@@ -144,7 +144,6 @@ impl AttentionBlock {
         }
 
         let result = Tensor::cat(&results, D::Minus1)?;
-        let result = result.tanh()?;
         let result = self.out_linear.forward(&result)?;
 
         return Ok(result);
@@ -158,7 +157,9 @@ pub struct Model {
     pub fc3: nn::Linear,
     pub var_map: VarMap,
     pub dict: Dict,
-    pub encdec: token_utils::EncoderDecoder,
+    pub encdec: EncoderDecoder,
+    pub token_index: BTreeMap<String, u32>,
+    pub token_embedding_map: BTreeMap<String, Vec<f32>>,
 }
 
 impl Model {
@@ -170,19 +171,25 @@ impl Model {
             blocks.push(block);
         }
 
-        let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, false, vb.pp("fc1"))?;
-        let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, false, vb.pp("fc2"))?;
-        let fc3 = nn::linear_b(HIDDEN_SIZE, dict.len(), false, vb.pp("fc3"))?;
+        let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
+        let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
+        let fc3 = nn::linear_b(HIDDEN_SIZE, dict.len(), true, vb.pp("fc3"))?;
 
-        let encdec = token_utils::EncoderDecoder::load_from_path("data/encdec", &device)?;
+        let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
-        Ok(Self { fc1, fc2, fc3, blocks, dict, var_map, encdec })
+        let token_index = dict.build_index();
+        let token_embedding_map: BTreeMap<String, Vec<f32>> = encdec.build_token_embedding_map()?;
+
+        Ok(Self { fc1, fc2, fc3, blocks, dict, var_map, encdec, token_index, token_embedding_map })
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let mut result: Tensor = input.clone();
+        let mut result = self.blocks[0].forward(&input)?;
 
-        for block in &self.blocks {
+        for (index, block) in self.blocks.iter().enumerate() {
+            if index == 0 {
+                continue;
+            }
             result = block.forward(&result)?;
         }
 
@@ -246,15 +253,14 @@ impl Model {
     }
 
     pub fn predict_next_token(&self, input: &str, device: &Device) -> Result<String, candle_core::Error> {
-        let token_embedding_map: BTreeMap<String, Vec<f32>> = self.encdec.build_token_embedding_map()?;
         let tokens = tokenize(&input);
         let mut input: Vec<Vec<f32>> = Vec::new();
 
         for token in tokens {
-            match token_embedding_map.get(token.as_str()) {
+            match self.token_embedding_map.get(token.as_str()) {
                 Some(embedding) => input.push(embedding.clone()),
                 None => {
-                    input.push(token_embedding_map.get(NOT_FOUND).unwrap().clone());
+                    input.push(self.token_embedding_map.get(NOT_FOUND).unwrap().clone());
                 },
             }
         }
@@ -404,9 +410,6 @@ impl Model {
             tokens_chain.insert(0, " ".to_string());
         }
 
-        let token_index = self.dict.build_index();
-        let token_embedding_map: BTreeMap<String, Vec<f32>> = self.encdec.build_token_embedding_map()?;
-
         // iterate over tokens_chain
         for index in 0..(tokens_chain.len()) {
             let token = tokens_chain[index].clone();
@@ -429,9 +432,9 @@ impl Model {
                 input_tokens = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
             }
 
-            let input: Vec<f32> = input_tokens.iter().flat_map(|token| token_embedding_map.get(token).unwrap().to_vec()).collect();
+            let input: Vec<f32> = input_tokens.iter().flat_map(|token| self.token_embedding_map.get(token).unwrap().to_vec()).collect();
 
-            let output_token_index: u32 = token_index[&token];
+            let output_token_index: u32 = self.token_index[&token];
 
             let input = Tensor::new(input, &device)?;
             let target = one_hot(Tensor::new(output_token_index, &device)?, self.dict.len(), 1.0 as f32, 0.0 as f32)?;
@@ -459,7 +462,7 @@ impl Model {
         let token_batch_size = 100;
         let epochs: u32 = 40;
         let num_batches = tokens_chain.len() / token_batch_size;
-        let lr = 0.000002;
+        let lr = 1e-4;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
@@ -479,8 +482,13 @@ impl Model {
 
                     // Compute loss
                     // binary cross-entropy is not supported on metal gpu
-                    // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-                    let loss = nn::loss::mse(&predictions, &targets)?;
+                    //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
+                    // let loss = nn::loss::mse(&predictions, &targets)?;
+
+                    let sigmoid_predictions =
+                        (((predictions/2.0)?.tanh()? + 1.0)? / 2.0)?;
+
+                    let loss = nn::loss::mse(&sigmoid_predictions, &targets)?;
 
                     // Backpropagation
                     optimizer.backward_step(&loss)?;

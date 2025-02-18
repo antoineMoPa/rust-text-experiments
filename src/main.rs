@@ -5,13 +5,14 @@ use attention_predictor::{create_model, get_pretrained_dict};
 use candle_nn::{VarMap, VarBuilder};
 
 use crate::{
-    token_utils::{tokenize, EncoderDecoder, tokens_to_dict},
-    attention_predictor::{get_device, Model, FILE_PATH}
+    token_utils::{tokenize, tokens_to_dict},
+    attention_predictor::{get_device, Model, FILE_PATH}, encoder_decoder::EncoderDecoder
 };
 
 mod token_utils;
 mod simple_predictor;
 mod lstm_predictor;
+mod encoder_decoder;
 mod attention_predictor;
 
 fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
@@ -61,6 +62,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
         let mut model = create_model(encdec.dict, &device)?;
+
+        // in case we want to continue training:
+        // model.load_inplace_from_path("data/model")?;
 
         // train on data/corpus/level_/corpus.txt
         let level_file_path = FILE_PATH;

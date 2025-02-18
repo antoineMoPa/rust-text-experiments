@@ -4,7 +4,7 @@ echo "" > corpus.txt
 
 for dir in ./level_*/; do
     # reset level corpus
-    echo "" > $dir/corpus.corpus
+    > $dir/corpus.corpus
     for file in $dir/*.txt; do
         echo "Processing $file"
         cat $file >> corpus.txt
@@ -13,7 +13,7 @@ for dir in ./level_*/; do
 done
 
 pushd .
-cd level_3
+cd level_4
 python3 gen_text.py >> corpus.corpus
 popd
 
