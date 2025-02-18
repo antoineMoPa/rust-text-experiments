@@ -10,6 +10,7 @@ use crate::{
 };
 
 mod token_utils;
+mod attention_block;
 mod simple_predictor;
 mod lstm_predictor;
 mod encoder_decoder;

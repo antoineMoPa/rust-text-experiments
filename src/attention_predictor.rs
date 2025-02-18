@@ -4,7 +4,7 @@ use candle_core::{Device, Tensor, DType, D, Var};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 
-use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE, self}, read_n_chars, encoder_decoder::EncoderDecoder};
+use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, EMBEDDING_SIZE, self}, read_n_chars, encoder_decoder::EncoderDecoder, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
 const CONTEXT_WINDOW: usize = 10;
@@ -41,115 +41,6 @@ fn layer_norm_no_params(x: &Tensor, eps: f64) -> Result<Tensor, candle_core::Err
     return (x.broadcast_sub(&mean))?.broadcast_div(&std);
 }
 
-pub struct AttentionBlock {
-    pub linear: Vec<nn::Linear>,
-    pub qs: Vec<nn::Linear>,
-    pub ks: Vec<nn::Linear>,
-    pub vs: Vec<nn::Linear>,
-    pub out_linear: nn::Linear,
-}
-
-impl AttentionBlock {
-    pub fn new(vb: VarBuilder) -> Result<Self, candle_core::Error> {
-        let mut linear: Vec<nn::Linear> = Vec::new();
-        let mut qs: Vec<nn::Linear> = Vec::new();
-        let mut ks: Vec<nn::Linear> = Vec::new();
-        let mut vs: Vec<nn::Linear> = Vec::new();
-
-        let s = ATTENTION_HEAD_INPUT_SIZE;
-
-        for i in 0..NUM_ATTENTION_HEADS {
-            linear.push(nn::linear_b(s, s, true, vb.pp(&format!("linear{}", i)))?);
-            qs.push(nn::linear_b(s, s, true, vb.pp(&format!("q{}", i)))?);
-            ks.push(nn::linear_b(s, s, true, vb.pp(&format!("k{}", i)))?);
-            vs.push(nn::linear_b(s, s, true, vb.pp(&format!("v{}", i)))?);
-        }
-
-        let out_linear = nn::linear_b(
-            INPUT_SIZE,
-            INPUT_SIZE,
-            false,
-            vb.pp("out_linear")
-        )?;
-
-        Ok(Self { linear, qs, ks, vs, out_linear })
-    }
-
-    fn scaled_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let scale = 1.0 / ((INPUT_SIZE) as f64).sqrt();
-        let result = q.matmul(&k.t()?)?;
-        let result = (result * scale)?;
-        let result = nn::ops::softmax(&result, D::Minus1)?;
-        let result = result.matmul(&v)?;
-
-        Ok(result)
-    }
-
-    fn position_encoding(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let mut position: Vec<f32> = Vec::new();
-
-        for i in 0..CONTEXT_WINDOW {
-            for j in 0..EMBEDDING_SIZE {
-                let val = (i as f32) / (10000 as f32).powf(2.0 * (j as f32) / EMBEDDING_SIZE as f32);
-                if j % 2 == 0 {
-                    position.push(val.sin());
-                } else {
-                    position.push(val.cos());
-                }
-            }
-        }
-
-        let position = Tensor::new(position, input.device())?;
-
-        let batch_size = input.dim(0)?;
-        let encoding = position.repeat(&[batch_size, 1])?;
-
-        return Ok(encoding);
-    }
-
-    fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let input = (self.position_encoding(input)? + input)?;
-        let input = nn::ops::dropout(&input, 0.2)?;
-
-        let mut results: Vec<Tensor> = Vec::new();
-
-        for i in 0..NUM_ATTENTION_HEADS {
-            let portion_size = EMBEDDING_SIZE / NUM_ATTENTION_HEADS;
-            // Take a portion of every embedded token
-            // input is a vector of size EMBEDDING_SIZE * CONTEXT_WINDOW with tokens next to each other, I want to take just a portion of each token
-            let mut portions: Vec<Tensor> = Vec::new();
-
-            for j in 0..CONTEXT_WINDOW {
-                let start = j * EMBEDDING_SIZE;
-                let end = start + portion_size;
-                let indexes: Vec<u32> = ((start as u32)..(end as u32)).collect();
-                let indexes = Tensor::new(indexes, input.device())?;
-                let portion = input.index_select(&indexes, D::Minus1)?;
-                portions.push(portion);
-            }
-
-            let portions = Tensor::cat(&portions, D::Minus1)?;
-
-            let linear_output = portions.apply(&self.linear[i])?;
-
-            let q = linear_output.apply(&self.qs[i])?;
-            let k = linear_output.apply(&self.ks[i])?;
-            let v = linear_output.apply(&self.vs[i])?;
-
-            let result = self.scaled_dot_product_attention(&q, &k, &v)?;
-
-            let result = (((result * 0.7)? + portions.clone())? * 0.3)?;
-
-            results.push(result);
-        }
-
-        let result = Tensor::cat(&results, D::Minus1)?;
-        let result = self.out_linear.forward(&result)?;
-
-        return Ok(result);
-    }
-}
-
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
     pub fc1: nn::Linear,
@@ -167,7 +58,15 @@ impl Model {
         let mut blocks = Vec::new();
 
         for b in 0..NUM_BLOCKS {
-            let block = AttentionBlock::new(vb.push_prefix(&format!("block_{}", b)))?;
+            let config: AttentionBlockConfig = AttentionBlockConfig {
+                attention_head_input_size: ATTENTION_HEAD_INPUT_SIZE,
+                input_size: INPUT_SIZE,
+                num_attention_heads: NUM_ATTENTION_HEADS,
+                context_window: CONTEXT_WINDOW,
+                embedding_size: EMBEDDING_SIZE,
+            };
+
+            let block = AttentionBlock::new(config, vb.push_prefix(&format!("block_{}", b)))?;
             blocks.push(block);
         }
 
@@ -460,7 +359,7 @@ impl Model {
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
         let token_batch_size = 80;
-        let epochs: u32 = 40;
+        let epochs: u32 = 10;
         let num_batches = tokens_chain.len() / token_batch_size;
         let lr = 1e-5;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
