@@ -459,10 +459,10 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 100;
+        let token_batch_size = 80;
         let epochs: u32 = 40;
         let num_batches = tokens_chain.len() / token_batch_size;
-        let lr = 1e-4;
+        let lr = 1e-5;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
@@ -474,27 +474,24 @@ impl Model {
                 let tokens = tokens_chain[start..end].to_vec();
 
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
-                let mut loss_stat = 0.0;
 
-                for _sub_epoch in 0..20 {
-                    // Forward pass
-                    let predictions = self.forward(&inputs)?;
+                let predictions = self.forward(&inputs)?;
 
-                    // Compute loss
-                    // binary cross-entropy is not supported on metal gpu
-                    //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-                    // let loss = nn::loss::mse(&predictions, &targets)?;
+                // Compute loss
+                // binary cross-entropy is not supported on metal gpu
+                //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
+                let loss = nn::loss::mse(&predictions, &targets)?;
 
-                    let sigmoid_predictions =
-                        (((predictions/2.0)?.tanh()? + 1.0)? / 2.0)?;
+                //let sigmoid_predictions =
+                //    (((predictions/2.0)?.tanh()? + 1.0)? / 2.0)?;
 
-                    let loss = nn::loss::mse(&sigmoid_predictions, &targets)?;
+                //let loss = nn::loss::mse(&sigmoid_predictions, &targets)?;
 
-                    // Backpropagation
-                    optimizer.backward_step(&loss)?;
+                // Backpropagation
+                optimizer.backward_step(&loss)?;
 
-                    loss_stat = loss.to_vec0::<f32>()?;
-                }
+                let loss_stat = loss.to_vec0::<f32>()?;
+                //}
 
                 if j % 2 == 0 && j > 0 {
                     println!("Epoch {:6}: Loss = {:.6}", epoch, loss_stat);

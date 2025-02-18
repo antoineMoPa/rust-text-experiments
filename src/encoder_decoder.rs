@@ -142,7 +142,7 @@ impl EncoderDecoder {
         let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
         let batch_size = 20;
         let last_batch = tokens.len() / batch_size + 1;
-        let epochs = 2;
+        let epochs = 8;
         for epoch in 0..epochs {
             for i in 0..last_batch {
                 let mut inputs = Vec::new();
