@@ -13,8 +13,8 @@ const NUM_ATTENTION_HEADS: usize = 4;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
-const HIDDEN_SIZE: usize = 4096;
-const NUM_BLOCKS: usize = 2;
+const HIDDEN_SIZE: usize = 512;
+const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
 
@@ -46,6 +46,7 @@ pub struct Model {
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
     pub fc3: nn::Linear,
+    pub fc4: nn::Linear,
     pub var_map: VarMap,
     pub encdec: EncoderDecoder,
     pub token_index: BTreeMap<String, u32>,
@@ -73,6 +74,7 @@ impl Model {
         let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
+        let fc4 = nn::linear_b(EMBEDDING_SIZE, EMBEDDING_SIZE, true, vb.pp("fc4"))?;
 
         let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
@@ -84,6 +86,7 @@ impl Model {
             fc1,
             fc2,
             fc3,
+            fc4,
             blocks,
             var_map,
             encdec,
@@ -110,8 +113,13 @@ impl Model {
         let result = self.fc2.forward(&result)?;
         let result = self.fc3.forward(&result)?;
 
+        // Re-use encdec layer
         let result = result.tanh()?;
         let result = self.encdec.fc2.forward(&result)?;
+        let result = result.tanh()?;
+
+        let result = self.fc4.forward(&result)?;
+
         let result = result.tanh()?;
 
         return Ok(result);
@@ -322,8 +330,8 @@ impl Model {
         let mut tokens_chain = tokens_chain.clone();
 
         for _ in 0..CONTEXT_WINDOW {
-            padding.push(" ".to_string());
-            tokens_chain.insert(0, " ".to_string());
+            //padding.push(" ".to_string());
+            //tokens_chain.insert(0, " ".to_string());
         }
 
         // iterate over tokens_chain
@@ -384,16 +392,16 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 30;
-        let epochs: u32 = 10;
+        let token_batch_size = 6;
+        let epochs: u32 = 100;
         let num_batches = tokens_chain.len() / token_batch_size;
-        let lr = 1e-6;
+        let lr = 3e-6;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
             for j in 0..(num_batches + 1) {
                 let start = j * token_batch_size;
-                let overlap = 10;
+                let overlap = 6;
                 let end = start + token_batch_size + overlap;
                 let end = end.min(tokens_chain.len());
                 let tokens = tokens_chain[start..end].to_vec();
@@ -418,10 +426,12 @@ impl Model {
                 let loss_stat = loss.to_vec0::<f32>()?;
                 //}
 
-                if j % 2 == 0 && j > 0 {
+                if j % 10 == 0 && j > 0 {
                     print!("Epoch {:6}: Loss = {:.6} ", epoch, loss_stat);
                     print!("Batch        {:3} / {:3} - ", j, num_batches);
                     let prediction = self.run_str("The ", 15, device)?;
+                    // remove newlines
+                    let prediction = prediction.replace("\n", "_");
                     println!("Prediction: {}", prediction);
                 }
             }
