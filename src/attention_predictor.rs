@@ -7,14 +7,14 @@ use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, self}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
-const CONTEXT_WINDOW: usize = 3;
+const CONTEXT_WINDOW: usize = 2;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 4;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
-const HIDDEN_SIZE: usize = 1024;
-const NUM_BLOCKS: usize = 1;
+const HIDDEN_SIZE: usize = 4096;
+const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
 
@@ -47,7 +47,6 @@ pub struct Model {
     pub fc2: nn::Linear,
     pub fc3: nn::Linear,
     pub var_map: VarMap,
-    pub dict: Dict,
     pub encdec: EncoderDecoder,
     pub token_index: BTreeMap<String, u32>,
     pub token_embedding_map: BTreeMap<String, Vec<f32>>,
@@ -86,7 +85,6 @@ impl Model {
             fc2,
             fc3,
             blocks,
-            dict,
             var_map,
             encdec,
             token_index,
@@ -112,6 +110,10 @@ impl Model {
         let result = self.fc2.forward(&result)?;
         let result = self.fc3.forward(&result)?;
 
+        let result = result.tanh()?;
+        let result = self.encdec.fc2.forward(&result)?;
+        let result = result.tanh()?;
+
         return Ok(result);
     }
 
@@ -134,14 +136,14 @@ impl Model {
 
         let output = self.forward(&input)?;
 
-        let output_prob = self.encdec.unembed(&output)?;
+        let output = self.encdec.unembed(&output)?;
 
-        // let output_prob = (output_prob / 10.0)?;
+        let output = (output / 2.0)?;
 
-        let output_prob_max_index = output_prob.argmax(1)?;
+        let output_prob_max_index = output.argmax(1)?;
         let n = output_prob_max_index.to_vec1::<u32>()?[0];
 
-        let max_token = self.dict.iter().nth(n as usize).unwrap();
+        let max_token = self.encdec.dict.iter().nth(n as usize).unwrap();
 
         return Ok(max_token.0.clone());
     }
@@ -382,10 +384,10 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 80;
+        let token_batch_size = 30;
         let epochs: u32 = 10;
         let num_batches = tokens_chain.len() / token_batch_size;
-        let lr = 1e-5;
+        let lr = 1e-6;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
@@ -417,9 +419,9 @@ impl Model {
                 //}
 
                 if j % 2 == 0 && j > 0 {
-                    println!("Epoch {:6}: Loss = {:.6}", epoch, loss_stat);
-                    println!("Batch        {:6} / {}", j, num_batches);
-                    let prediction = self.run_str(" ", 10, device)?;
+                    print!("Epoch {:6}: Loss = {:.6} ", epoch, loss_stat);
+                    print!("Batch        {:3} / {:3} - ", j, num_batches);
+                    let prediction = self.run_str("The ", 15, device)?;
                     println!("Prediction: {}", prediction);
                 }
             }
@@ -433,7 +435,7 @@ impl Model {
 
     pub fn print_stats(&self) -> Result<(), candle_core::Error> {
         println!("Model stats:");
-        println!("Dict size: {}", self.dict.len());
+        println!("Dict size: {}", self.encdec.dict.len());
 
         // print min, max, mean, std of all tensors
         for var in self.var_map.all_vars().iter() {
@@ -451,7 +453,7 @@ impl Model {
         let var_map_path = format!("{}.safetensors", path);
         self.var_map.save(var_map_path.as_str()).unwrap();
 
-        let dict_words = self.dict.iter().map(|(word, _)| word.clone()).collect::<Vec<String>>();
+        let dict_words = self.encdec.dict.iter().map(|(word, _)| word.clone()).collect::<Vec<String>>();
 
         let dict_path = format!("{}.dict", path);
         let file = fs::File::create(dict_path).unwrap();
@@ -480,7 +482,7 @@ impl Model {
         let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
 
         let dict = tokens_to_dict(dict_words);
-        self.dict = dict;
+        self.encdec.dict = dict;
 
         let var_map_path = format!("{}.safetensors", path);
         self.var_map.load(var_map_path.as_str()).unwrap();

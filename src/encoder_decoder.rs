@@ -11,7 +11,7 @@ use nn::encoding::one_hot;
 use crate::attention_predictor::{get_pretrained_dict, FILE_PATH};
 use crate::token_utils::{Dict, GetTokenEmbedding, tokens_to_dict};
 
-pub const EMBEDDING_SIZE: usize = 64;
+pub const EMBEDDING_SIZE: usize = 256;
 
 pub struct EncoderDecoder {
     pub fc1: nn::Linear,
@@ -49,7 +49,9 @@ impl EncoderDecoder {
     }
 
     pub fn unembed(&self, tensor: &Tensor) -> Result<Tensor, candle_core::Error> {
-        return self.fc3.forward(&tensor);
+        let result = self.fc3.forward(&tensor)?;
+        let result = result.tanh()?;
+        return Ok(result);
     }
 
     pub fn get_token_embedding_vec(&self, token: &str) -> Result<Vec<f32>, candle_core::Error> {
@@ -67,7 +69,6 @@ impl EncoderDecoder {
         let result = self.fc2.forward(&result)?;
         let result = result.tanh()?;
         let result = self.fc3.forward(&result)?;
-
         let result = result.tanh()?;
 
         return Ok(result);
@@ -94,9 +95,9 @@ impl EncoderDecoder {
     }
 
     pub fn train(&mut self) -> Result<(), candle_core::Error> {
-        let epochs = 60;
+        let epochs = 40;
         let lr = 0.003;
-        let batch_size = 20;
+        let batch_size = 100;
         let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
@@ -140,35 +141,33 @@ impl EncoderDecoder {
     /// In a neural network where the input is 3 word, train the network to output the middle word, then gradually remove the first and last word.
     ///
     pub fn train_with_corpus(&mut self) -> Result<(), candle_core::Error> {
+        self.train()?;
+
         let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
         let lr = 0.003;
         let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
-        let batch_size = 50;
+        let batch_size = 100;
         let last_batch = tokens.len() / batch_size + 1;
-        let epochs = 20;
+        let epochs = 10;
         for epoch in 0..epochs {
-            for i in 0..last_batch {
+            for i in 0..(last_batch+1) {
                 let mut inputs = Vec::new();
-                let start = i + 1;
-                let end = start + batch_size;
+                let start = i * batch_size + 1;
+                let end = (start + batch_size).min(tokens.len()) - 1;
 
                 // Gradually remove previous and next token from input
                 let f = match epoch {
-                    0 => 0.0,
-                    1 => 0.0,
-                    2 => 0.0,
-                    3 => 0.0,
-                    4 => 0.0,
-                    5 => 0.0,
-                    6 => 0.0,
-                    7 => 0.0,
-                    8 => 0.0,
-                    9 => 0.0,
-                    10 => -0.01,
-                    12 => -0.05,
-                    14 => -0.1,
-                    16 => -0.1,
-                    18 => -0.05,
+                    0 => -0.1,
+                    1 => -0.2,
+                    2 => -0.3,
+                    3 => -0.4,
+                    4 => -0.5,
+                    5 => -0.6,
+                    6 => -0.5,
+                    7 => -0.4,
+                    8 => -0.3,
+                    9 => -0.2,
+                    10 => -0.1,
                     _ => 0.0,
                 };
 
@@ -207,6 +206,8 @@ impl EncoderDecoder {
                 }
             }
         }
+
+        self.train()?;
 
         Ok(())
     }
