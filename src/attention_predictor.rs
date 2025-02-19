@@ -1,15 +1,15 @@
 use std::{fs, io::Error, collections::BTreeMap};
 
-use candle_core::{Device, Tensor, DType, D, Var};
+use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
-use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
+use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
 
-use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding, self}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
+use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
-const CONTEXT_WINDOW: usize = 2;
+const CONTEXT_WINDOW: usize = 15;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 4;
+const NUM_ATTENTION_HEADS: usize = 16;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
@@ -49,13 +49,12 @@ pub struct Model {
     pub fc4: nn::Linear,
     pub var_map: VarMap,
     pub encdec: EncoderDecoder,
-    pub token_index: BTreeMap<String, u32>,
     pub token_embedding_map: BTreeMap<String, Vec<f32>>,
     pub token_embedding_tensor_map: BTreeMap<String, Tensor>,
 }
 
 impl Model {
-    pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, device: &Device) -> Result<Self, candle_core::Error> {
+    pub fn new(var_map: VarMap, vb: VarBuilder, device: &Device) -> Result<Self, candle_core::Error> {
         let mut blocks = Vec::new();
 
         for b in 0..NUM_BLOCKS {
@@ -78,7 +77,6 @@ impl Model {
 
         let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
-        let token_index = dict.build_index();
         let token_embedding_map: BTreeMap<String, Vec<f32>> = encdec.build_token_embedding_map()?;
         let token_embedding_tensor_map: BTreeMap<String, Tensor> = encdec.build_token_embedding_tensor_map()?;
 
@@ -90,7 +88,6 @@ impl Model {
             blocks,
             var_map,
             encdec,
-            token_index,
             token_embedding_map,
             token_embedding_tensor_map,
         })
@@ -517,7 +514,7 @@ pub fn create_model(dict: Dict, device: &Device) -> Result<Model, candle_core::E
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    let model = Model::new(dict.clone(), varmap, vb, device)?;
+    let model = Model::new(varmap, vb, device)?;
 
     Ok(model)
 }
@@ -528,7 +525,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    let mut model = Model::new(dict.clone(), varmap, vb, device)?;
+    let mut model = Model::new(varmap, vb, device)?;
 
     if train {
         model.train( tokens_chain, 400, &"The horse", device)?;
