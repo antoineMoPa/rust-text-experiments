@@ -393,17 +393,20 @@ impl Model {
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
         let token_batch_size = 6;
-        let epochs: u32 = 100;
-        let num_batches = tokens_chain.len() / token_batch_size;
+        let epochs: u32 = 10000;
+        let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = 3e-6;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
             for j in 0..(num_batches + 1) {
                 let start = j * token_batch_size;
-                let overlap = 6;
+                let overlap = 3;
                 let end = start + token_batch_size + overlap;
                 let end = end.min(tokens_chain.len());
+                if end <= start {
+                    continue;
+                }
                 let tokens = tokens_chain[start..end].to_vec();
 
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
@@ -426,16 +429,24 @@ impl Model {
                 let loss_stat = loss.to_vec0::<f32>()?;
                 //}
 
-                if j % 10 == 0 && j > 0 {
-                    print!("Epoch {:6}: Loss = {:.6} ", epoch, loss_stat);
+                if epoch % 4 == 0 && j % 4 == 0 && j > 0 {
+                    print!("Epoch {:6}/{:6} : Loss = {:.6} ", epoch, epochs, loss_stat);
                     print!("Batch        {:3} / {:3} - ", j, num_batches);
-                    let prediction = self.run_str("The ", 15, device)?;
-                    // remove newlines
+                    let prediction = self.run_str("The bird", 15, device)?;
                     let prediction = prediction.replace("\n", "_");
-                    println!("Prediction: {}", prediction);
+                    print!(" The bird|>{:.40}", prediction);
+                    let prediction = self.run_str("The cat", 15, device)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!(" The cat|>{:.40}", prediction);
+                    let prediction = self.run_str("The dog", 15, device)?;
+                    let prediction = prediction.replace("\n", "_");
+                    println!(" The dog|>{:.40}", prediction);
                 }
             }
-            self.save_to_path("data/model");
+
+            if epoch % 40 == 0 {
+                self.save_to_path("data/model");
+            }
         }
 
         self.print_stats()?;
