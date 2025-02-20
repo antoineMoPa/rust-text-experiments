@@ -4,12 +4,12 @@ use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
 
-use crate::{token_utils::{tokenize, tokens_to_dict, Dict, GetTokenEmbedding}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
+use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
 const CONTEXT_WINDOW: usize = 15;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 16;
+const NUM_ATTENTION_HEADS: usize = 8;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
@@ -17,6 +17,7 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
+const LR: f64 = 3e-6;
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -235,7 +236,6 @@ impl Model {
         Ok(())
     }
 
-
     pub fn good_bad_training_loop(&mut self, inputs: Tensor, targets: Tensor, test_str: &str, epochs: u32, device: &Device) -> Result<(), candle_core::Error> {
         // 1. More epoch when sample size is smaller
         let initial_lr = 0.00002;
@@ -323,8 +323,7 @@ impl Model {
         let mut targets: Vec<Tensor> = Vec::new();
 
         // pad token chain with context window zeros
-        let mut padding: Vec<String> = Vec::new();
-        let mut tokens_chain = tokens_chain.clone();
+        let tokens_chain = tokens_chain.clone();
 
         for _ in 0..CONTEXT_WINDOW {
             //padding.push(" ".to_string());
@@ -392,7 +391,7 @@ impl Model {
         let token_batch_size = 6;
         let epochs: u32 = 2000;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
-        let lr = 3e-6;
+        let lr = LR;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
@@ -491,13 +490,7 @@ impl Model {
 
     pub fn load_from_path(path: &str, device: &Device) -> Result<Self, Error> {
 
-        let dict_path = format!("{}.dict", path);
-        let file = fs::File::open(dict_path).unwrap();
-        let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
-
-        let dict = tokens_to_dict(dict_words);
-
-        let mut model = create_model(dict, device).unwrap();
+        let mut model = create_model(device).unwrap();
 
         let var_map_path = format!("{}.safetensors", path);
         model.var_map.load(var_map_path.as_str()).unwrap();
@@ -520,27 +513,12 @@ impl Model {
     }
 }
 
-pub fn create_model(dict: Dict, device: &Device) -> Result<Model, candle_core::Error> {
+pub fn create_model(device: &Device) -> Result<Model, candle_core::Error> {
     // Create Varbuilder
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
     let model = Model::new(varmap, vb, device)?;
-
-    Ok(model)
-}
-
-
-pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, train: bool, device: &Device) -> Result<Model, candle_core::Error> {
-    // Create Varbuilder
-    let varmap = VarMap::new();
-    let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
-
-    let mut model = Model::new(varmap, vb, device)?;
-
-    if train {
-        model.train( tokens_chain, 400, &"The horse", device)?;
-    }
 
     Ok(model)
 }

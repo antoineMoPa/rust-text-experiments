@@ -60,9 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Pretraining test model");
 
         let device = get_device()?;
-        let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
-
-        let mut model = create_model(encdec.dict, &device)?;
+        let mut model = create_model(&device)?;
 
         // in case we want to continue training:
         // model.load_inplace_from_path("data/model")?;
