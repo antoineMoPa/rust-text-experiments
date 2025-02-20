@@ -13,7 +13,7 @@ const NUM_ATTENTION_HEADS: usize = 16;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
-const HIDDEN_SIZE: usize = 512;
+const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
@@ -390,7 +390,7 @@ impl Model {
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
         let token_batch_size = 6;
-        let epochs: u32 = 10000;
+        let epochs: u32 = 2000;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = 3e-6;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
@@ -426,7 +426,7 @@ impl Model {
                 let loss_stat = loss.to_vec0::<f32>()?;
                 //}
 
-                if epoch % 4 == 0 && j % 4 == 0 && j > 0 {
+                if epoch % 8 == 0 && j % 4 == 0 && j > 0 {
                     print!("Epoch {:6}/{:6} : Loss = {:.6} ", epoch, epochs, loss_stat);
                     print!("Batch        {:3} / {:3} - ", j, num_batches);
                     let prediction = self.run_str("The bird", 15, device)?;
@@ -438,6 +438,17 @@ impl Model {
                     let prediction = self.run_str("The dog", 15, device)?;
                     let prediction = prediction.replace("\n", "_");
                     println!(" The dog|>{:.40}", prediction);
+                    print!("                                    ");
+                    print!("                           ");
+                    let prediction = self.run_str("The fish", 15, device)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!(" The fish|>{:.40}", prediction);
+                    let prediction = self.run_str("A sailboat", 15, device)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!(" A sailboat|>{:.40}", prediction);
+                    let prediction = self.run_str("A carrot", 15, device)?;
+                    let prediction = prediction.replace("\n", "_");
+                    println!(" A carrot|>{:.40}", prediction);
                 }
             }
 
