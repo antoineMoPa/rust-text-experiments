@@ -3,6 +3,7 @@ use std::{fs, io::Error, collections::BTreeMap};
 use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
+use colored::Colorize;
 
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
@@ -18,6 +19,7 @@ const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
 const LR: f64 = 3e-6;
+const EPOCHS: u32 = 2500;
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -56,15 +58,30 @@ pub struct Model {
 
 impl Model {
     pub fn new(var_map: VarMap, vb: VarBuilder, device: &Device) -> Result<Self, candle_core::Error> {
+        if EMBEDDING_SIZE % NUM_ATTENTION_HEADS != 0 {
+            // List out possible num attention heads
+            for i in 1..(EMBEDDING_SIZE / 2) {
+                if EMBEDDING_SIZE % i == 0 {
+                    println!("Possible num attention heads for this embedding size: {}", i);
+                }
+            }
+            // List out possible embeddding size
+            for i in 1..10 {
+                println!("Possible embedding size for this num attention heads: {}", i * NUM_ATTENTION_HEADS);
+            }
+
+            panic!("The embedding size should be divisible by the number of attention heads!");
+        }
+
         let mut blocks = Vec::new();
 
         for b in 0..NUM_BLOCKS {
             let config: AttentionBlockConfig = AttentionBlockConfig {
-                attention_head_input_size: ATTENTION_HEAD_INPUT_SIZE,
                 input_size: INPUT_SIZE,
                 num_attention_heads: NUM_ATTENTION_HEADS,
                 context_window: CONTEXT_WINDOW,
                 embedding_size: EMBEDDING_SIZE,
+                output_size: INPUT_SIZE,
             };
 
             let block = AttentionBlock::new(config, vb.push_prefix(&format!("block_{}", b)))?;
@@ -80,6 +97,12 @@ impl Model {
 
         let token_embedding_map: BTreeMap<String, Vec<f32>> = encdec.build_token_embedding_map()?;
         let token_embedding_tensor_map: BTreeMap<String, Tensor> = encdec.build_token_embedding_tensor_map()?;
+
+        // Print the following info in
+        println!("Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR");
+        let output = format!("{}, {}, {}, {}, {}, {}, {}", EMBEDDING_SIZE, CONTEXT_WINDOW, EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR);
+        println!("{}", output.on_white().black());
+
 
         Ok(Self {
             fc1,
@@ -389,7 +412,7 @@ impl Model {
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
         let token_batch_size = 6;
-        let epochs: u32 = 2000;
+        let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;

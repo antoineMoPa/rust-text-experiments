@@ -11,7 +11,7 @@ use nn::encoding::one_hot;
 use crate::attention_predictor::{get_pretrained_dict, FILE_PATH};
 use crate::token_utils::{Dict, GetTokenEmbedding, tokens_to_dict};
 
-pub const EMBEDDING_SIZE: usize = 256;
+pub const EMBEDDING_SIZE: usize = 252;
 
 pub struct EncoderDecoder {
     pub fc1: nn::Linear,

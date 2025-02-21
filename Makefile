@@ -1,8 +1,10 @@
+args = RUST_BACKTRACE=1
+
 run:
-	cargo run run
+	$(args) cargo run run
 pretrain:
-	cargo run pretrain
+	$(args) time cargo run pretrain
 pretrain_encoder_decoder:
-	cargo run pretrain_encoder_decoder
+	$(args) cargo run pretrain_encoder_decoder
 test:
-	cargo test attention -- --nocapture --test-threads 1
+	$(args) cargo test attention -- --nocapture --test-threads 1

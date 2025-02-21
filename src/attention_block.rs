@@ -12,11 +12,11 @@ pub struct AttentionBlock {
 }
 
 pub struct AttentionBlockConfig {
-    pub attention_head_input_size: usize,
     pub input_size: usize,
     pub num_attention_heads: usize,
     pub context_window: usize,
     pub embedding_size: usize,
+    pub output_size: usize,
 }
 
 impl AttentionBlock {
@@ -26,7 +26,7 @@ impl AttentionBlock {
         let mut ks: Vec<nn::Linear> = Vec::new();
         let mut vs: Vec<nn::Linear> = Vec::new();
 
-        let s = config. attention_head_input_size;
+        let s = config.input_size / config.num_attention_heads;
 
         for i in 0..config.num_attention_heads {
             linear.push(nn::linear_b(s, s, true, vb.pp(&format!("linear{}", i)))?);
@@ -37,7 +37,7 @@ impl AttentionBlock {
 
         let out_linear = nn::linear_b(
             config.input_size,
-            config.input_size,
+            config.output_size,
             false,
             vb.pp("out_linear")
         )?;
@@ -99,7 +99,6 @@ impl AttentionBlock {
             }
 
             let portions = Tensor::cat(&portions, D::Minus1)?;
-
             let linear_output = portions.apply(&self.linear[i])?;
 
             let q = linear_output.apply(&self.qs[i])?;
