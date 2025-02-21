@@ -9,7 +9,7 @@ use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder
 // smoll
 const CONTEXT_WINDOW: usize = 15;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 8;
+const NUM_ATTENTION_HEADS: usize = 14;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
