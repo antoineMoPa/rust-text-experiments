@@ -56,6 +56,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if args[0] == "print_stats" {
+        println!("Loading test model");
+        let model = Model::load_from_path("data/model", &device)?;
+        model.print_stats()?;
+        return Ok(());
+    }
+
     if args[0] == "pretrain" {
         println!("Pretraining test model");
 

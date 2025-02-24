@@ -18,7 +18,7 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
-const LR: f64 = 1e-4;
+const LR: f64 = 3e-7;
 const EPOCHS: u32 = 2500;
 
 // large
@@ -135,7 +135,7 @@ impl Model {
         let result = self.fc3.forward(&result)?;
 
         // Re-use encdec layer
-        let result = result.tanh()?;
+        let result = result.gelu()?;
         let result = self.encdec.fc2.forward(&result)?;
         let result = result.tanh()?;
 
@@ -413,7 +413,7 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 6;
+        let token_batch_size = 10;
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
@@ -424,7 +424,7 @@ impl Model {
 
             for j in 0..(num_batches + 1) {
                 let start = j * token_batch_size;
-                let overlap = 3;
+                let overlap = 0;
                 let end = start + token_batch_size + overlap;
                 let end = end.min(tokens_chain.len());
                 if end <= start {
@@ -453,22 +453,21 @@ impl Model {
                 loss_stat = loss.to_vec0::<f32>()?;
             }
 
-            if epoch % 1 == 0 {
-                print!("Epoch {:6}/{:6} : Loss = {:.6} ", epoch, epochs, loss_stat);
+            println!("Epoch {:6}/{:6} : Loss = {:.6} ", epoch, epochs, loss_stat);
+
+            if epoch > 100 && epoch % 1 == 0 {
                 let prediction = self.run_str("The bird", 15, device)?;
                 let prediction = prediction.replace("\n", "_");
-                print!(" The bird|>{:.40}", prediction);
+                print!("The bird|>{:.40}", prediction);
                 let prediction = self.run_str("The cat", 15, device)?;
                 let prediction = prediction.replace("\n", "_");
                 print!(" The cat|>{:.40}", prediction);
                 let prediction = self.run_str("The dog", 15, device)?;
                 let prediction = prediction.replace("\n", "_");
                 println!(" The dog|>{:.40}", prediction);
-                print!("                                    ");
-                print!("                           ");
                 let prediction = self.run_str("The fish", 15, device)?;
                 let prediction = prediction.replace("\n", "_");
-                print!(" The fish|>{:.40}", prediction);
+                print!("The fish|>{:.40}", prediction);
                 let prediction = self.run_str("A sailboat", 15, device)?;
                 let prediction = prediction.replace("\n", "_");
                 print!(" A sailboat|>{:.40}", prediction);
