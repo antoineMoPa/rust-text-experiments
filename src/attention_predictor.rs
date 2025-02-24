@@ -128,18 +128,15 @@ impl Model {
         }
 
         let result = (result + (input * 0.2)?)?;
-        let result = (result * 0.2)?;
+        let result = (result * 0.4)?;
 
         let result = self.fc1.forward(&result)?;
         let result = self.fc2.forward(&result)?;
         let result = self.fc3.forward(&result)?;
 
         // Re-use encdec layer
-        let result = result.gelu()?;
-        let result = self.encdec.fc2.forward(&result)?;
         let result = result.tanh()?;
-
-        let result = self.fc4.forward(&result)?;
+        let result = self.encdec.fc2.forward(&result)?;
 
         let result = result.tanh()?;
 
