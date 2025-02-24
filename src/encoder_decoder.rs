@@ -136,13 +136,11 @@ impl EncoderDecoder {
         Ok(())
     }
 
-    /// Idea:
+        /// Idea:
     ///
     /// In a neural network where the input is 3 word, train the network to output the middle word, then gradually remove the first and last word.
     ///
     pub fn train_with_corpus(&mut self) -> Result<(), candle_core::Error> {
-        self.train()?;
-
         let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
         let lr = 0.003;
         let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
@@ -207,12 +205,24 @@ impl EncoderDecoder {
             }
         }
 
+        Ok(())
+    }
+
+    pub fn train_strategy(&mut self) -> Result<(), candle_core::Error> {
         self.train()?;
+        self.train_with_corpus()?;
+        self.train()?;
+        self.train_with_corpus()?;
+        self.train()?;
+
+        if self.evaluate()?.1 > 0 {
+            panic!("EncodeDecoder failed to encode dictionnary");
+        }
 
         Ok(())
     }
 
-    pub fn evaluate(&self) -> Result<f32, candle_core::Error> {
+    pub fn evaluate(&self) -> Result<(f32, i32), candle_core::Error> {
         let mut successes = 0;
         let mut failures = 0;
 
@@ -229,7 +239,7 @@ impl EncoderDecoder {
 
         let success_rate = successes as f32 / (successes + failures) as f32;
 
-        return Ok(success_rate);
+        return Ok((success_rate, failures));
     }
 
     pub fn save_to_path(&self, path: &str) {
@@ -355,7 +365,7 @@ mod tests {
         let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
         let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb, &device)?;
 
-        encoder_decoder.train_with_corpus()?;
+        encoder_decoder.train_strategy()?;
 
         let success_rate = encoder_decoder.evaluate()?;
 

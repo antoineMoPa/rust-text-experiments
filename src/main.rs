@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb, &device)?;
 
         println!("Training encoder decoder");
-        encoder_decoder.train_with_corpus()?;
+        encoder_decoder.train_strategy()?;
         encoder_decoder.save_to_path("data/encdec");
 
         encoder_decoder.evaluate()?;

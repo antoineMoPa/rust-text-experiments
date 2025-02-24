@@ -10,7 +10,7 @@ use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder
 // smoll
 const CONTEXT_WINDOW: usize = 15;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 14;
+const NUM_ATTENTION_HEADS: usize = 21;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
@@ -18,7 +18,7 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
-const LR: f64 = 3e-6;
+const LR: f64 = 1e-4;
 const EPOCHS: u32 = 2500;
 
 // large
@@ -246,6 +246,8 @@ impl Model {
             // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
             let loss = nn::loss::mse(&predictions, &targets)?;
 
+            let g: candle_core::backprop::GradStore = loss.backward()?;
+
             // Backpropagation
             optimizer.backward_step(&loss)?;
 
@@ -418,6 +420,8 @@ impl Model {
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
+            let mut loss_stat: f32 = 1.0;
+
             for j in 0..(num_batches + 1) {
                 let start = j * token_batch_size;
                 let overlap = 3;
@@ -444,34 +448,33 @@ impl Model {
 
                 // Backpropagation
                 optimizer.backward_step(&loss)?;
-
-                let loss_stat = loss.to_vec0::<f32>()?;
                 //}
 
-                if epoch % 8 == 0 && j % 4 == 0 && j > 0 {
-                    print!("Epoch {:6}/{:6} : Loss = {:.6} ", epoch, epochs, loss_stat);
-                    print!("Batch        {:3} / {:3} - ", j, num_batches);
-                    let prediction = self.run_str("The bird", 15, device)?;
-                    let prediction = prediction.replace("\n", "_");
-                    print!(" The bird|>{:.40}", prediction);
-                    let prediction = self.run_str("The cat", 15, device)?;
-                    let prediction = prediction.replace("\n", "_");
-                    print!(" The cat|>{:.40}", prediction);
-                    let prediction = self.run_str("The dog", 15, device)?;
-                    let prediction = prediction.replace("\n", "_");
-                    println!(" The dog|>{:.40}", prediction);
-                    print!("                                    ");
-                    print!("                           ");
-                    let prediction = self.run_str("The fish", 15, device)?;
-                    let prediction = prediction.replace("\n", "_");
-                    print!(" The fish|>{:.40}", prediction);
-                    let prediction = self.run_str("A sailboat", 15, device)?;
-                    let prediction = prediction.replace("\n", "_");
-                    print!(" A sailboat|>{:.40}", prediction);
-                    let prediction = self.run_str("A carrot", 15, device)?;
-                    let prediction = prediction.replace("\n", "_");
-                    println!(" A carrot|>{:.40}", prediction);
-                }
+                loss_stat = loss.to_vec0::<f32>()?;
+            }
+
+            if epoch % 1 == 0 {
+                print!("Epoch {:6}/{:6} : Loss = {:.6} ", epoch, epochs, loss_stat);
+                let prediction = self.run_str("The bird", 15, device)?;
+                let prediction = prediction.replace("\n", "_");
+                print!(" The bird|>{:.40}", prediction);
+                let prediction = self.run_str("The cat", 15, device)?;
+                let prediction = prediction.replace("\n", "_");
+                print!(" The cat|>{:.40}", prediction);
+                let prediction = self.run_str("The dog", 15, device)?;
+                let prediction = prediction.replace("\n", "_");
+                println!(" The dog|>{:.40}", prediction);
+                print!("                                    ");
+                print!("                           ");
+                let prediction = self.run_str("The fish", 15, device)?;
+                let prediction = prediction.replace("\n", "_");
+                print!(" The fish|>{:.40}", prediction);
+                let prediction = self.run_str("A sailboat", 15, device)?;
+                let prediction = prediction.replace("\n", "_");
+                print!(" A sailboat|>{:.40}", prediction);
+                let prediction = self.run_str("A carrot", 15, device)?;
+                let prediction = prediction.replace("\n", "_");
+                println!(" A carrot|>{:.40}", prediction);
             }
 
             if epoch % 40 == 0 {
