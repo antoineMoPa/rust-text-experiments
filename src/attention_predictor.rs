@@ -18,7 +18,7 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_0/corpus.corpus";
-const LR: f64 = 6e-6;
+const LR: f64 = 1.2e-5;
 const EPOCHS: u32 = 2500;
 
 // large
