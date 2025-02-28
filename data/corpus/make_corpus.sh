@@ -14,7 +14,7 @@ done
 
 pushd .
 cd level_1/
-shuf -r corpus.txt | head -c 120 > corpus.corpus
+shuf -r corpus.txt | head -n 120 > corpus.corpus
 popd
 
 pushd .
