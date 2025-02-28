@@ -393,6 +393,10 @@ impl Model {
                 },
             };
 
+            // Add some noise to input
+            let input_shape = input.shape().clone();
+            let input = (input + Tensor::randn( 0.0, 0.001, input_shape, device)?)?;
+
             inputs.push(input);
             targets.push(target.squeeze(0)?);
         }
