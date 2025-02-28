@@ -10,11 +10,9 @@ A next-token prediction architecture featuring embedded input and output based o
 
 **Description**
 
-**Features**
-
 This model could be described as a simplistic decoder-only transformer.
 
-It features
+**Features**
 
  - Multi-Head Attention.
  - Embedded output instead of one-hot dictionnary output.
