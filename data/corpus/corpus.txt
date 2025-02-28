@@ -27,6 +27,34 @@ A fish is swimming in the sea.
 A fish is swimming in the sea.
 A carrot is growing in the garden.
 A carrot is growing in the garden.
+A sailboat is sailing in the sea.
+The dog sat on the couch.
+A fish is swimming in the sea.
+The cat sat on the mat.
+A carrot is growing in the garden.
+The cat sat on the mat.
+A fish is swimming in the sea.
+The dog sat on the couch.
+A carrot is growing in the garden.
+The dog sat on the couch.
+A carrot is growing in the garden.
+A sailboat is sailing in the sea.
+Two bird are flying.
+The dog is barking at the cat.
+A sailboat is sailing in the sea.
+The dog is barking at the cat.
+The cat sat on the mat.
+Two bird are flying.
+A sailboat is sailing in the sea.
+The cat sat on the mat.
+A fish is swimming in the sea.
+A fish is swimming in the sea.
+The dog sat on the couch.
+The dog is barking at the cat.
+Two bird are flying.
+Two bird are flying.
+A carrot is growing in the garden.
+The dog is barking at the cat.
 1. Simple Sentences
 The cat sat on the mat.
 I like to eat apples.
