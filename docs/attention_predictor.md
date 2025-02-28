@@ -41,6 +41,12 @@ A sailboat|> is sailing in the sea._The dog
 A carrot|> is growing in the sea._The dog
 ```
 
+Some issues so far:
+
+ - It seems to be unable to learn the word garden and overfits on writing "sea" after "in the".
+ - The training data says the cat is on the mat, not on the couch.
+ - I have no concept of a stop token so far, that's why there is some of the next sentence at the end of these examples.
+
 **Conclusion**
 (section left empty because I'm still working on this model)
 
