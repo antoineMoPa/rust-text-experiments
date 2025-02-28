@@ -2,7 +2,7 @@
 
 A next-token prediction architecture featuring embedded input and output based on the attention mechanism.
 
-**Final structure**
+**Architecture**
 
 (Remember diagrams in AI are read from the bottom to the top for some unknown reason).
 
