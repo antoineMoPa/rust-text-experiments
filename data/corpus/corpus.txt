@@ -55,6 +55,18 @@ Two bird are flying.
 Two bird are flying.
 A carrot is growing in the garden.
 The dog is barking at the cat.
+A carrot is growing in the garden.
+A fish is swimming in the sea.
+A sailboat is sailing in the sea.
+The cat sat on the mat.
+The dog is barking at the cat.
+The dog sat on the couch.
+Two bird are flying.
+A rabbit is hopping in the field.
+A squirrel is climbing the tree.
+The cow is grazing in the meadow.
+A butterfly is resting on the flower.
+The frog is jumping into the pond.
 1. Simple Sentences
 The cat sat on the mat.
 I like to eat apples.

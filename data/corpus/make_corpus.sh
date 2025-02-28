@@ -13,7 +13,12 @@ for dir in ./level_*/; do
 done
 
 pushd .
-cd level_4
+cd level_1/
+shuf -r corpus.txt | head -c 120 > corpus.corpus
+popd
+
+pushd .
+cd level_5
 python3 gen_text.py >> corpus.corpus
 popd
 
