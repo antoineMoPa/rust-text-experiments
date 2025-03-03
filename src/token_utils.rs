@@ -1,12 +1,5 @@
-use std::collections::BTreeMap;
-use std::fs;
-use std::io::prelude::*;
-
-use candle_core::{Device, Tensor};
-use candle_nn::VarMap;
-use candle_nn::{self as nn, Module};
-use nn::{VarBuilder, AdamW, Optimizer};
-use nn::encoding::one_hot;
+use candle_nn::{self as nn};
+use nn::Optimizer;
 
 pub type Dict = std::collections::BTreeMap<String, f32>;
 pub type DictIndex = std::collections::BTreeMap<String, u32>;

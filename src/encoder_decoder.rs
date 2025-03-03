@@ -369,7 +369,7 @@ mod tests {
 
         let success_rate = encoder_decoder.evaluate()?;
 
-        assert!(success_rate > 0.9);
+        assert!(success_rate.0 > 0.9);
 
         Ok(())
     }
@@ -396,7 +396,7 @@ mod tests {
 
         let success_rate = encoder_decoder.evaluate()?;
 
-        assert!(success_rate > 0.9);
+        assert!(success_rate.0 > 0.9);
 
         Ok(())
     }
@@ -424,7 +424,7 @@ mod tests {
 
         let success_rate = encoder_decoder.evaluate()?;
 
-        assert!(success_rate > 0.9);
+        assert!(success_rate.0 > 0.9);
 
         Ok(())
     }

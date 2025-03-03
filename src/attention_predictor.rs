@@ -4,7 +4,7 @@ use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
 use colored::Colorize;
-
+use crate::models::{RunStr, GetDevice};
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
@@ -54,6 +54,7 @@ pub struct Model {
     pub encdec: EncoderDecoder,
     pub token_embedding_map: BTreeMap<String, Vec<f32>>,
     pub token_embedding_tensor_map: BTreeMap<String, Tensor>,
+    pub device: Device,
 }
 
 impl Model {
@@ -114,6 +115,7 @@ impl Model {
             encdec,
             token_embedding_map,
             token_embedding_tensor_map,
+            device: device.clone(),
         })
     }
 
@@ -175,26 +177,6 @@ impl Model {
         let max_token = self.encdec.dict.iter().nth(n as usize).unwrap();
 
         return Ok(max_token.0.clone());
-    }
-
-    pub fn run_str(&self, input: &str, len: usize, device: &Device) -> Result<String, candle_core::Error> {
-        let mut output = String::new();
-        let tokens = tokenize(input);
-        let mut input: Vec<Vec<f32>> = Vec::new();
-
-        for token in tokens {
-            let result = self.encdec.get_token_embedding_vec(token.as_str())?;
-            input.push(result);
-        }
-
-        for _ in 0..len {
-            let prediction = self.run(&input, device)?;
-            let token_embedding = self.encdec.get_token_embedding_vec(prediction.as_str())?;
-            input.push(token_embedding);
-            output.push_str(prediction.as_str());
-        }
-
-        return Ok(output);
     }
 
     pub fn predict_next_token(&self, input: &str, device: &Device) -> Result<String, candle_core::Error> {
@@ -460,22 +442,22 @@ impl Model {
             println!("Epoch {:6}/{:6} : Loss = {:.6} ", epoch, epochs, loss_stat);
 
             if epoch > 100 && epoch % 1 == 0 {
-                let prediction = self.run_str("The bird", 15, device)?;
+                let prediction = self.run_str("The bird", 15)?;
                 let prediction = prediction.replace("\n", "_");
                 print!("The bird|>{:.40}", prediction);
-                let prediction = self.run_str("The cat", 15, device)?;
+                let prediction = self.run_str("The cat", 15)?;
                 let prediction = prediction.replace("\n", "_");
                 print!(" The cat|>{:.40}", prediction);
-                let prediction = self.run_str("The dog", 15, device)?;
+                let prediction = self.run_str("The dog", 15)?;
                 let prediction = prediction.replace("\n", "_");
                 println!(" The dog|>{:.40}", prediction);
-                let prediction = self.run_str("The fish", 15, device)?;
+                let prediction = self.run_str("The fish", 15)?;
                 let prediction = prediction.replace("\n", "_");
                 print!("The fish|>{:.40}", prediction);
-                let prediction = self.run_str("A sailboat", 15, device)?;
+                let prediction = self.run_str("A sailboat", 15)?;
                 let prediction = prediction.replace("\n", "_");
                 print!(" A sailboat|>{:.40}", prediction);
-                let prediction = self.run_str("A carrot", 15, device)?;
+                let prediction = self.run_str("A carrot", 15)?;
                 let prediction = prediction.replace("\n", "_");
                 println!(" A carrot|>{:.40}", prediction);
             }
@@ -539,6 +521,34 @@ impl Model {
         self.var_map.load(var_map_path.as_str()).unwrap();
 
         Ok(())
+    }
+}
+
+impl RunStr for Model {
+    fn run_str(&self, input: &str, len: usize) -> Result<String, candle_core::Error> {
+        let mut output = String::new();
+        let tokens = tokenize(input);
+        let mut input: Vec<Vec<f32>> = Vec::new();
+
+        for token in tokens {
+            let result = self.encdec.get_token_embedding_vec(token.as_str())?;
+            input.push(result);
+        }
+
+        for _ in 0..len {
+            let prediction = self.run(&input, &self.device)?;
+            let token_embedding = self.encdec.get_token_embedding_vec(prediction.as_str())?;
+            input.push(token_embedding);
+            output.push_str(prediction.as_str());
+        }
+
+        return Ok(output);
+    }
+}
+
+impl GetDevice for Model {
+    fn get_device(&self) -> Device {
+        self.device.clone()
     }
 }
 

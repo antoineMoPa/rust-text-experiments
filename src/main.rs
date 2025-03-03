@@ -5,7 +5,7 @@ use attention_predictor::{create_model, get_pretrained_dict};
 use candle_nn::{VarMap, VarBuilder};
 
 use crate::{
-    token_utils::{tokenize, tokens_to_dict},
+    token_utils::tokenize,
     attention_predictor::{get_device, Model, FILE_PATH}, encoder_decoder::EncoderDecoder
 };
 
@@ -15,6 +15,8 @@ mod simple_predictor;
 mod lstm_predictor;
 mod encoder_decoder;
 mod attention_predictor;
+mod model_auto_rater;
+mod models;
 
 fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
     let file = fs::File::open(file_path)?;
