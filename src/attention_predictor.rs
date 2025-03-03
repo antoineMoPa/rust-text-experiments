@@ -4,6 +4,7 @@ use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
 use colored::Colorize;
+use crate::model_auto_rater;
 use crate::models::{RunStr, GetDevice};
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
@@ -439,9 +440,9 @@ impl Model {
                 loss_stat = loss.to_vec0::<f32>()?;
             }
 
-            println!("Epoch {:6}/{:6} : Loss = {:.6} ", epoch, epochs, loss_stat);
-
-            if epoch > 100 && epoch % 1 == 0 {
+            if epoch > 0 && epoch % 1 == 0 {
+                let rating = model_auto_rater::rate_model(self)?;
+                println!("Epoch {:6}/{:6} : Loss = {:.6} Rating = {}", epoch, epochs, loss_stat, rating);
                 let prediction = self.run_str("The bird", 15)?;
                 let prediction = prediction.replace("\n", "_");
                 print!("The bird|>{:.40}", prediction);
@@ -460,6 +461,9 @@ impl Model {
                 let prediction = self.run_str("A carrot", 15)?;
                 let prediction = prediction.replace("\n", "_");
                 println!(" A carrot|>{:.40}", prediction);
+
+            } else {
+                println!("Epoch {:6}/{:6} : Loss = {:.6} ", epoch, epochs, loss_stat);
             }
 
             if epoch % 40 == 0 {
