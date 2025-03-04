@@ -15,7 +15,7 @@ const NUM_ATTENTION_HEADS: usize = 21;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
-const HIDDEN_SIZE: usize = 1024;
+const HIDDEN_SIZE: usize = 128;
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_1/corpus.corpus";
