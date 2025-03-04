@@ -11,7 +11,7 @@ pub fn rate_model(model: &(impl RunStr)) -> Result<i32, candle_core::Error> {
         return Ok(4);
     }
 
-    if prediction.contains("on the mat") {
+    if prediction.contains(" sat on") {
         return Ok(3);
     }
 

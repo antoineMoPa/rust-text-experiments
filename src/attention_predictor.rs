@@ -15,8 +15,8 @@ const NUM_ATTENTION_HEADS: usize = 21;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
-const HIDDEN_SIZE: usize = 2048;
-const NUM_BLOCKS: usize = 1;
+const HIDDEN_SIZE: usize = 1024;
+const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_1/corpus.corpus";
 const LR: f64 = 1.2e-5;
@@ -440,7 +440,7 @@ impl Model {
                 loss_stat = loss.to_vec0::<f32>()?;
             }
 
-            if epoch > 0 && epoch % 1 == 0 {
+            if epoch > 80 && epoch % 1 == 0 {
                 let rating = model_auto_rater::rate_model(self)?;
                 println!("Epoch {:6}/{:6} : Loss = {:.6} Rating = {}", epoch, epochs, loss_stat, rating);
                 let prediction = self.run_str("The bird", 15)?;
