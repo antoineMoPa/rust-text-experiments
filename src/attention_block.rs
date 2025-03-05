@@ -107,7 +107,7 @@ impl AttentionBlock {
 
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
-            let result = (((result * 0.7)? + portions.clone())? * 0.3)?;
+            let result = (((result * 0.4)? + portions.clone())? * 0.15)?;
 
             results.push(result);
         }

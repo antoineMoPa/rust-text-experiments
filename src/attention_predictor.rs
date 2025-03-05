@@ -15,8 +15,8 @@ const NUM_ATTENTION_HEADS: usize = 21;
 const ATTENTION_HEAD_INPUT_SIZE: usize =
     (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
     * CONTEXT_WINDOW;
-const HIDDEN_SIZE: usize = 128;
-const NUM_BLOCKS: usize = 2;
+const HIDDEN_SIZE: usize = 2048;
+const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_1/corpus.corpus";
 const LR: f64 = 1.2e-5;
@@ -400,7 +400,7 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 10;
+        let token_batch_size = 20;
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
