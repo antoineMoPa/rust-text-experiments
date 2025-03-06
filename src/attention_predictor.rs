@@ -2,24 +2,23 @@ use std::{fs, io::Error, collections::BTreeMap};
 
 use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
-use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW};
+use nn::{VarMap, Optimizer, VarBuilder};
+#[cfg(test)]
+use nn::ParamsAdamW;
 use colored::Colorize;
 use crate::model_auto_rater;
-use crate::models::{RunStr, GetDevice};
+use crate::models::RunStr;
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
 const CONTEXT_WINDOW: usize = 15;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 21;
-const ATTENTION_HEAD_INPUT_SIZE: usize =
-    (EMBEDDING_SIZE / NUM_ATTENTION_HEADS)
-    * CONTEXT_WINDOW;
 const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_1/corpus.corpus";
-const LR: f64 = 1.2e-5;
+const LR: f64 = 1e-6;
 const EPOCHS: u32 = 280;
 
 // large
@@ -34,16 +33,6 @@ const EPOCHS: u32 = 280;
 
 
 const NOT_FOUND: &str = "<notfound>";
-
-// Custom param-less LayerNorm implementation due to:
-// Error: Metal error no metal implementation for layer-norm
-fn layer_norm_no_params(x: &Tensor, eps: f64) -> Result<Tensor, candle_core::Error> {
-    let mean = x.mean(D::Minus1)?.unsqueeze(D::Minus1)?;
-    let var = x.var(D::Minus1)?.unsqueeze(D::Minus1)?;
-    let std = (var + eps)?.sqrt()?;
-
-    return (x.broadcast_sub(&mean))?.broadcast_div(&std);
-}
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
@@ -196,6 +185,7 @@ impl Model {
         self.run(&input, device)
     }
 
+    #[cfg(test)]
     pub fn is_good(&self, test_str: &str, device: &Device) -> bool {
         let mut is_good = true;
         let tokens = tokenize(test_str);
@@ -216,6 +206,7 @@ impl Model {
         return is_good;
     }
 
+    #[cfg(test)]
     pub fn simple_training_loop(&mut self, inputs: Tensor, targets: Tensor, lr: f64, epochs: u32) -> Result<(), candle_core::Error> {
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
         let mut epoch: u32 = 0;
@@ -244,6 +235,7 @@ impl Model {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn good_bad_training_loop(&mut self, inputs: Tensor, targets: Tensor, test_str: &str, epochs: u32, device: &Device) -> Result<(), candle_core::Error> {
         // 1. More epoch when sample size is smaller
         let initial_lr = 0.00002;
@@ -390,6 +382,7 @@ impl Model {
         return Ok((inputs, targets));
     }
 
+    #[cfg(test)]
     pub fn train(&mut self, tokens_chain: Vec<String>, epochs: u32, test_str: &str, device: &Device) -> Result<(), candle_core::Error> {
 
         let (inputs, targets) = self.gen_training_data(tokens_chain, device)?;
@@ -397,6 +390,52 @@ impl Model {
         self.good_bad_training_loop(inputs, targets, test_str, epochs, device)?;
 
         Ok(())
+    }
+
+    pub fn tensor_to_token(&self, tensor: &Tensor) -> Result<String, candle_core::Error> {
+        let output = self.encdec.unembed(&tensor)?;
+
+        let output = (output / 2.0)?;
+
+        let output_prob_max_index = output.argmax(1)?;
+        let n = output_prob_max_index.to_vec1::<u32>()?[0];
+
+        let max_token = self.encdec.dict.iter().nth(n as usize).unwrap();
+
+        return Ok(max_token.0.clone());
+    }
+
+    pub fn tensors_to_tokens(&self, tokens: &Vec<Tensor>) -> Result<Vec<String>, candle_core::Error> {
+        Ok(tokens.into_iter()
+            .map(
+                | t:& Tensor |
+                self.tensor_to_token(&t.unsqueeze(0).unwrap()).unwrap()
+            ).collect())
+    }
+
+    pub fn crash_dump(&self, inputs: Tensor, targets: Tensor) -> Result<(), candle_core::Error> {
+        self.save_to_path("data/model");
+
+        let batch_size = inputs.dim(0)?;
+        self.print_stats()?;
+
+        println!("Batch size {}", batch_size);
+
+        let inputs = inputs.chunk(batch_size, 0)?;
+        let targets = targets.chunk(batch_size, 0)?;
+
+
+        for i in 0..batch_size {
+            let input = inputs[i].squeeze(0)?.chunk(CONTEXT_WINDOW, 0)?;
+            println!(
+                "batch[{}] {:?} -> {:?}",
+                i,
+                self.tensors_to_tokens(&input)?,
+                self.tensor_to_token(&targets[i])?
+            );
+        }
+
+        return Ok(());
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
@@ -412,7 +451,7 @@ impl Model {
             for j in 0..(num_batches + 1) {
                 let start = j * token_batch_size;
                 let overlap = 0;
-                let end = start + token_batch_size + overlap;
+                let end = start + token_batch_size + 1 + overlap;
                 let end = end.min(tokens_chain.len());
                 if end <= start {
                     continue;
@@ -424,20 +463,18 @@ impl Model {
                 let predictions = self.forward(&inputs)?;
 
                 // Compute loss
-                // binary cross-entropy is not supported on metal gpu
+                 // binary cross-entropy is not supported on metal gpu
                 //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
                 let loss = nn::loss::mse(&predictions, &targets)?;
 
-                //let sigmoid_predictions =
-                //    (((predictions/2.0)?.tanh()? + 1.0)? / 2.0)?;
-
-                //let loss = nn::loss::mse(&sigmoid_predictions, &targets)?;
-
-                // Backpropagation
-                optimizer.backward_step(&loss)?;
-                //}
-
                 loss_stat = loss.to_vec0::<f32>()?;
+
+                if loss_stat.is_nan() {
+                    self.crash_dump(inputs, targets)?;
+                    panic!("Loss is nan, gradient probably explosed.");
+                }
+
+                optimizer.backward_step(&loss)?;
             }
 
             if epoch > 80 && epoch % 1 == 0 {
@@ -513,6 +550,7 @@ impl Model {
         Ok(model)
     }
 
+    #[cfg(test)]
     pub fn load_inplace_from_path(&mut self, path: &str) -> Result<(), Error> {
         let dict_path = format!("{}.dict", path);
         let file = fs::File::open(dict_path).unwrap();
@@ -547,12 +585,6 @@ impl RunStr for Model {
         }
 
         return Ok(output);
-    }
-}
-
-impl GetDevice for Model {
-    fn get_device(&self) -> Device {
-        self.device.clone()
     }
 }
 

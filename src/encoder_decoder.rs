@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::prelude::*;
-
 use candle_core::{Device, Tensor};
 use candle_nn::VarMap;
 use candle_nn::{self as nn, Module};
@@ -136,7 +134,7 @@ impl EncoderDecoder {
         Ok(())
     }
 
-        /// Idea:
+    /// Idea:
     ///
     /// In a neural network where the input is 3 word, train the network to output the middle word, then gradually remove the first and last word.
     ///

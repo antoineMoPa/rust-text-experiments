@@ -1,18 +1,19 @@
-use candle_nn::{self as nn};
-use nn::Optimizer;
-
 pub type Dict = std::collections::BTreeMap<String, f32>;
 pub type DictIndex = std::collections::BTreeMap<String, u32>;
 
+#[cfg(test)]
 pub const EMBEDDING_SIZE: usize = 80;
 
 pub trait GetTokenEmbedding {
+    #[cfg(test)]
     fn get_token_cos_encoding(&self, token: &str) -> Vec<f32>;
+    #[cfg(test)]
     fn get_word_index(&self, token: &str) -> Result<u32, std::io::Error>;
     fn build_index(&self) -> DictIndex;
 }
 
 impl GetTokenEmbedding for Dict {
+    #[cfg(test)]
     fn get_token_cos_encoding(&self, token: &str) -> Vec<f32> {
         let default = 0.0 as f32;
         let value = *self.get(token).unwrap_or(&default);
@@ -37,6 +38,7 @@ impl GetTokenEmbedding for Dict {
         return embedding;
     }
 
+    #[cfg(test)]
     fn get_word_index(&self, token: &str) -> Result<u32, std::io::Error> {
         for (i, (current_token, _b)) in self.iter().enumerate() {
             if current_token == token {
@@ -111,17 +113,6 @@ pub fn tokenize(input: &str) -> Vec<String> {
     return tokens;
 }
 
-pub fn create_vocabulary(tokens: Vec<String>) -> Vec<String> {
-    let mut vocabulary = Vec::new();
-    for token in tokens {
-        if !vocabulary.contains(&token) {
-            vocabulary.push(token);
-        }
-    }
-    return vocabulary;
-}
-
-
 pub fn tokens_to_dict(vocabulary: Vec<String>) -> Dict {
     let mut vocabulary_dict = Dict::new();
     for (i, token) in vocabulary.iter().enumerate() {
@@ -140,13 +131,6 @@ mod tests {
     #[test]
     fn test_tokenize() {
         assert_eq!(tokenize("Hello, world!"), vec!["Hello", ",", " ", "world", "!"]);
-    }
-
-    #[test]
-    fn test_create_vocabulary() {
-        let tokens = tokenize("Hello, world!");
-
-        assert_eq!(create_vocabulary(tokens), vec!["Hello", ",", " ", "world", "!"]);
     }
 
     #[test]

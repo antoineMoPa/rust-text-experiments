@@ -1,6 +1,6 @@
 use crate::{models::RunStr, token_utils::tokenize};
 
-pub fn rate_model(model: &(impl RunStr)) -> Result<i32, candle_core::Error> {
+pub fn rate_model(model: &impl RunStr) -> Result<i32, candle_core::Error> {
     let prediction = model.run_str("The cat", 15)?;
 
     if prediction == " sat on the mat." {

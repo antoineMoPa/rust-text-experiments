@@ -1,9 +1,13 @@
+#[cfg(test)]
 use candle_core::{Device, Tensor, DType};
+#[cfg(test)]
 use candle_nn as nn;
+#[cfg(test)]
 use nn::{VarMap, Optimizer, VarBuilder, ParamsAdamW, encoding::one_hot};
-
+#[cfg(test)]
 use crate::token_utils::{Dict, GetTokenEmbedding, tokenize, EMBEDDING_SIZE};
 
+#[cfg(test)]
 pub struct Mlp {
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
@@ -11,8 +15,10 @@ pub struct Mlp {
     pub dict: Dict,
 }
 
+#[cfg(test)]
 const CONTEXT_WINDOW: usize = 10;
 
+#[cfg(test)]
 impl Mlp {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, ) -> Result<Self, candle_core::Error> {
         let hidden_size = 256;
@@ -73,6 +79,7 @@ impl Mlp {
     }
 }
 
+#[cfg(test)]
 pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, train: bool, device: &Device) -> Result<Mlp, candle_core::Error> {
     let mut inputs: Vec<Tensor> = Vec::new();
     let mut targets: Vec<Tensor> = Vec::new();
@@ -151,6 +158,7 @@ pub fn create_and_train_predictor_model(dict: Dict, tokens_chain: Vec<String>, t
     Ok(model)
 }
 
+#[cfg(test)]
 pub fn get_device() -> Result<Device, candle_core::Error> {
     let device = Device::new_metal(0)?;
     match &device {
