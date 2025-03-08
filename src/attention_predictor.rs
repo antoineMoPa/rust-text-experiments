@@ -480,7 +480,7 @@ impl Model {
             if epoch < 2 || epoch > 80 && epoch % 1 == 0 {
                 let rating = model_auto_rater::rate_model(self)?;
                 println!("Epoch {:6}/{:6} : Loss = {:.6} Rating = {}", epoch, epochs, loss_stat, rating);
-                let prediction = self.run_str("The bird", 15)?;
+                let prediction = self.run_str("Two birds", 15)?;
                 let prediction = prediction.replace("\n", "_");
                 print!("The birds|>{:.40}", prediction);
                 let prediction = self.run_str("The cat", 15)?;
@@ -582,6 +582,10 @@ impl RunStr for Model {
             let token_embedding = self.encdec.get_token_embedding_vec(prediction.as_str())?;
             input.push(token_embedding);
             output.push_str(prediction.as_str());
+
+            if prediction == "." {
+                break;
+            }
         }
 
         return Ok(output);
