@@ -18,8 +18,8 @@ shuf -r corpus.txt | head -n 120 > corpus.corpus
 popd
 
 pushd .
-cd level_5
-python3 gen_text.py >> corpus.corpus
+cd level_2/
+shuf -r corpus.txt | head -n 360 > corpus.corpus
 popd
 
 du -h corpus.txt

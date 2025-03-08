@@ -17,7 +17,7 @@ const NUM_ATTENTION_HEADS: usize = 21;
 const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
-pub const FILE_PATH: &str = "data/corpus/level_1/corpus.corpus";
+pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
 const LR: f64 = 2.7e-5;
 const EPOCHS: u32 = 150;
 
