@@ -18,8 +18,8 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_1/corpus.corpus";
-const LR: f64 = 9e-6;
-const EPOCHS: u32 = 280;
+const LR: f64 = 2.7e-5;
+const EPOCHS: u32 = 150;
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -370,7 +370,7 @@ impl Model {
 
             // Add some noise to input
             let input_shape = input.shape().clone();
-            let input = (input + Tensor::randn( 0.0 as f32, 0.001 as f32, input_shape, device)?)?;
+            let input = (input + Tensor::randn( 0.0 as f32, 0.01 as f32, input_shape, device)?)?;
 
             inputs.push(input);
             targets.push(target.squeeze(0)?);
