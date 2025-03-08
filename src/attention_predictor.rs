@@ -477,12 +477,12 @@ impl Model {
                 optimizer.backward_step(&loss)?;
             }
 
-            if epoch > 80 && epoch % 1 == 0 {
+            if epoch < 2 || epoch > 80 && epoch % 1 == 0 {
                 let rating = model_auto_rater::rate_model(self)?;
                 println!("Epoch {:6}/{:6} : Loss = {:.6} Rating = {}", epoch, epochs, loss_stat, rating);
                 let prediction = self.run_str("The bird", 15)?;
                 let prediction = prediction.replace("\n", "_");
-                print!("The bird|>{:.40}", prediction);
+                print!("The birds|>{:.40}", prediction);
                 let prediction = self.run_str("The cat", 15)?;
                 let prediction = prediction.replace("\n", "_");
                 print!(" The cat|>{:.40}", prediction);
