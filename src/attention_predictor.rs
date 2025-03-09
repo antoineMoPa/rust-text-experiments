@@ -1,6 +1,7 @@
 use std::{fs, io::Error, collections::BTreeMap};
 
-use candle_core::{Device, Tensor, DType, D};
+use candle_core::backprop::GradStore;
+use candle_core::{Device, Tensor, DType, D, TensorId};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder};
 #[cfg(test)]
@@ -439,7 +440,7 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 20;
+        let token_batch_size = 40;
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
@@ -474,7 +475,17 @@ impl Model {
                     panic!("Loss is nan, gradient probably explosed.");
                 }
 
-                optimizer.backward_step(&loss)?;
+                let mut backward = loss.backward()?;
+
+                // Clip gradients
+                let ids: Vec<TensorId> = backward.get_ids().cloned().collect();
+                for id in ids {
+                    let t = backward.get_id(id).unwrap().clone();
+                    let clipped_t = t.clamp(-1.0, 1.0).unwrap();
+                    backward.insert(&t, clipped_t);
+                }
+
+                optimizer.step(&backward)?;
             }
 
             if epoch < 2 || epoch > 80 && epoch % 1 == 0 {
