@@ -1,6 +1,5 @@
 use std::{fs, io::Error, collections::BTreeMap};
 
-use candle_core::backprop::GradStore;
 use candle_core::{Device, Tensor, DType, D, TensorId};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder};
