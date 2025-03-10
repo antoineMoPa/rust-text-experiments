@@ -22,4 +22,10 @@ cd level_2/
 shuf -r corpus.txt | head -n 360 > corpus.corpus
 popd
 
+pushd .
+cd level_2/
+shuf -r corpus.txt | head -n 500 > corpus.corpus
+popd
+
+
 du -h corpus.txt
