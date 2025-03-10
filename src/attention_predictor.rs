@@ -466,6 +466,7 @@ impl Model {
                  // binary cross-entropy is not supported on metal gpu
                 //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
                 let loss = nn::loss::mse(&predictions, &targets)?;
+                let loss = (loss / token_batch_size as f64)?;
 
                 loss_stat = loss.to_vec0::<f32>()?;
 
