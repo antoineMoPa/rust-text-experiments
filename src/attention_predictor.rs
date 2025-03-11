@@ -91,7 +91,7 @@ impl Model {
 
         // Print the following info in
         println!("Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR");
-        let output = format!("{}, {}, {}, {}, {}, {}, {}", EMBEDDING_SIZE, CONTEXT_WINDOW, EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR);
+        let output = format!("{}, {}, {}, {}, {}, {}, {}, {}", encdec.dict.len(), EMBEDDING_SIZE, CONTEXT_WINDOW, EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR);
         println!("{}", output.on_white().black());
 
 
