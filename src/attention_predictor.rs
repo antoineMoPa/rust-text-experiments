@@ -18,7 +18,7 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
-const LR: f64 = 8e-4;
+const LR: f64 = 1e-4;
 const EPOCHS: u32 = 150;
 
 // large
@@ -439,7 +439,7 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 40;
+        let token_batch_size = 32;
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
