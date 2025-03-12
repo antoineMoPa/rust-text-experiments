@@ -18,7 +18,7 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
-const LR: f64 = 0.5e-5;
+const LR: f64 = 1e-4;
 const EPOCHS: u32 = 150;
 
 // large
@@ -129,11 +129,11 @@ impl Model {
         // Re-use encdec layer
         //let result = result.gelu()?;
         let result = self.encdec.fc2.forward(&result)?;
-        let result = result.tanh()?;
+        let result = result.elu(1.0)?;
 
         let result = self.fc4.forward(&result)?;
 
-        let result = result.tanh()?;
+        let result = result.elu(1.0)?;
 
         return Ok(result);
     }
