@@ -18,7 +18,7 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
-const LR: f64 = 1e-4;
+const LR: f64 = 0.5e-5;
 const EPOCHS: u32 = 150;
 
 // large
@@ -481,7 +481,7 @@ impl Model {
                 let ids: Vec<TensorId> = backward.get_ids().cloned().collect();
                 for id in ids {
                     let t = backward.get_id(id).unwrap().clone();
-                    let clipped_t = t.clamp(-1.0, 1.0).unwrap();
+                    let clipped_t = t.clamp(-0.5, 0.5).unwrap();
                     backward.insert(&t, clipped_t);
                 }
 
