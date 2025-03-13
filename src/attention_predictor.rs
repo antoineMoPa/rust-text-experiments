@@ -129,11 +129,11 @@ impl Model {
         // Re-use encdec layer
         //let result = result.gelu()?;
         let result = self.encdec.fc2.forward(&result)?;
-        let result = result.elu(1.0)?;
+        let result = result.tanh()?;
 
         let result = self.fc4.forward(&result)?;
 
-        let result = result.elu(1.0)?;
+        let result = result.tanh()?;
 
         return Ok(result);
     }
@@ -439,7 +439,7 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 32;
+        let token_batch_size = 16;
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
@@ -472,7 +472,17 @@ impl Model {
 
                 if loss_stat.is_nan() {
                     self.crash_dump(inputs, targets)?;
-                    panic!("Loss is nan, gradient probably explosed.");
+                    println!("Loss is nan, gradient probably exploded or vanished.");
+                    println!("Bumping weights");
+
+                    for var in self.var_map.all_vars().iter() {
+                        let v = var.as_tensor();
+                        let epsilon = 0.003;
+                        let v = (v + epsilon)?;
+                        var.set(&v)?;
+                    }
+
+                    continue;
                 }
 
                 let mut backward = loss.backward()?;
@@ -481,14 +491,14 @@ impl Model {
                 let ids: Vec<TensorId> = backward.get_ids().cloned().collect();
                 for id in ids {
                     let t = backward.get_id(id).unwrap().clone();
-                    let clipped_t = t.clamp(-0.5, 0.5).unwrap();
+                    let clipped_t = t.clamp(-1.0, 1.0).unwrap();
                     backward.insert(&t, clipped_t);
                 }
 
                 optimizer.step(&backward)?;
             }
 
-            if epoch < 2 || epoch > 80 && epoch % 1 == 0 {
+            if epoch < 80 || epoch > 80 && epoch % 1 == 0 {
                 let rating = model_auto_rater::rate_model(self)?;
                 println!("Epoch {:6}/{:6} : Loss = {:.6} Rating = {}", epoch, epochs, loss_stat, rating);
                 let prediction = self.run_str("Two birds", 15)?;
@@ -534,7 +544,9 @@ impl Model {
             let max = var.flatten_all()?.max(D::Minus1)?.to_vec0::<f32>()?;
             let mean = var.flatten_all()?.mean(D::Minus1)?.to_vec0::<f32>()?;
             let variance = var.flatten_all()?.var(D::Minus1)?.to_vec0::<f32>()?;
-            println!("{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3}", "", min, max, mean, variance);
+            let abs_min = var.flatten_all()?.abs()?.min(D::Minus1)?.to_vec0::<f32>()?;
+
+            println!("{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3} abs_min: {:.4}", "", min, max, mean, variance, abs_min);
         }
 
         Ok(())
