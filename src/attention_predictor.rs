@@ -443,7 +443,7 @@ impl Model {
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
         let token_batch_size = 32;
         let epochs: u32 = EPOCHS;
-        let num_batches = tokens_chain.len() / token_batch_size + 2;
+        let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
@@ -457,6 +457,7 @@ impl Model {
 
             let mut loss_stat: f32 = 1.0;
             let num_batches = num_batches + 1;
+
             for j in 0..num_batches {
                 let span = span!(Level::INFO, "batch");
                 let _enter = span.enter();
@@ -465,12 +466,12 @@ impl Model {
                 let span_enter = span.enter();
 
                 let start = j * token_batch_size;
-                let overlap = 0;
-                let end = start + token_batch_size + 1 + overlap;
+                let end = start + token_batch_size;
                 let end = end.min(tokens_chain.len());
                 if end <= start {
                     continue;
                 }
+                let token_batch_size = end - start;
                 let tokens = tokens_chain[start..end].to_vec();
 
 
@@ -489,8 +490,9 @@ impl Model {
                 // Compute loss
                  // binary cross-entropy is not supported on metal gpu
                 //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-                let loss = nn::loss::mse(&predictions, &targets)?;
-                let loss = (loss / token_batch_size as f64)?;
+                let mse_loss = nn::loss::mse(&predictions, &targets)?;
+                let mse_loss_stat = mse_loss.to_vec0::<f32>()?;
+                let loss = (mse_loss / token_batch_size as f64)?;
 
                 loss_stat = loss.to_vec0::<f32>()?;
 
@@ -499,18 +501,13 @@ impl Model {
                 let span_enter = span.enter();
 
                 if loss_stat.is_nan() {
+                    println!("MSE Loss: {:?}", mse_loss_stat);
+                    println!("Loss: {:?}", loss.to_vec0::<f32>()?);
+                    println!("batch index = {}, num_batches = {}", j, num_batches);
+                    println!("Token batch size: {}", token_batch_size);
+
                     self.crash_dump(inputs, targets)?;
-                    println!("Loss is nan, gradient probably exploded or vanished.");
-                    println!("Bumping weights");
-
-                    for var in self.var_map.all_vars().iter() {
-                        let v = var.as_tensor();
-                        let epsilon = 0.003;
-                        let v = (v + epsilon)?;
-                        var.set(&v)?;
-                    }
-
-                    continue;
+                    panic!("Loss is nan, gradient probably exploded or vanished.");
                 }
 
                 drop(span_enter);

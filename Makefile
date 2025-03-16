@@ -4,6 +4,10 @@ run:
 	$(args) cargo run run
 pretrain:
 	$(args) time cargo run pretrain
+print_stats:
+	$(args) cargo run print_stats
+print_stats_encoder_decoder:
+	$(args) cargo run print_stats_encoder_decoder
 pretrain_encoder_decoder:
 	$(args) cargo run pretrain_encoder_decoder
 test:

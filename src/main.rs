@@ -79,6 +79,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if args[0] == "print_stats_encoder_decoder" {
+        println!("Loading encoder decoder model");
+        let model = EncoderDecoder::load_from_path("data/encdec", &device)?;
+        model.print_stats()?;
+        return Ok(());
+    }
+
+
     if args[0] == "pretrain" {
         println!("Pretraining test model");
 

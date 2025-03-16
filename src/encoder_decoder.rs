@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 use std::fs;
-use candle_core::{Device, Tensor};
+use candle_core::{Device, Tensor, D};
 use candle_nn::VarMap;
 use candle_nn::{self as nn, Module};
 use nn::{VarBuilder, AdamW, Optimizer};
 use nn::encoding::one_hot;
 
 use crate::attention_predictor::{get_pretrained_dict, FILE_PATH};
+use crate::candle_utils::custom_linear;
 use crate::token_utils::{Dict, GetTokenEmbedding, tokens_to_dict};
 
 pub const EMBEDDING_SIZE: usize = 252;
@@ -25,14 +26,32 @@ impl EncoderDecoder {
     pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, device: &Device) -> Result<Self, candle_core::Error> {
         let hidden_size = EMBEDDING_SIZE;
 
-        let fc1 = nn::linear_b(dict.len(), hidden_size, false, vb.pp("fc1"))?;
-        let fc2 = nn::linear_b(hidden_size, hidden_size, false, vb.pp("fc2"))?;
-        let fc3 = nn::linear_b(hidden_size, dict.len(), false, vb.pp("fc3"))?;
+        let fc1 = custom_linear(dict.len(), hidden_size, vb.pp("fc1"))?;
+        let fc2 = custom_linear(hidden_size, hidden_size, vb.pp("fc2"))?;
+        let fc3 = custom_linear(hidden_size, dict.len(), vb.pp("fc3"))?;
         let device = device.clone();
 
         let token_index = dict.build_index();
 
         Ok(Self { fc1, fc2, fc3, dict, var_map, token_index, device})
+    }
+
+    pub fn print_stats(&self) -> Result<(), candle_core::Error> {
+        println!("Model stats:");
+        println!("Dict size: {}", self.dict.len());
+
+        // print min, max, mean, std of all tensors
+        for var in self.var_map.all_vars().iter() {
+            let min = var.flatten_all()?.min(D::Minus1)?.to_vec0::<f32>()?;
+            let max = var.flatten_all()?.max(D::Minus1)?.to_vec0::<f32>()?;
+            let mean = var.flatten_all()?.mean(D::Minus1)?.to_vec0::<f32>()?;
+            let variance = var.flatten_all()?.var(D::Minus1)?.to_vec0::<f32>()?;
+            let abs_min = var.flatten_all()?.abs()?.min(D::Minus1)?.to_vec0::<f32>()?;
+
+            println!("{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3} abs_min: {:.4}", "", min, max, mean, variance, abs_min);
+        }
+
+        Ok(())
     }
 
     pub fn get_token_embedding(&self, token: &str) -> Result<Tensor, candle_core::Error> {
@@ -93,9 +112,9 @@ impl EncoderDecoder {
     }
 
     pub fn train(&mut self) -> Result<(), candle_core::Error> {
-        let epochs = 40;
-        let lr = 0.003;
-        let batch_size = 100;
+        let epochs = 50;
+        let lr = 0.002;
+        let batch_size = 50;
         let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
@@ -109,7 +128,8 @@ impl EncoderDecoder {
                     inputs.push(input);
                 }
 
-                if inputs.len() == 0 {
+                let len = inputs.len();
+                if len == 0 {
                     continue;
                 }
 
@@ -120,14 +140,13 @@ impl EncoderDecoder {
 
                 // Compute loss
                 let loss = nn::loss::mse(&predictions, &targets)?;
+                let loss = (loss / len as f64)?;
 
                 // Backpropagation
                 optimizer.backward_step(&loss)?;
 
-                if epoch % 10 == 0 {
-                    println!("Epoch {:6}: Loss = {:.6} {}/{}", epoch, loss.to_vec0::<f32>()?, i, last_batch);
-                    self.evaluate()?;
-                }
+                print!("Epoch {:6}: Loss = {:.6} {}/{} ", epoch, loss.to_vec0::<f32>()?, i, last_batch);
+                self.evaluate()?;
             }
         }
 
@@ -144,7 +163,7 @@ impl EncoderDecoder {
         let mut optimizer: AdamW = AdamW::new_lr(self.var_map.all_vars(), lr)?;
         let batch_size = 100;
         let last_batch = tokens.len() / batch_size + 1;
-        let epochs = 10;
+        let epochs = 5;
         for epoch in 0..epochs {
             for i in 0..(last_batch+1) {
                 let mut inputs = Vec::new();
@@ -207,11 +226,16 @@ impl EncoderDecoder {
     }
 
     pub fn train_strategy(&mut self) -> Result<(), candle_core::Error> {
+        self.print_stats()?;
         self.train()?;
-        self.train_with_corpus()?;
-        self.train()?;
-        self.train_with_corpus()?;
-        self.train()?;
+
+        //self.print_stats()?;
+        //self.train_with_corpus()?;
+        //self.print_stats()?;
+        //self.train()?;
+        //self.print_stats()?;
+        //
+        self.print_stats()?;
 
         if self.evaluate()?.1 > 0 {
             panic!("EncodeDecoder failed to encode dictionnary");
