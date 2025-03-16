@@ -6,9 +6,11 @@ use nn::{VarMap, Optimizer, VarBuilder};
 #[cfg(test)]
 use nn::ParamsAdamW;
 use colored::Colorize;
+use crate::candle_utils::custom_linear;
 use crate::model_auto_rater;
 use crate::models::RunStr;
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
+use tracing::{span, Level};
 
 // smoll
 const CONTEXT_WINDOW: usize = 15;
@@ -18,7 +20,7 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
-const LR: f64 = 1e-4;
+const LR: f64 = 1e-5;
 const EPOCHS: u32 = 150;
 
 // large
@@ -79,10 +81,10 @@ impl Model {
             blocks.push(block);
         }
 
-        let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
-        let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
-        let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
-        let fc4 = nn::linear_b(EMBEDDING_SIZE, EMBEDDING_SIZE, true, vb.pp("fc4"))?;
+        let fc1 = custom_linear(INPUT_SIZE, HIDDEN_SIZE, vb.pp("fc1"))?;
+        let fc2 = custom_linear(HIDDEN_SIZE, HIDDEN_SIZE, vb.pp("fc2"))?;
+        let fc3 = custom_linear(HIDDEN_SIZE, EMBEDDING_SIZE, vb.pp("fc3"))?;
+        let fc4 = custom_linear(EMBEDDING_SIZE, EMBEDDING_SIZE, vb.pp("fc4"))?;
 
         let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
@@ -220,7 +222,7 @@ impl Model {
             // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
             let loss = nn::loss::mse(&predictions, &targets)?;
 
-            let g: candle_core::backprop::GradStore = loss.backward()?;
+            let _g: candle_core::backprop::GradStore = loss.backward()?;
 
             // Backpropagation
             optimizer.backward_step(&loss)?;
@@ -439,16 +441,29 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 16;
+        let token_batch_size = 32;
         let epochs: u32 = EPOCHS;
-        let num_batches = tokens_chain.len() / token_batch_size + 1;
+        let num_batches = tokens_chain.len() / token_batch_size + 2;
         let lr = LR;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
-        for epoch in 0..epochs {
-            let mut loss_stat: f32 = 1.0;
 
-            for j in 0..(num_batches + 1) {
+        let span = span!(Level::INFO, "training loop");
+        let _enter = span.enter();
+
+        for epoch in 0..epochs {
+            let span = span!(Level::INFO, "epoch");
+            let _enter = span.enter();
+
+            let mut loss_stat: f32 = 1.0;
+            let num_batches = num_batches + 1;
+            for j in 0..num_batches {
+                let span = span!(Level::INFO, "batch");
+                let _enter = span.enter();
+
+                let span = span!(Level::INFO, "preparing training data");
+                let span_enter = span.enter();
+
                 let start = j * token_batch_size;
                 let overlap = 0;
                 let end = start + token_batch_size + 1 + overlap;
@@ -458,9 +473,18 @@ impl Model {
                 }
                 let tokens = tokens_chain[start..end].to_vec();
 
+
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
 
+                drop(span_enter);
+                let span = span!(Level::INFO, "forward pass");
+                let span_enter = span.enter();
+
                 let predictions = self.forward(&inputs)?;
+
+                drop(span_enter);
+                let span = span!(Level::INFO, "computing loss");
+                let span_enter = span.enter();
 
                 // Compute loss
                  // binary cross-entropy is not supported on metal gpu
@@ -469,6 +493,10 @@ impl Model {
                 let loss = (loss / token_batch_size as f64)?;
 
                 loss_stat = loss.to_vec0::<f32>()?;
+
+                drop(span_enter);
+                let span = span!(Level::INFO, "checking for nans");
+                let span_enter = span.enter();
 
                 if loss_stat.is_nan() {
                     self.crash_dump(inputs, targets)?;
@@ -485,7 +513,15 @@ impl Model {
                     continue;
                 }
 
+                drop(span_enter);
+                let span = span!(Level::INFO, "backward pass");
+                let span_enter = span.enter();
+
                 let mut backward = loss.backward()?;
+
+                drop(span_enter);
+                let span = span!(Level::INFO, "gradient clipping");
+                let span_enter = span.enter();
 
                 // Clip gradients
                 let ids: Vec<TensorId> = backward.get_ids().cloned().collect();
@@ -494,6 +530,10 @@ impl Model {
                     let clipped_t = t.clamp(-1.0, 1.0).unwrap();
                     backward.insert(&t, clipped_t);
                 }
+
+                drop(span_enter);
+                let span = span!(Level::INFO, "optimizer step");
+                let _span_enter = span.enter();
 
                 optimizer.step(&backward)?;
             }
