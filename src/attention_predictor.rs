@@ -121,21 +121,73 @@ impl Model {
             result = block.forward(&result)?;
         }
 
-        let result = (result + (input * 0.2)?)?;
-        let result = (result * 0.2)?;
+        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
+            println!("Result is nan after attention blocks");
+        }
+
+        // 0.03 factor comes from the fact that the output was often in the [-30, 30] range,
+        // so that's an attempt to bring results in the [-1, 1] range.
+        let result = ((result * 0.03)? + (input * 0.2)?)?;
+
+        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
+            println!("Result is nan after input addition");
+        }
 
         let result = self.fc1.forward(&result)?;
+
+        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
+            println!("Result is nan after fc1");
+
+            let w = self.fc1.weight();
+            let b = self.fc1.bias().unwrap();
+
+            let i: Vec<f32> = input.flatten_all()?.to_vec1()?;
+            println!("i = {:?}", i);
+            let r: Vec<f32> = result.flatten_all()?.to_vec1()?;
+            println!("r = {:?}", r);
+            let w: Vec<f32> = w.flatten_all()?.to_vec1()?;
+            println!("w = {:?}", w);
+            let b: Vec<f32> = b.flatten_all()?.to_vec1()?;
+            println!("b = {:?}", b);
+        }
+
         let result = self.fc2.forward(&result)?;
+
+        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
+            println!("Result is nan after fc2");
+        }
+
         let result = self.fc3.forward(&result)?;
+
+        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
+            println!("Result is nan after fc3");
+        }
 
         // Re-use encdec layer
         //let result = result.gelu()?;
         let result = self.encdec.fc2.forward(&result)?;
+
+        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
+            println!("Result is nan after encdec fc2");
+        }
+
         let result = result.tanh()?;
+
+        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
+            println!("Result is nan after tanh");
+        }
 
         let result = self.fc4.forward(&result)?;
 
+        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
+            println!("Result is nan after fc4");
+        }
+
         let result = result.tanh()?;
+
+        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
+            println!("Result is nan after final tanh");
+        }
 
         return Ok(result);
     }
@@ -459,12 +511,6 @@ impl Model {
             let num_batches = num_batches + 1;
 
             for j in 0..num_batches {
-                let span = span!(Level::INFO, "batch");
-                let _enter = span.enter();
-
-                let span = span!(Level::INFO, "preparing training data");
-                let span_enter = span.enter();
-
                 let start = j * token_batch_size;
                 let end = start + token_batch_size;
                 let end = end.min(tokens_chain.len());
@@ -477,15 +523,7 @@ impl Model {
 
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
 
-                drop(span_enter);
-                let span = span!(Level::INFO, "forward pass");
-                let span_enter = span.enter();
-
                 let predictions = self.forward(&inputs)?;
-
-                drop(span_enter);
-                let span = span!(Level::INFO, "computing loss");
-                let span_enter = span.enter();
 
                 // Compute loss
                  // binary cross-entropy is not supported on metal gpu
@@ -495,10 +533,6 @@ impl Model {
                 let loss = (mse_loss / token_batch_size as f64)?;
 
                 loss_stat = loss.to_vec0::<f32>()?;
-
-                drop(span_enter);
-                let span = span!(Level::INFO, "checking for nans");
-                let span_enter = span.enter();
 
                 if loss_stat.is_nan() {
                     println!("MSE Loss: {:?}", mse_loss_stat);
@@ -510,15 +544,8 @@ impl Model {
                     panic!("Loss is nan, gradient probably exploded or vanished.");
                 }
 
-                drop(span_enter);
-                let span = span!(Level::INFO, "backward pass");
-                let span_enter = span.enter();
-
                 let mut backward = loss.backward()?;
 
-                drop(span_enter);
-                let span = span!(Level::INFO, "gradient clipping");
-                let span_enter = span.enter();
 
                 // Clip gradients
                 let ids: Vec<TensorId> = backward.get_ids().cloned().collect();
@@ -527,10 +554,6 @@ impl Model {
                     let clipped_t = t.clamp(-1.0, 1.0).unwrap();
                     backward.insert(&t, clipped_t);
                 }
-
-                drop(span_enter);
-                let span = span!(Level::INFO, "optimizer step");
-                let _span_enter = span.enter();
 
                 optimizer.step(&backward)?;
             }
