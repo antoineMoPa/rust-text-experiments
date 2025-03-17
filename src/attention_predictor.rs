@@ -125,9 +125,7 @@ impl Model {
             println!("Result is nan after attention blocks");
         }
 
-        // 0.03 factor comes from the fact that the output was often in the [-30, 30] range,
-        // so that's an attempt to bring results in the [-1, 1] range.
-        let result = ((result * 0.03)? + (input * 0.2)?)?;
+        let result = (result + (input * 0.2)?)?;
 
         if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
             println!("Result is nan after input addition");
@@ -141,13 +139,13 @@ impl Model {
             let w = self.fc1.weight();
             let b = self.fc1.bias().unwrap();
 
-            let i: Vec<f32> = input.flatten_all()?.to_vec1()?;
+            let i: f32 = input.abs()?.max_all()?.to_vec0()?;
             println!("i = {:?}", i);
-            let r: Vec<f32> = result.flatten_all()?.to_vec1()?;
+            let r: f32 = result.abs()?.max_all()?.to_vec0()?;
             println!("r = {:?}", r);
-            let w: Vec<f32> = w.flatten_all()?.to_vec1()?;
+            let w: f32 = w.abs()?.max_all()?.to_vec0()?;
             println!("w = {:?}", w);
-            let b: Vec<f32> = b.flatten_all()?.to_vec1()?;
+            let b: f32 = b.abs()?.max_all()?.to_vec0()?;
             println!("b = {:?}", b);
         }
 

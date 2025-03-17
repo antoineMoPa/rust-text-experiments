@@ -42,17 +42,27 @@ impl EncoderDecoder {
 
         // print min, max, mean, std of all tensors
         for var in self.var_map.all_vars().iter() {
-            let min = var.flatten_all()?.min(D::Minus1)?.to_vec0::<f32>()?;
-            let max = var.flatten_all()?.max(D::Minus1)?.to_vec0::<f32>()?;
-            let mean = var.flatten_all()?.mean(D::Minus1)?.to_vec0::<f32>()?;
+            let min = var.min_all()?.to_vec0::<f32>()?;
+            let max = var.max_all()?.to_vec0::<f32>()?;
+            let mean = var.mean_all()?.to_vec0::<f32>()?;
             let variance = var.flatten_all()?.var(D::Minus1)?.to_vec0::<f32>()?;
-            let abs_min = var.flatten_all()?.abs()?.min(D::Minus1)?.to_vec0::<f32>()?;
+            let abs_min = var.abs()?.min_all()?.to_vec0::<f32>()?;
 
-            println!("{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3} abs_min: {:.4}", "", min, max, mean, variance, abs_min);
+            println!("min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3} abs_min: {:.4}", min, max, mean, variance, abs_min);
         }
 
         Ok(())
     }
+
+    pub fn print_dict_embeddings(&self) -> Result<(), candle_core::Error> {
+        for word in self.dict.keys() {
+            let embedding: Tensor = self.get_token_embedding(word)?.squeeze(0)?;
+            let embedding = embedding.to_vec1::<f32>()?;
+            println!("{}: {:?}", word, embedding);
+        }
+        Ok(())
+    }
+
 
     pub fn get_token_embedding(&self, token: &str) -> Result<Tensor, candle_core::Error> {
         let tensor = self.token_to_tensor(token)?;
@@ -60,13 +70,13 @@ impl EncoderDecoder {
         let result = self.fc1.forward(&tensor)?;
         let result = result.tanh()?;
         let result = self.fc2.forward(&result)?;
-        let result = result.tanh()?;
 
         return Ok(result);
     }
 
     pub fn unembed(&self, tensor: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let result = self.fc3.forward(&tensor)?;
+        let result = tensor.tanh()?;
+        let result = self.fc3.forward(&result)?;
         let result = result.tanh()?;
         return Ok(result);
     }
