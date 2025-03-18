@@ -421,8 +421,9 @@ impl Model {
             };
 
             // Add some noise to input
-            // let input_shape = input.shape().clone();
-            // let input = (input + Tensor::randn( 0.0 as f32, 0.01 as f32, input_shape, device)?)?;
+            let noise = Tensor::randn( 0.0 as f32, 0.01 as f32, input.shape(), device)?;
+            let noise = noise.clamp(-1.0, 1.0)?;
+            let input = (input + noise)?;
 
             inputs.push(input);
             targets.push(target.squeeze(0)?);
