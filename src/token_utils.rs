@@ -144,3 +144,13 @@ mod tests {
         assert!(*vocabulary_dict.get("world").unwrap() > 0.0);
     }
 }
+
+pub const NOT_FOUND_TOKEN: &str = "<NOT_FOUND>";
+pub const END_TOKEN: &str = "<END>";
+
+pub fn get_system_tokens() -> Vec<String> {
+    vec!(
+        String::from(NOT_FOUND_TOKEN),
+        String::from(END_TOKEN)
+    )
+}

@@ -114,7 +114,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         model.print_stats()?;
         model.simple_train(tokens, &device)?;
-        model.save_to_path("data/model_l0");
         model.save_to_path("data/model");
 
         return Ok(());

@@ -9,6 +9,7 @@ use colored::Colorize;
 use crate::candle_utils::custom_linear;
 use crate::model_auto_rater;
 use crate::models::RunStr;
+use crate::token_utils::{get_system_tokens, NOT_FOUND_TOKEN};
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 use tracing::{span, Level};
 
@@ -33,9 +34,6 @@ const TOKEN_BATCH_SIZE: usize = 20;
 // const NUM_BLOCKS: usize = 10;
 // pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
 // const FILE_PATH: &str = "data/corpus/blogtext.csv";
-
-
-const NOT_FOUND: &str = " "; // for now, just use as space
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
@@ -231,7 +229,7 @@ impl Model {
             match self.token_embedding_map.get(token.as_str()) {
                 Some(embedding) => input.push(embedding.clone()),
                 None => {
-                    input.push(self.token_embedding_map.get(NOT_FOUND).unwrap().clone());
+                    input.push(self.token_embedding_map.get(NOT_FOUND_TOKEN).unwrap().clone());
                 },
             }
         }
@@ -418,12 +416,12 @@ impl Model {
                 Some(t) => t.clone(),
                 None => {
                     println!("Token not found: {}", target_token);
-                    self.token_embedding_tensor_map.get(NOT_FOUND).unwrap().clone()
+                    self.token_embedding_tensor_map.get(NOT_FOUND_TOKEN).unwrap().clone()
                 },
             };
 
             // Add some noise to input
-            let input_shape = input.shape().clone();
+            // let input_shape = input.shape().clone();
             // let input = (input + Tensor::randn( 0.0 as f32, 0.01 as f32, input_shape, device)?)?;
 
             inputs.push(input);
@@ -703,7 +701,7 @@ pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candl
 
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
-    let sys_tokens = vec![String::from(NOT_FOUND)];
+    let sys_tokens = get_system_tokens();
 
     let tokens = [tokens, lorem_tokens, hello_world_tokens, sys_tokens].concat();
 
