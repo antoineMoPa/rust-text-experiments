@@ -1,6 +1,6 @@
 use std::{fs, io::Error, collections::BTreeMap};
 
-use candle_core::{Device, Tensor, DType, D, TensorId};
+use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder};
 #[cfg(test)]
@@ -20,8 +20,9 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
-const LR: f64 = 1e-5;
+const LR: f64 = 5e-4;
 const EPOCHS: u32 = 150;
+const TOKEN_BATCH_SIZE: usize = 20;
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -34,7 +35,7 @@ const EPOCHS: u32 = 150;
 // const FILE_PATH: &str = "data/corpus/blogtext.csv";
 
 
-const NOT_FOUND: &str = "<notfound>";
+const NOT_FOUND: &str = " "; // for now, just use as space
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
@@ -126,6 +127,7 @@ impl Model {
         }
 
         let result = (result + (input * 0.2)?)?;
+        let result = (result * 0.2)?;
 
         if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
             println!("Result is nan after input addition");
@@ -422,7 +424,7 @@ impl Model {
 
             // Add some noise to input
             let input_shape = input.shape().clone();
-            let input = (input + Tensor::randn( 0.0 as f32, 0.01 as f32, input_shape, device)?)?;
+            // let input = (input + Tensor::randn( 0.0 as f32, 0.01 as f32, input_shape, device)?)?;
 
             inputs.push(input);
             targets.push(target.squeeze(0)?);
@@ -491,7 +493,7 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 32;
+        let token_batch_size = TOKEN_BATCH_SIZE;
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
@@ -542,17 +544,7 @@ impl Model {
                     panic!("Loss is nan, gradient probably exploded or vanished.");
                 }
 
-                let mut backward = loss.backward()?;
-
-
-                // Clip gradients
-                let ids: Vec<TensorId> = backward.get_ids().cloned().collect();
-                for id in ids {
-                    let t = backward.get_id(id).unwrap().clone();
-                    let clipped_t = t.clamp(-1.0, 1.0).unwrap();
-                    backward.insert(&t, clipped_t);
-                }
-
+                let backward = loss.backward()?;
                 optimizer.step(&backward)?;
             }
 
