@@ -2,8 +2,6 @@ use candle_core::{Tensor, D};
 use candle_nn::{self as nn, Module};
 use nn::VarBuilder;
 
-use crate::candle_utils::custom_linear;
-
 pub struct AttentionBlock {
     pub linear: Vec<nn::Linear>,
     pub qs: Vec<nn::Linear>,
@@ -31,15 +29,16 @@ impl AttentionBlock {
         let s = config.input_size / config.num_attention_heads;
 
         for i in 0..config.num_attention_heads {
-            linear.push(custom_linear(s, s, vb.pp(&format!("linear{}", i)))?);
-            qs.push(custom_linear(s, s,  vb.pp(&format!("q{}", i)))?);
-            ks.push(custom_linear(s, s,  vb.pp(&format!("k{}", i)))?);
-            vs.push(custom_linear(s, s,  vb.pp(&format!("v{}", i)))?);
+            linear.push(nn::linear_b(s, s, true, vb.pp(&format!("linear{}", i)))?);
+            qs.push(nn::linear_b(s, s, true, vb.pp(&format!("q{}", i)))?);
+            ks.push(nn::linear_b(s, s, true, vb.pp(&format!("k{}", i)))?);
+            vs.push(nn::linear_b(s, s, true, vb.pp(&format!("v{}", i)))?);
         }
 
-        let out_linear = custom_linear(
+        let out_linear = nn::linear_b(
             config.input_size,
             config.output_size,
+            false,
             vb.pp("out_linear")
         )?;
 

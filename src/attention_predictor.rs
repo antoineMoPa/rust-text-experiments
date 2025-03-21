@@ -6,12 +6,9 @@ use nn::{VarMap, Optimizer, VarBuilder};
 #[cfg(test)]
 use nn::ParamsAdamW;
 use colored::Colorize;
-use crate::candle_utils::custom_linear;
 use crate::model_auto_rater;
 use crate::models::RunStr;
-use crate::token_utils::{get_system_tokens, NOT_FOUND_TOKEN};
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
-use tracing::{span, Level};
 
 // smoll
 const CONTEXT_WINDOW: usize = 15;
@@ -23,7 +20,6 @@ pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
 const LR: f64 = 2.7e-5;
 const EPOCHS: u32 = 150;
-const TOKEN_BATCH_SIZE: usize = 20;
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -34,6 +30,9 @@ const TOKEN_BATCH_SIZE: usize = 20;
 // const NUM_BLOCKS: usize = 10;
 // pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
 // const FILE_PATH: &str = "data/corpus/blogtext.csv";
+
+
+const NOT_FOUND: &str = "<notfound>";
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
@@ -80,10 +79,10 @@ impl Model {
             blocks.push(block);
         }
 
-        let fc1 = custom_linear(INPUT_SIZE, HIDDEN_SIZE, vb.pp("fc1"))?;
-        let fc2 = custom_linear(HIDDEN_SIZE, HIDDEN_SIZE, vb.pp("fc2"))?;
-        let fc3 = custom_linear(HIDDEN_SIZE, EMBEDDING_SIZE, vb.pp("fc3"))?;
-        let fc4 = custom_linear(EMBEDDING_SIZE, EMBEDDING_SIZE, vb.pp("fc4"))?;
+        let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
+        let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
+        let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
+        let fc4 = nn::linear_b(EMBEDDING_SIZE, EMBEDDING_SIZE, true, vb.pp("fc4"))?;
 
         let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
@@ -92,7 +91,7 @@ impl Model {
 
         // Print the following info in
         println!("Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR");
-        let output = format!("{}, {}, {}, {}, {}, {}, {}, {}", encdec.dict.len(), EMBEDDING_SIZE, CONTEXT_WINDOW, EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR);
+        let output = format!("{}, {}, {}, {}, {}, {}, {}", EMBEDDING_SIZE, CONTEXT_WINDOW, EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR);
         println!("{}", output.on_white().black());
 
 
@@ -112,6 +111,8 @@ impl Model {
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let mut result = self.blocks[0].forward(&input)?;
+
+        let input = &input.clamp(-1.0, 1.0)?;
 
         for (index, block) in self.blocks.iter().enumerate() {
             if index == 0 {
@@ -229,7 +230,7 @@ impl Model {
             match self.token_embedding_map.get(token.as_str()) {
                 Some(embedding) => input.push(embedding.clone()),
                 None => {
-                    input.push(self.token_embedding_map.get(NOT_FOUND_TOKEN).unwrap().clone());
+                    input.push(self.token_embedding_map.get(NOT_FOUND).unwrap().clone());
                 },
             }
         }
@@ -272,7 +273,7 @@ impl Model {
             // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
             let loss = nn::loss::mse(&predictions, &targets)?;
 
-            let _g: candle_core::backprop::GradStore = loss.backward()?;
+            let g: candle_core::backprop::GradStore = loss.backward()?;
 
             // Backpropagation
             optimizer.backward_step(&loss)?;
@@ -416,14 +417,13 @@ impl Model {
                 Some(t) => t.clone(),
                 None => {
                     println!("Token not found: {}", target_token);
-                    self.token_embedding_tensor_map.get(NOT_FOUND_TOKEN).unwrap().clone()
+                    self.token_embedding_tensor_map.get(NOT_FOUND).unwrap().clone()
                 },
             };
 
             // Add some noise to input
-            let noise = Tensor::randn( 0.0 as f32, 0.01 as f32, input.shape(), device)?;
-            let noise = noise.clamp(-1.0, 1.0)?;
-            let input = (input + noise)?;
+            let input_shape = input.shape().clone();
+            let input = (input + Tensor::randn( 0.0 as f32, 0.01 as f32, input_shape, device)?)?;
 
             inputs.push(input);
             targets.push(target.squeeze(0)?);
@@ -492,33 +492,24 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = TOKEN_BATCH_SIZE;
+        let token_batch_size = 20;
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
         let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
 
-
-        let span = span!(Level::INFO, "training loop");
-        let _enter = span.enter();
-
         for epoch in 0..epochs {
-            let span = span!(Level::INFO, "epoch");
-            let _enter = span.enter();
-
             let mut loss_stat: f32 = 1.0;
-            let num_batches = num_batches + 1;
 
-            for j in 0..num_batches {
+            for j in 0..(num_batches + 1) {
                 let start = j * token_batch_size;
-                let end = start + token_batch_size;
+                let overlap = 0;
+                let end = start + token_batch_size + 1 + overlap;
                 let end = end.min(tokens_chain.len());
                 if end <= start {
                     continue;
                 }
-                let token_batch_size = end - start;
                 let tokens = tokens_chain[start..end].to_vec();
-
 
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
 
@@ -527,51 +518,38 @@ impl Model {
                 // Compute loss
                  // binary cross-entropy is not supported on metal gpu
                 //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-                let mse_loss = nn::loss::mse(&predictions, &targets)?;
-                let mse_loss_stat = mse_loss.to_vec0::<f32>()?;
-                let loss = (mse_loss / token_batch_size as f64)?;
+                let loss = nn::loss::mse(&predictions, &targets)?;
 
                 loss_stat = loss.to_vec0::<f32>()?;
 
                 if loss_stat.is_nan() {
-                    println!("MSE Loss: {:?}", mse_loss_stat);
-                    println!("Loss: {:?}", loss.to_vec0::<f32>()?);
-                    println!("batch index = {}, num_batches = {}", j, num_batches);
-                    println!("Token batch size: {}", token_batch_size);
-
                     self.crash_dump(inputs, targets)?;
                     panic!("Loss is nan, gradient probably exploded or vanished.");
                 }
 
-                let backward = loss.backward()?;
-                optimizer.step(&backward)?;
+                optimizer.backward_step(&loss)?;
             }
 
-            if epoch < 80 || epoch > 80 && epoch % 1 == 0 {
-                let rating = model_auto_rater::rate_model(self)?;
-                println!("Epoch {:6}/{:6} : Loss = {:.6} Rating = {}", epoch, epochs, loss_stat, rating);
-                let prediction = self.run_str("Two birds", 15)?;
-                let prediction = prediction.replace("\n", "_");
-                print!("The birds|>{:.40}", prediction);
-                let prediction = self.run_str("The cat", 15)?;
-                let prediction = prediction.replace("\n", "_");
-                print!(" The cat|>{:.40}", prediction);
-                let prediction = self.run_str("The dog", 15)?;
-                let prediction = prediction.replace("\n", "_");
-                println!(" The dog|>{:.40}", prediction);
-                let prediction = self.run_str("The fish", 15)?;
-                let prediction = prediction.replace("\n", "_");
-                print!("The fish|>{:.40}", prediction);
-                let prediction = self.run_str("A sailboat", 15)?;
-                let prediction = prediction.replace("\n", "_");
-                print!(" A sailboat|>{:.40}", prediction);
-                let prediction = self.run_str("A carrot", 15)?;
-                let prediction = prediction.replace("\n", "_");
-                println!(" A carrot|>{:.40}", prediction);
-
-            } else {
-                println!("Epoch {:6}/{:6} : Loss = {:.6} ", epoch, epochs, loss_stat);
-            }
+            let rating = model_auto_rater::rate_model(self)?;
+            println!("Epoch {:6}/{:6} : Loss = {:.6} Rating = {}", epoch, epochs, loss_stat, rating);
+            let prediction = self.run_str("Two birds", 15)?;
+            let prediction = prediction.replace("\n", "_");
+            print!("The birds|>{:.40}", prediction);
+            let prediction = self.run_str("The cat", 15)?;
+            let prediction = prediction.replace("\n", "_");
+            print!(" The cat|>{:.40}", prediction);
+            let prediction = self.run_str("The dog", 15)?;
+            let prediction = prediction.replace("\n", "_");
+            println!(" The dog|>{:.40}", prediction);
+            let prediction = self.run_str("The fish", 15)?;
+            let prediction = prediction.replace("\n", "_");
+            print!("The fish|>{:.40}", prediction);
+            let prediction = self.run_str("A sailboat", 15)?;
+            let prediction = prediction.replace("\n", "_");
+            print!(" A sailboat|>{:.40}", prediction);
+            let prediction = self.run_str("A carrot", 15)?;
+            let prediction = prediction.replace("\n", "_");
+            println!(" A carrot|>{:.40}", prediction);
 
             if epoch % 40 == 0 {
                 self.save_to_path("data/model");
@@ -593,9 +571,7 @@ impl Model {
             let max = var.flatten_all()?.max(D::Minus1)?.to_vec0::<f32>()?;
             let mean = var.flatten_all()?.mean(D::Minus1)?.to_vec0::<f32>()?;
             let variance = var.flatten_all()?.var(D::Minus1)?.to_vec0::<f32>()?;
-            let abs_min = var.flatten_all()?.abs()?.min(D::Minus1)?.to_vec0::<f32>()?;
-
-            println!("{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3} abs_min: {:.4}", "", min, max, mean, variance, abs_min);
+            println!("{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3}", "", min, max, mean, variance);
         }
 
         Ok(())
@@ -702,7 +678,7 @@ pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candl
 
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
-    let sys_tokens = get_system_tokens();
+    let sys_tokens = vec![String::from(NOT_FOUND)];
 
     let tokens = [tokens, lorem_tokens, hello_world_tokens, sys_tokens].concat();
 

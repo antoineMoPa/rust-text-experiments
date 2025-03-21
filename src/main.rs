@@ -9,10 +9,6 @@ use crate::{
     attention_predictor::{get_device, Model, FILE_PATH}, encoder_decoder::EncoderDecoder
 };
 
-use tracing_flame::FlameLayer;
-use tracing_subscriber::{prelude::*, fmt};
-
-mod candle_utils;
 mod token_utils;
 mod attention_block;
 mod simple_predictor;
@@ -33,16 +29,6 @@ fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-
-    // Tracing
-    let fmt_layer = fmt::Layer::default();
-
-    let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
-
-    tracing_subscriber::registry()
-        .with(fmt_layer)
-        .with(flame_layer)
-        .init();
 
     let args: Vec<String> = std::env::args().collect();
     let args = args[1..].to_vec();
@@ -78,7 +64,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         model.print_stats()?;
         return Ok(());
     }
-
     if args[0] == "print_dict_embeddings" {
         println!("Loading test model");
         let model = EncoderDecoder::load_from_path("data/encdec", &device)?;
@@ -92,7 +77,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         model.print_stats()?;
         return Ok(());
     }
-
 
     if args[0] == "pretrain" {
         println!("Pretraining test model");
@@ -112,8 +96,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("Training level 0 on {} tokens", tokens.len());
 
-        model.print_stats()?;
         model.simple_train(tokens, &device)?;
+        model.save_to_path("data/model_l0");
         model.save_to_path("data/model");
 
         return Ok(());
