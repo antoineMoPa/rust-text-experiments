@@ -19,7 +19,7 @@ pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
 const LR: f64 = 2.7e-5;
 const EPOCHS: u32 = 150;
-const TOKEN_BATCH_SIZE: usize = 32;
+const TOKEN_BATCH_SIZE: usize = 64;
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -520,8 +520,8 @@ impl Model {
                 //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
                 let loss = nn::loss::mse(&predictions, &targets)?;
                 let batch_size = end - start;
-                let factor = 1.0 / (batch_size as f64 / 20.0);
-                let loss = (loss * factor)?;
+                let factor = 20.0 / batch_size as f64;
+                optimizer.set_learning_rate(LR * factor);
 
                 loss_stat = loss.to_vec0::<f32>()?;
 
