@@ -15,7 +15,6 @@ mod simple_predictor;
 mod lstm_predictor;
 mod encoder_decoder;
 mod attention_predictor;
-mod model_auto_rater;
 mod models;
 
 fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
@@ -97,7 +96,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Training level 0 on {} tokens", tokens.len());
 
         model.simple_train(tokens, &device)?;
-        model.save_to_path("data/model_l0");
         model.save_to_path("data/model");
 
         return Ok(());

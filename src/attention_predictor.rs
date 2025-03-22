@@ -6,7 +6,6 @@ use nn::{VarMap, Optimizer, VarBuilder};
 #[cfg(test)]
 use nn::ParamsAdamW;
 use colored::Colorize;
-use crate::model_auto_rater;
 use crate::models::RunStr;
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
@@ -20,6 +19,7 @@ pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
 const LR: f64 = 2.7e-5;
 const EPOCHS: u32 = 150;
+const TOKEN_BATCH_SIZE: usize = 32;
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -91,7 +91,7 @@ impl Model {
 
         // Print the following info in
         println!("Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR");
-        let output = format!("{}, {}, {}, {}, {}, {}, {}", EMBEDDING_SIZE, CONTEXT_WINDOW, EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR);
+        let output = format!("{}, {}, {}, {}, {}, {}, {}, {}, {}", encdec.dict.len(), EMBEDDING_SIZE, CONTEXT_WINDOW, EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR, TOKEN_BATCH_SIZE);
         println!("{}", output.on_white().black());
 
 
@@ -118,7 +118,7 @@ impl Model {
             if index == 0 {
                 continue;
             }
-            result = block.forward(&result)?;
+            result = block.forward(&result)?.clamp(-1.0, 1.0)?;
         }
 
         if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
@@ -492,7 +492,7 @@ impl Model {
     }
 
     pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
-        let token_batch_size = 20;
+        let token_batch_size = TOKEN_BATCH_SIZE;
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
@@ -519,6 +519,9 @@ impl Model {
                  // binary cross-entropy is not supported on metal gpu
                 //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
                 let loss = nn::loss::mse(&predictions, &targets)?;
+                let batch_size = end - start;
+                let factor = 1.0 / (batch_size as f64 / 20.0);
+                let loss = (loss * factor)?;
 
                 loss_stat = loss.to_vec0::<f32>()?;
 
@@ -530,8 +533,7 @@ impl Model {
                 optimizer.backward_step(&loss)?;
             }
 
-            let rating = model_auto_rater::rate_model(self)?;
-            println!("Epoch {:6}/{:6} : Loss = {:.6} Rating = {}", epoch, epochs, loss_stat, rating);
+            println!("Epoch {:6}/{:6} : Loss = {:.6}", epoch, epochs, loss_stat);
             let prediction = self.run_str("Two birds", 15)?;
             let prediction = prediction.replace("\n", "_");
             print!("The birds|>{:.40}", prediction);
@@ -567,9 +569,9 @@ impl Model {
 
         // print min, max, mean, std of all tensors
         for var in self.var_map.all_vars().iter() {
-            let min = var.flatten_all()?.min(D::Minus1)?.to_vec0::<f32>()?;
-            let max = var.flatten_all()?.max(D::Minus1)?.to_vec0::<f32>()?;
-            let mean = var.flatten_all()?.mean(D::Minus1)?.to_vec0::<f32>()?;
+            let min = var.min_all()?.to_vec0::<f32>()?;
+            let max = var.max_all()?.to_vec0::<f32>()?;
+            let mean = var.mean_all()?.to_vec0::<f32>()?;
             let variance = var.flatten_all()?.var(D::Minus1)?.to_vec0::<f32>()?;
             println!("{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3}", "", min, max, mean, variance);
         }
