@@ -18,7 +18,7 @@ const NUM_BLOCKS: usize = 1;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
 const LR: f64 = 1.5e-4;
-const EPOCHS: u32 = 150;
+const EPOCHS: u32 = 200;
 const TOKEN_BATCH_SIZE: usize = 64;
 
 // large
