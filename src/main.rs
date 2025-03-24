@@ -124,6 +124,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    if args[0] == "self_test" {
+        println!("Loading test model");
+        let model = Model::load_from_path("data/model", &device)?;
+
+        let level_file_path = FILE_PATH.replace(".corpus", ".txt");
+        let mut file = fs::File::open(level_file_path)?;
+        let mut content: String = String::new();
+        file.read_to_string(&mut content)?;
+
+        let mut match_count = 0;
+        let mut total = 0;
+
+        for line in content.split("\n") {
+            let words: Vec<&str> = line.split(" ").take(3).collect();
+            let expected_completion = line.split(" ").skip(3);
+            let original_input = words.join(" ");
+            let mut input = original_input.clone() + " ";
+
+            let mut buf = String::new();
+            loop {
+                let pred = model.predict_next_token(input.as_str(), &device)?;
+                input = input + pred.as_str();
+
+                buf.push_str(pred.as_str());
+
+                if buf.len() > 50 || pred == "." {
+                    break;
+                }
+            }
+
+            let expected_completion: Vec<&str> = expected_completion.collect();
+            let expected_completion = expected_completion.join(" ");
+
+            if buf == expected_completion {
+                match_count += 1;
+                println!("'{}' |> '{}' ~ '{}' - match", original_input, buf, expected_completion);
+            }
+            else {
+                println!("'{}' |> '{}' ~ '{}' - no match", original_input, buf, expected_completion);
+            }
+
+            total += 1;
+        }
+
+        let success_rate = match_count as f32 / total as f32;
+
+        println!("matches - {}, total - {}, success rate - {}", match_count, total, success_rate);
+        return Ok(());
+    }
+
+
     println!("Please provide a valid command: 'train' or 'run'");
     Ok(())
 }
