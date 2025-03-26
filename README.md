@@ -1,4 +1,4 @@
-# rust-text-experiment
+# rust-text-experiments
 
 A small experimental Rust project exploring tokenization and training a basic neural network on token embeddings. This project demonstrates how to preprocess text data, convert it into embeddings, and train a simple model to encode and decode vocabulary tokens.
 
