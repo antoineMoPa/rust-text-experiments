@@ -1,5 +1,7 @@
 #!/bin/bash
 
+cd data/corpus/
+
 echo "" > corpus.txt
 
 for dir in ./level_*/; do
@@ -19,12 +21,13 @@ popd
 
 pushd .
 cd level_2/
-shuf -r corpus.txt | head -n 360 > corpus.corpus
+shuf -r corpus.txt | head -n 500 > corpus.corpus
 popd
 
 pushd .
-cd level_2/
-shuf -r corpus.txt | head -n 500 > corpus.corpus
+cd level_3/
+shuf -r ../level_2/corpus.txt | head -n 500 > corpus.corpus
+shuf -r corpus.txt | head -n 500 >> corpus.corpus
 popd
 
 
