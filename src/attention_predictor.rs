@@ -17,7 +17,7 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
-const LR: f64 = 1.5e-4;
+const LR: f64 = 3.0e-4;
 const EPOCHS: u32 = 250;
 const TOKEN_BATCH_SIZE: usize = 128;
 
@@ -112,13 +112,13 @@ impl Model {
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let mut result = self.blocks[0].forward(&input)?;
 
-        let input = &input.clamp(-1.0, 1.0)?;
+        let input = &input.tanh()?;
 
         for (index, block) in self.blocks.iter().enumerate() {
             if index == 0 {
                 continue;
             }
-            result = block.forward(&result)?.clamp(-1.0, 1.0)?;
+            result = block.forward(&result)?.tanh()?;
         }
 
         if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
@@ -423,7 +423,7 @@ impl Model {
 
             // Add some noise to input
             let input_shape = input.shape().clone();
-            let input = (input + Tensor::randn( 0.0 as f32, 0.05 as f32, input_shape, device)?)?;
+            let input = (input + Tensor::randn( 0.0 as f32, 0.00625 as f32, input_shape, device)?)?;
 
             inputs.push(input);
             targets.push(target.squeeze(0)?);
