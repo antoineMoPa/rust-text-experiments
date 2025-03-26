@@ -19,9 +19,11 @@ This model could be described as a simplistic decoder-only transformer.
 
 **Work notes**
 
-Things that helped with learning:
+Things that helped while building this model:
 - Adding noise to the input.
 - Repeating and shuffling lines of the corpus.
+- Logging min / max values of each layer output to debug NaNs propagation.
+- Clipping some problematic layer outputs using `clamp` and later `tanh` (more performant and derivable) is a solution that helped getting rid of NaNs caused by too big outputs.
 
 **Training corpus**
 
