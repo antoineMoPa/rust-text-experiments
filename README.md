@@ -19,27 +19,18 @@ A small experimental Rust project exploring tokenization and training a basic ne
 [See doc here](./docs/lstm_predictor.md)
 
 
-## Example output
+## Third model: Attention
 
-Here is a sample of the model trained on the wikipedia "Horse" article.
+[See doc here](./docs/attention_predictor.md)
 
-```
-Predicting next token for: '"Horses "'
-subspecies the subspecies caballus  The horse (Equus ferus caballus) is a domesticated, one-toed, hoofed mammal. It belongs to the taxonomic family Equidae and is one of two believed the of two two family the of is one domesticated wild the excellent wild horses horses 4000 BCE. and in the subspecies caballus are domesticated, although some domesticated populations live in the wild horses subspecies horses are predators to sleep wild is concepts to the taxonomic family Equidae and is one of two never subspecies of Equus ferus. The horse has evolved over the past 45 to 55 million years from a small multi-toed creature, Eohippus, into the large, single-toed animal of today. Humans began domesticating horses around 4000 BCE, and their domestication is believed to have been widespread by 3000 BCE. Horses in the subspecies caballus are domesticated, although some domesticated populations live in the wild horses to the trait        The horse (Equus ferus caballus) is a domesticated, one-toed, hoofed mammal
-```
-
-## Requirements
-
-- Rust
-- The `nn` crate for neural network functionality
-
-### Running Tests
-
-This repo is meant to be used as a test playground for now, so just run tests:
+### Running
 
 ```bash
+cargo run pretrain_encoder_decoder
 cargo run pretrain
-cargo test attention -- --nocapture --test-threads 1
+cargo run self_test
+cargo run run The cat sat on
+# the mat.
 ```
 
 ## License
