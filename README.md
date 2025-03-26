@@ -4,11 +4,9 @@ A small experimental Rust project exploring tokenization and training a basic ne
 
 ## Features
 
-- Tokenization: Splits input text into individual tokens, separating words and punctuation.
-- Vocabulary generation: Builds a unique vocabulary from the tokens.
-- Vocabulary dictionary: Converts vocabulary into a hash map with normalized float values for embeddings.
-- Simple neural network training: Trains a minimal model to encode and decode tokens based on their embeddings.
-- Tests.
+- A corpus of increasing difficulty (level_0, level_1, etc.)
+- An encoder-decoder to build vector representation of words (with no meaning for now).
+- 3 experimental models. Currently I'm iterating on the attention-based model.
 
 ## First model: classic neural network
 
