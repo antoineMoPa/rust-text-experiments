@@ -19,7 +19,7 @@ pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_2/corpus.corpus";
 const LR: f64 = 3.0e-4;
 const EPOCHS: u32 = 250;
-const TOKEN_BATCH_SIZE: usize = 128;
+const TOKEN_BATCH_SIZE: usize = 256;
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
