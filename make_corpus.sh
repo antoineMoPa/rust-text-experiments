@@ -26,8 +26,8 @@ popd
 
 pushd .
 cd level_3/
-shuf -r ../level_2/corpus.txt | head -n 500 > corpus.corpus
-shuf -r corpus.txt | head -n 500 >> corpus.corpus
+shuf -r ../level_2/corpus.txt | head -n 400 > corpus.corpus
+shuf -r corpus.txt | head -n 300 >> corpus.corpus
 popd
 
 
