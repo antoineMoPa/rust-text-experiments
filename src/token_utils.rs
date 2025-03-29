@@ -102,6 +102,11 @@ pub fn tokenize(input: &str) -> Vec<String> {
             continue;
         }
         if c == '<' {
+            if token.len() > 0 {
+                tokens.push(token.clone());
+                token.clear();
+            }
+
             // Check for sys tokens
             let potential_sys_token = input.chars().skip(index).take(MAX_SYS_TOKEN_LEN).collect::<String>();
             let mut found_token = false;
@@ -184,5 +189,12 @@ mod tests {
         let tokens = tokenize("Hello, world!<stop>\nTest sentence.");
 
         assert_eq!(tokens, vec!["Hello", ",", " ", "world", "!", "<stop>", "Test", " ", "sentence", "."]);
+    }
+
+    #[test]
+    fn test_sys_tokens_at_end_of_token() {
+        let tokens = tokenize("Hello, world<stop>\nTest sentence.");
+
+        assert_eq!(tokens, vec!["Hello", ",", " ", "world", "<stop>", "Test", " ", "sentence", "."]);
     }
 }
