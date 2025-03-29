@@ -95,8 +95,12 @@ pub fn tokenize(input: &str) -> Vec<String> {
     let mut token = String::new();
 
     let mut index = 0;
-    while index < input.len() {
-        let c = input.chars().nth(index).unwrap();
+    let mut to_skip = 0;
+    for c in input.chars() {
+        if to_skip > 0 {
+            to_skip -= 1;
+            continue;
+        }
         if c == '<' {
             // Check for sys tokens
             let potential_sys_token = input.chars().skip(index).take(MAX_SYS_TOKEN_LEN).collect::<String>();
@@ -105,11 +109,11 @@ pub fn tokenize(input: &str) -> Vec<String> {
                 if potential_sys_token.starts_with(sys_token) {
                     tokens.push(sys_token.to_string());
                     // skip the rest of the sys token
-                    index += sys_token.len();
+                    to_skip += sys_token.len();
 
                     // check if next token is a newline and skip by convention.
                     if input.chars().nth(index).unwrap() == '\n' {
-                        index += 1;
+                        to_skip += 1;
                     }
 
                     found_token = true;
