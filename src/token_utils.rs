@@ -94,7 +94,31 @@ pub fn tokenize(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut token = String::new();
 
-    for c in input.chars() {
+    let mut index = 0;
+    while index < input.len() {
+        let c = input.chars().nth(index).unwrap();
+        if c == '<' {
+            // Check for sys tokens
+            let potential_sys_token = input.chars().skip(index).take(MAX_SYS_TOKEN_LEN).collect::<String>();
+            let mut found_token = false;
+            for sys_token in SYSTEM_TOKENS.iter() {
+                if potential_sys_token.starts_with(sys_token) {
+                    tokens.push(sys_token.to_string());
+                    // skip the rest of the sys token
+                    index += sys_token.len();
+
+                    // check if next token is a newline and skip by convention.
+                    if input.chars().nth(index).unwrap() == '\n' {
+                        index += 1;
+                    }
+
+                    found_token = true;
+                }
+            }
+            if found_token {
+                continue;
+            }
+        }
         if split_symbols.contains(&c) {
             if token.len() > 0 {
                 tokens.push(token.clone());
@@ -104,6 +128,7 @@ pub fn tokenize(input: &str) -> Vec<String> {
         } else {
             token.push(c);
         }
+        index += 1;
     }
 
     if token.len() > 0 {
@@ -124,6 +149,12 @@ pub fn tokens_to_dict(vocabulary: Vec<String>) -> Dict {
     return vocabulary_dict;
 }
 
+pub const MAX_SYS_TOKEN_LEN: usize = 10;
+pub const STOP_TOKEN: &str = "<stop>";
+pub const SYSTEM_TOKENS: [&str; 1] = [
+    STOP_TOKEN
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +173,12 @@ mod tests {
                    vocabulary_dict.get("world").unwrap());
 
         assert!(*vocabulary_dict.get("world").unwrap() > 0.0);
+    }
+
+    #[test]
+    fn test_sys_tokens() {
+        let tokens = tokenize("Hello, world!<stop>\nTest sentence.");
+
+        assert_eq!(tokens, vec!["Hello", ",", " ", "world", "!", "<stop>", "Test", " ", "sentence", "."]);
     }
 }

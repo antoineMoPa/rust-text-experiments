@@ -338,6 +338,8 @@ impl EncoderDecoder {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
+
     use crate::{attention_predictor::FILE_PATH, token_utils::tokenize};
 
     use super::*;
