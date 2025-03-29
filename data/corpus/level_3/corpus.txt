@@ -58,213 +58,73 @@ Closing his eyes, the man leaned back and listened to the wind.<stop>
 The wind whispered as the man sat still, eyes closed.<stop>
 The dog will go play in the mud if the rain finally stops.<stop>
 If the weather clears, the dog’s heading straight for the mud.<stop>
-The cat sat on the mat.
-Q: What animal sat on the mat?
-A: the cat.<stop>
-The cat sat on the mat.
-Q: Where did the cat sit?
-A: on the mat.<stop>
-The dog barked loudly.
-Q: Who barked?
-A: the dog.<stop>
-The dog barked loudly.
-Q: How did the dog bark?
-A: loudly.<stop>
-A fish swam in the sea.
-Q: What swam in the sea?
-A: a fish.<stop>
-A fish swam in the sea.
-Q: Where did the fish swim?
-A: in the sea.<stop>
-Two birds flew overhead.
-Q: How many birds flew overhead?
-A: two.<stop>
-Two birds flew overhead.
-Q: What flew overhead?
-A: birds.<stop>
-The wind whispered through the trees.
-Q: What whispered through the trees?
-A: the wind.<stop>
-The man closed his eyes.
-Q: Who closed his eyes?
-A: the man.<stop>
-The carrot grew in the garden.
-Q: Where did the carrot grow?
-A: in the garden.<stop>
-The carrot grew in the garden.
-Q: What grew in the garden?
-A: the carrot.<stop>
-The sailboat drifted quietly.
-Q: What drifted quietly?
-A: the sailboat.<stop>
-The sailboat drifted quietly.
-Q: How did the sailboat drift?
-A: quietly.<stop>
-The dog chased the ball.
-Q: What did the dog chase?
-A: the ball.<stop>
-The dog chased the ball.
-Q: Who chased the ball?
-A: the dog.<stop>
-The cat watched the fish.
-Q: Who watched the fish?
-A: the cat.<stop>
-The cat watched the fish.
-Q: What did the cat watch?
-A: the fish.<stop>
-A bee buzzed near the flowers.
-Q: What buzzed near the flowers?
-A: a bee.<stop>
-A bee buzzed near the flowers.
-Q: Where did the bee buzz?
-A: near the flowers.<stop>
-The child ran across the field.
-Q: Who ran across the field?
-A: the child.<stop>
-The child ran across the field.
-Q: Where did the child run?
-A: across the field.<stop>
-A tired man sat on a bench.
-Q: What was the man doing?
-A: sitting on a bench.<stop>
-A tired man sat on a bench.
-Q: Who was tired?
-A: the man.<stop>
-The fish circled in the bowl.
-Q: Where did the fish circle?
-A: in the bowl.<stop>
-The fish circled in the bowl.
-Q: What circled in the bowl?
-A: the fish.<stop>
-The sun set behind the hills.
-Q: What set behind the hills?
-A: the sun.<stop>
-The sun set behind the hills.
-Q: Where did the sun set?
-A: behind the hills.<stop>
-The dog slept near the fire.
-Q: Where did the dog sleep?
-A: near the fire.<stop>
-The dog slept near the fire.
-Q: What slept near the fire?
-A: the dog.<stop>
-The rabbit hopped into the garden.
-Q: What hopped into the garden?
-A: the rabbit.<stop>
-The rabbit hopped into the garden.
-Q: Where did the rabbit hop?
-A: into the garden.<stop>
-The boat rocked gently.
-Q: How did the boat rock?
-A: gently.<stop>
-The boat rocked gently.
-Q: What rocked gently?
-A: the boat.<stop>
-The girl laughed at the joke.
-Q: Who laughed at the joke?
-A: the girl.<stop>
-The girl laughed at the joke.
-Q: What did the girl laugh at?
-A: the joke.<stop>
-The leaves rustled in the breeze.
-Q: What rustled in the breeze?
-A: the leaves.<stop>
-The leaves rustled in the breeze.
-Q: Where did the leaves rustle?
-A: in the breeze.<stop>
-The man drank cold water.
-Q: What did the man drink?
-A: cold water.<stop>
-The man drank cold water.
-Q: Who drank cold water?
-A: the man.<stop>
-A bird landed on the branch.
-Q: What landed on the branch?
-A: a bird.<stop>
-A bird landed on the branch.
-Q: Where did the bird land?
-A: on the branch.<stop>
-The boy kicked the ball.
-Q: What did the boy kick?
-A: the ball.<stop>
-The boy kicked the ball.
-Q: Who kicked the ball?
-A: the boy.<stop>
-A cloud floated above the trees.
-Q: What floated above the trees?
-A: a cloud.<stop>
-A cloud floated above the trees.
-Q: Where did the cloud float?
-A: above the trees.<stop>
-The woman smiled at the child.
-Q: Who smiled at the child?
-A: the woman.<stop>
-The woman smiled at the child.
-Q: Who did the woman smile at?
-A: the child.<stop>
-The candle flickered in the dark.
-Q: What flickered in the dark?
-A: the candle.<stop>
-The candle flickered in the dark.
-Q: Where did the candle flicker?
-A: in the dark.<stop>
-The horse galloped across the field.
-Q: What galloped across the field?
-A: the horse.<stop>
-The horse galloped across the field.
-Q: Where did the horse gallop?
-A: across the field.<stop>
-The bell rang loudly.
-Q: What rang loudly?
-A: the bell.<stop>
-The bell rang loudly.
-Q: How did the bell ring?
-A: loudly.<stop>
-The girl painted a picture.
-Q: Who painted a picture?
-A: the girl.<stop>
-The girl painted a picture.
-Q: What did the girl paint?
-A: a picture.<stop>
-The leaves turned orange.
-Q: What turned orange?
-A: the leaves.<stop>
-The leaves turned orange.
-Q: What color did the leaves turn?
-A: orange.<stop>
-The baby cried softly.
-Q: Who cried softly?
-A: the baby.<stop>
-The baby cried softly.
-Q: How did the baby cry?
-A: softly.<stop>
-A squirrel climbed the tree.
-Q: What climbed the tree?
-A: a squirrel.<stop>
-A squirrel climbed the tree.
-Q: Where did the squirrel climb?
-A: the tree.<stop>
-The stars twinkled at night.
-Q: What twinkled at night?
-A: the stars.<stop>
-The stars twinkled at night.
-Q: When did the stars twinkle?
-A: at night.<stop>
-The boy read a book.
-Q: What did the boy read?
-A: a book.<stop>
-The boy read a book.
-Q: Who read a book?
-A: the boy.<stop>
-Rain fell on the roof.
-Q: What fell on the roof?
-A: rain.<stop>
-Rain fell on the roof.
-Q: Where did the rain fall?
-A: on the roof.<stop>
-The fire crackled in the fireplace.
-Q: What crackled in the fireplace?
-A: the fire.<stop>
-The fire crackled in the fireplace.
-Q: Where did the fire crackle?
-A: in the fireplace.
+The cat sat on the mat. Q: What animal sat on the mat? A: the cat.<stop>
+The cat sat on the mat. Q: Where did the cat sit? A: on the mat.<stop>
+The dog barked loudly. Q: Who barked? A: the dog.<stop>
+The dog barked loudly. Q: How did the dog bark? A: loudly.<stop>
+A fish swam in the sea. Q: What swam in the sea? A: a fish.<stop>
+A fish swam in the sea. Q: Where did the fish swim? A: in the sea.<stop>
+Two birds flew overhead. Q: How many birds flew overhead? A: two.<stop>
+Two birds flew overhead. Q: What flew overhead? A: birds.<stop>
+The wind whispered through the trees. Q: What whispered through the trees? A: the wind.<stop>
+The man closed his eyes. Q: Who closed his eyes? A: the man.<stop>
+The carrot grew in the garden. Q: Where did the carrot grow? A: in the garden.<stop>
+The carrot grew in the garden. Q: What grew in the garden? A: the carrot.<stop>
+The sailboat drifted quietly. Q: What drifted quietly? A: the sailboat.<stop>
+The sailboat drifted quietly. Q: How did the sailboat drift? A: quietly.<stop>
+The dog chased the ball. Q: What did the dog chase? A: the ball.<stop>
+The dog chased the ball. Q: Who chased the ball? A: the dog.<stop>
+The cat watched the fish. Q: Who watched the fish? A: the cat.<stop>
+The cat watched the fish. Q: What did the cat watch? A: the fish.<stop>
+A bee buzzed near the flowers. Q: What buzzed near the flowers? A: a bee.<stop>
+A bee buzzed near the flowers. Q: Where did the bee buzz? A: near the flowers.<stop>
+The child ran across the field. Q: Who ran across the field? A: the child.<stop>
+The child ran across the field. Q: Where did the child run? A: across the field.<stop>
+A tired man sat on a bench. Q: What was the man doing? A: sitting on a bench.<stop>
+A tired man sat on a bench. Q: Who was tired? A: the man.<stop>
+The fish circled in the bowl. Q: Where did the fish circle? A: in the bowl.<stop>
+The fish circled in the bowl. Q: What circled in the bowl? A: the fish.<stop>
+The sun set behind the hills. Q: What set behind the hills? A: the sun.<stop>
+The sun set behind the hills. Q: Where did the sun set? A: behind the hills.<stop>
+The dog slept near the fire. Q: Where did the dog sleep? A: near the fire.<stop>
+The dog slept near the fire. Q: What slept near the fire? A: the dog.<stop>
+The rabbit hopped into the garden. Q: What hopped into the garden? A: the rabbit.<stop>
+The rabbit hopped into the garden. Q: Where did the rabbit hop? A: into the garden.<stop>
+The boat rocked gently. Q: How did the boat rock? A: gently.<stop>
+The boat rocked gently. Q: What rocked gently? A: the boat.<stop>
+The girl laughed at the joke. Q: Who laughed at the joke? A: the girl.<stop>
+The girl laughed at the joke. Q: What did the girl laugh at? A: the joke.<stop>
+The leaves rustled in the breeze. Q: What rustled in the breeze? A: the leaves.<stop>
+The leaves rustled in the breeze. Q: Where did the leaves rustle? A: in the breeze.<stop>
+The man drank cold water. Q: What did the man drink? A: cold water.<stop>
+The man drank cold water. Q: Who drank cold water? A: the man.<stop>
+A bird landed on the branch. Q: What landed on the branch? A: a bird.<stop>
+A bird landed on the branch. Q: Where did the bird land? A: on the branch.<stop>
+The boy kicked the ball. Q: What did the boy kick? A: the ball.<stop>
+The boy kicked the ball. Q: Who kicked the ball? A: the boy.<stop>
+A cloud floated above the trees. Q: What floated above the trees? A: a cloud.<stop>
+A cloud floated above the trees. Q: Where did the cloud float? A: above the trees.<stop>
+The woman smiled at the child. Q: Who smiled at the child? A: the woman.<stop>
+The woman smiled at the child. Q: Who did the woman smile at? A: the child.<stop>
+The candle flickered in the dark. Q: What flickered in the dark? A: the candle.<stop>
+The candle flickered in the dark. Q: Where did the candle flicker? A: in the dark.<stop>
+The horse galloped across the field. Q: What galloped across the field? A: the horse.<stop>
+The horse galloped across the field. Q: Where did the horse gallop? A: across the field.<stop>
+The bell rang loudly. Q: What rang loudly? A: the bell.<stop>
+The bell rang loudly. Q: How did the bell ring? A: loudly.<stop>
+The girl painted a picture. Q: Who painted a picture? A: the girl.<stop>
+The girl painted a picture. Q: What did the girl paint? A: a picture.<stop>
+The leaves turned orange. Q: What turned orange? A: the leaves.<stop>
+The leaves turned orange. Q: What color did the leaves turn? A: orange.<stop>
+The baby cried softly. Q: Who cried softly? A: the baby.<stop>
+The baby cried softly. Q: How did the baby cry? A: softly.<stop>
+A squirrel climbed the tree. Q: What climbed the tree? A: a squirrel.<stop>
+A squirrel climbed the tree. Q: Where did the squirrel climb? A: the tree.<stop>
+The stars twinkled at night. Q: What twinkled at night? A: the stars.<stop>
+The stars twinkled at night. Q: When did the stars twinkle? A: at night.<stop>
+The boy read a book. Q: What did the boy read? A: a book.<stop>
+The boy read a book. Q: Who read a book? A: the boy.<stop>
+Rain fell on the roof. Q: What fell on the roof? A: rain.<stop>
+Rain fell on the roof. Q: Where did the rain fall? A: on the roof.<stop>
+The fire crackled in the fireplace. Q: What crackled in the fireplace? A: the fire.<stop>
+The fire crackled in the fireplace. Q: Where did the fire crackle? A: in the fireplace.<stop>
