@@ -632,11 +632,12 @@ impl RunStr for Model {
             let prediction = self.run(&input, &self.device)?;
             let token_embedding = self.encdec.get_token_embedding_vec(prediction.as_str())?;
             input.push(token_embedding);
-            output.push_str(prediction.as_str());
 
             if prediction == STOP_TOKEN {
                 break;
             }
+
+            output.push_str(prediction.as_str());
         }
 
         return Ok(output);
