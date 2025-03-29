@@ -137,26 +137,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if args[0] == "pretrain" {
-        println!("Pretraining test model");
+    if args[0] == "train_new" {
+        println!("Training new model");
 
         let device = get_device()?;
         let mut model = create_model(&device)?;
 
-        // in case we want to continue training:
-        // model.load_inplace_from_path("data/model")?;
-
-        // train on data/corpus/level_/corpus.txt
         let level_file_path = FILE_PATH;
         let mut file = fs::File::open(level_file_path)?;
         let mut content: String = String::new();
         file.read_to_string(&mut content)?;
         let tokens = tokenize(content.as_str());
 
-        println!("Training level 0 on {} tokens", tokens.len());
+        println!("Training on {} tokens", tokens.len());
 
         model.simple_train(tokens, &device)?;
         model.save_to_path("data/model");
+
+        return Ok(());
+    }
+
+    if args[0] == "train" {
+        let path = "data/model";
+        println!("Continuing training existing model {}", path);
+
+        let device = get_device()?;
+        let mut model = Model::load_from_path(path, &device)?;
+
+        let level_file_path = FILE_PATH;
+        let mut file = fs::File::open(level_file_path)?;
+        let mut content: String = String::new();
+        file.read_to_string(&mut content)?;
+        let tokens = tokenize(content.as_str());
+
+        println!("Training on {} tokens", tokens.len());
+
+        model.simple_train(tokens, &device)?;
+        model.save_to_path("data/model");
+
+        return Ok(());
+    }
+
+    if args[0] == "merge" {
+        let path_a = "data/model_a";
+        let path_b = "data/model_b";
+        println!("Merging models {} {}", path_a, path_b);
+
+        let device = get_device()?;
+        let mut model_a = Model::load_from_path(path_a, &device)?;
+        let mut model_b = Model::load_from_path(path_b, &device)?;
+
+        // TODO: merge models
 
         return Ok(());
     }
