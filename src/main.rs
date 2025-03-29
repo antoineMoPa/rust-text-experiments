@@ -5,7 +5,7 @@ use attention_predictor::{create_model, get_pretrained_dict};
 use candle_nn::{VarMap, VarBuilder};
 
 use crate::{
-    token_utils::tokenize,
+    token_utils::{tokenize, STOP_TOKEN},
     attention_predictor::{get_device, Model, FILE_PATH}, encoder_decoder::EncoderDecoder
 };
 
@@ -173,6 +173,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut buf = String::new();
         loop {
             let pred = model.predict_next_token(input.as_str(), &device)?;
+
+            if pred == STOP_TOKEN {
+                println!("{} - ", buf);
+                buf.clear();
+                break;
+            }
+
             input = input + pred.as_str();
 
             buf.push_str(pred.as_str());

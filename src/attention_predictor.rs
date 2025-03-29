@@ -7,6 +7,7 @@ use nn::{VarMap, Optimizer, VarBuilder};
 use nn::ParamsAdamW;
 use colored::Colorize;
 use crate::models::RunStr;
+use crate::token_utils::STOP_TOKEN;
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
@@ -633,7 +634,7 @@ impl RunStr for Model {
             input.push(token_embedding);
             output.push_str(prediction.as_str());
 
-            if prediction == "." {
+            if prediction == STOP_TOKEN {
                 break;
             }
         }
