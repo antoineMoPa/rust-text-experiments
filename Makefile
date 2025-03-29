@@ -2,9 +2,14 @@ args = RUST_BACKTRACE=1
 
 run:
 	$(args) cargo run run
-pretrain:
-	$(args) nohup time cargo run pretrain 2>&1 > train_log.log &
+train_new:
+	$(args) nohup time cargo run train_new 2>&1 > train_log.log &
 	tail -f train_log.log
+train:
+	$(args) nohup time cargo run train 2>&1 > train_log.log &
+	tail -f train_log.log
+merge:
+	$(time cargo run merge 2>&1
 print_stats:
 	$(args) cargo run print_stats
 print_stats_encoder_decoder:
