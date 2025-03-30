@@ -4,6 +4,7 @@ run:
 	$(args) cargo run run
 pretrain:
 	$(args) nohup time cargo run pretrain 2>&1 > train_log.log &
+	tail -f train_log.log
 print_stats:
 	$(args) cargo run print_stats
 print_stats_encoder_decoder:
