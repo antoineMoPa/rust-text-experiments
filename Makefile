@@ -16,3 +16,5 @@ test:
 	$(args) cargo test attention -- --nocapture --test-threads 1
 profile:
 	cargo flamegraph --root -- pretrain
+dump_loss:
+	cat train_log.log  | grep Loss | sed "s/Epoch    //g" | sed "s/\/.* Loss = /\t/g"
