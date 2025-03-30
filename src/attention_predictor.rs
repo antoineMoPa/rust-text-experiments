@@ -11,7 +11,8 @@ use crate::token_utils::STOP_TOKEN;
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
-const CONTEXT_WINDOW: usize = 22;
+const DOWNSCALE_FACTOR: usize = 4;
+const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 21;
 const HIDDEN_SIZE: usize = 2048;
@@ -19,7 +20,7 @@ const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_3/corpus.corpus";
 const LR: f64 = 3.0e-4;
-const EPOCHS: u32 = 250;
+const EPOCHS: u32 = 100;
 const TOKEN_BATCH_SIZE: usize = 128;
 
 // large
@@ -70,19 +71,19 @@ impl Model {
 
         for b in 0..NUM_BLOCKS {
             let config: AttentionBlockConfig = AttentionBlockConfig {
-                input_size: INPUT_SIZE / 2,
+                input_size: INPUT_SIZE / DOWNSCALE_FACTOR,
                 num_attention_heads: NUM_ATTENTION_HEADS,
                 context_window: CONTEXT_WINDOW,
-                embedding_size: EMBEDDING_SIZE / 2,
-                output_size: INPUT_SIZE / 2,
+                embedding_size: EMBEDDING_SIZE / DOWNSCALE_FACTOR,
+                output_size: INPUT_SIZE / DOWNSCALE_FACTOR,
             };
 
             let block = AttentionBlock::new(config, vb.push_prefix(&format!("block_{}", b)))?;
             blocks.push(block);
         }
 
-        let downscaler = nn::linear_b(INPUT_SIZE, INPUT_SIZE / 2, true, vb.pp("downscaler"))?;
-        let fc1 = nn::linear_b(INPUT_SIZE / 2, HIDDEN_SIZE, true, vb.pp("fc1"))?;
+        let downscaler = nn::linear_b(INPUT_SIZE, INPUT_SIZE / DOWNSCALE_FACTOR, true, vb.pp("downscaler"))?;
+        let fc1 = nn::linear_b(INPUT_SIZE / DOWNSCALE_FACTOR, HIDDEN_SIZE, true, vb.pp("fc1"))?;
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
         let fc4 = nn::linear_b(EMBEDDING_SIZE, EMBEDDING_SIZE, true, vb.pp("fc4"))?;
