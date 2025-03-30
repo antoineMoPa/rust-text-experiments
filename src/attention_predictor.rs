@@ -273,8 +273,6 @@ impl Model {
             // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
             let loss = nn::loss::mse(&predictions, &targets)?;
 
-            let g: candle_core::backprop::GradStore = loss.backward()?;
-
             // Backpropagation
             optimizer.backward_step(&loss)?;
 
