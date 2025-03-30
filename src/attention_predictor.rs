@@ -11,7 +11,7 @@ use crate::token_utils::STOP_TOKEN;
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
-const CONTEXT_WINDOW: usize = 15;
+const CONTEXT_WINDOW: usize = 22;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 21;
 const HIDDEN_SIZE: usize = 2048;
@@ -37,6 +37,7 @@ const NOT_FOUND: &str = "<notfound>";
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
+    pub downscaler: nn::Linear,
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
     pub fc3: nn::Linear,
@@ -69,18 +70,19 @@ impl Model {
 
         for b in 0..NUM_BLOCKS {
             let config: AttentionBlockConfig = AttentionBlockConfig {
-                input_size: INPUT_SIZE,
+                input_size: INPUT_SIZE / 2,
                 num_attention_heads: NUM_ATTENTION_HEADS,
                 context_window: CONTEXT_WINDOW,
-                embedding_size: EMBEDDING_SIZE,
-                output_size: INPUT_SIZE,
+                embedding_size: EMBEDDING_SIZE / 2,
+                output_size: INPUT_SIZE / 2,
             };
 
             let block = AttentionBlock::new(config, vb.push_prefix(&format!("block_{}", b)))?;
             blocks.push(block);
         }
 
-        let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
+        let downscaler = nn::linear_b(INPUT_SIZE, INPUT_SIZE / 2, true, vb.pp("downscaler"))?;
+        let fc1 = nn::linear_b(INPUT_SIZE / 2, HIDDEN_SIZE, true, vb.pp("fc1"))?;
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
         let fc4 = nn::linear_b(EMBEDDING_SIZE, EMBEDDING_SIZE, true, vb.pp("fc4"))?;
@@ -97,6 +99,7 @@ impl Model {
 
 
         Ok(Self {
+	    downscaler,
             fc1,
             fc2,
             fc3,
@@ -111,14 +114,10 @@ impl Model {
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let mut result = self.blocks[0].forward(&input)?;
+        let mut result = self.downscaler.forward(&input)?;
+        let downscaled_input = result.clone();
 
-        let input = &input.tanh()?;
-
-        for (index, block) in self.blocks.iter().enumerate() {
-            if index == 0 {
-                continue;
-            }
+        for block in self.blocks.iter() {
             result = block.forward(&result)?.tanh()?;
         }
 
@@ -126,7 +125,7 @@ impl Model {
             println!("Result is nan after attention blocks");
         }
 
-        let result = (result + (input * 0.2)?)?;
+        let result = (result + (downscaled_input * 0.2)?)?;
         let result = (result * 0.2)?;
 
         if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
