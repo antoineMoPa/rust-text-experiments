@@ -66,7 +66,7 @@ fn self_test() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let expected_completion: Vec<&str> = expected_completion.collect();
-            let expected_completion = expected_completion.join(" ");
+            let expected_completion = expected_completion.join(" ").replace("<stop>", "");
 
             if buf == expected_completion {
                 match_count += 1;
