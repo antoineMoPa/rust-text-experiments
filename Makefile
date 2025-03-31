@@ -21,6 +21,6 @@ pretrain_encoder_decoder:
 test:
 	$(args) cargo test attention -- --nocapture --test-threads 1
 profile:
-	cargo flamegraph --root -- pretrain
+	CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --root -- train
 dump_loss:
 	cat train_log.log  | grep Loss | sed "s/Epoch    //g" | sed "s/\/.* Loss = /\t/g"

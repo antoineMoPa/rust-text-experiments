@@ -2,6 +2,7 @@ use std::fs;
 use std::io::prelude::*;
 
 use attention_predictor::{create_model, get_pretrained_dict};
+use candle_core::Var;
 use candle_nn::{VarMap, VarBuilder};
 
 use crate::{
@@ -181,13 +182,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "merge" {
         let path_a = "data/model_a";
         let path_b = "data/model_b";
+        let path_average = "data/model_a_b_average";
         println!("Merging models {} {}", path_a, path_b);
 
         let device = get_device()?;
-        let mut model_a = Model::load_from_path(path_a, &device)?;
-        let mut model_b = Model::load_from_path(path_b, &device)?;
+        let model_a = Model::load_from_path(path_a, &device)?;
+        let model_b = Model::load_from_path(path_b, &device)?;
+        let model_average = Model::load_from_path(path_a, &device)?;
 
-        // TODO: merge models
+        let data_a = model_a.var_map.data().lock().unwrap();
+        let data_b = model_b.var_map.data().lock().unwrap();
+        let mut data_average = model_average.var_map.data().lock().unwrap();
+
+        data_a.keys().for_each(|key| {
+            let value_a = data_a.get(key).unwrap().as_tensor();
+            let value_b = data_b.get(key).unwrap().as_tensor();
+            let average = ((value_a + value_b).unwrap() / 2.0).unwrap();
+            data_average.insert(key.clone(), Var::from_tensor(&average).unwrap()).unwrap();
+            println!("merged {}", key);
+        });
+
+        // Release lock so we can save!
+        drop(data_average);
+
+        model_average.save_to_path(path_average);
+
+        println!("Merged both models to {}", path_average);
 
         return Ok(());
     }
