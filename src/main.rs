@@ -225,8 +225,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             let pred = model.predict_next_token(input.as_str(), &device)?;
 
-            println!("pred == STOP_TOKEN {} {} {}", pred, STOP_TOKEN, pred == STOP_TOKEN);
-
             if pred == STOP_TOKEN {
                 println!("{} - ", buf);
                 buf.clear();

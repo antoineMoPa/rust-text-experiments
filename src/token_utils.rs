@@ -118,8 +118,6 @@ pub fn tokenize(input: &str) -> Vec<String> {
                     to_skip += sys_token.len() - 1;
 
                     found_token = true;
-                } else {
-                    println!("not sys token: {} {}", potential_sys_token, sys_token);
                 }
             }
             if found_token {
