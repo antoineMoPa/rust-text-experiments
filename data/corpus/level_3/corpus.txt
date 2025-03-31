@@ -128,3 +128,63 @@ Rain fell on the roof. Q: What fell on the roof? A: rain.<stop>
 Rain fell on the roof. Q: Where did the rain fall? A: on the roof.<stop>
 The fire crackled in the fireplace. Q: What crackled in the fireplace? A: the fire.<stop>
 The fire crackled in the fireplace. Q: Where did the fire crackle? A: in the fireplace.<stop>
+The dog barked at the mailman. Q: Who barked at the mailman? A: the dog.<stop>
+The dog barked at the mailman. Q: Who did the dog bark at? A: the mailman.<stop>
+The wind howled through the trees. Q: What howled through the trees? A: the wind.<stop>
+The wind howled through the trees. Q: Where did the wind howl? A: through the trees.<stop>
+The cat slept on the windowsill. Q: Who slept on the windowsill? A: the cat.<stop>
+The cat slept on the windowsill. Q: Where did the cat sleep? A: on the windowsill.<stop>
+The teacher wrote on the board. Q: Who wrote on the board? A: the teacher.<stop>
+The teacher wrote on the board. Q: What did the teacher write on? A: the board.<stop>
+The snow fell quietly. Q: What fell quietly? A: the snow.<stop>
+The snow fell quietly. Q: How did the snow fall? A: quietly.<stop>
+The frog jumped into the pond. Q: What jumped into the pond? A: the frog.<stop>
+The frog jumped into the pond. Q: Where did the frog jump? A: into the pond.<stop>
+The phone rang suddenly. Q: What rang suddenly? A: the phone.<stop>
+The phone rang suddenly. Q: How did the phone ring? A: suddenly.<stop>
+The man closed the door. Q: Who closed the door? A: the man.<stop>
+The man closed the door. Q: What did the man close? A: the door.<stop>
+The sun rose over the hills. Q: What rose over the hills? A: the sun.<stop>
+The sun rose over the hills. Q: Where did the sun rise? A: over the hills.<stop>
+The child drew a house. Q: Who drew a house? A: the child.<stop>
+The child drew a house. Q: What did the child draw? A: a house.<stop>
+The bird sang in the morning. Q: What sang in the morning? A: the bird.<stop>
+The bird sang in the morning. Q: When did the bird sing? A: in the morning.<stop>
+The boy kicked the ball. Q: Who kicked the ball? A: the boy.<stop>
+The boy kicked the ball. Q: What did the boy kick? A: the ball.<stop>
+The train arrived late. Q: What arrived late? A: the train.<stop>
+The train arrived late. Q: When did the train arrive? A: late.<stop>
+The children laughed together. Q: Who laughed together? A: the children.<stop>
+The children laughed together. Q: How did the children laugh? A: together.<stop>
+The owl hooted at night. Q: What hooted at night? A: the owl.<stop>
+The owl hooted at night. Q: When did the owl hoot? A: at night.<stop>
+The man opened the window. Q: Who opened the window? A: the man.<stop>
+The man opened the window. Q: What did the man open? A: the window.<stop>
+The lightning flashed across the sky. Q: What flashed across the sky? A: the lightning.<stop>
+The lightning flashed across the sky. Q: Where did the lightning flash? A: across the sky.<stop>
+The rabbit hid under the bush. Q: What hid under the bush? A: the rabbit.<stop>
+The rabbit hid under the bush. Q: Where did the rabbit hide? A: under the bush.<stop>
+The girl danced gracefully. Q: Who danced gracefully? A: the girl.<stop>
+The girl danced gracefully. Q: How did the girl dance? A: gracefully.<stop>
+The baby drank milk. Q: Who drank milk? A: the baby.<stop>
+The baby drank milk. Q: What did the baby drink? A: milk.<stop>
+The fox ran through the forest. Q: What ran through the forest? A: the fox.<stop>
+The fox ran through the forest. Q: Where did the fox run? A: through the forest.<stop>
+The boat floated on the lake. Q: What floated on the lake? A: the boat.<stop>
+The boat floated on the lake. Q: Where did the boat float? A: on the lake.<stop>
+The flowers bloomed in spring. Q: What bloomed in spring? A: the flowers.<stop>
+The flowers bloomed in spring. Q: When did the flowers bloom? A: in spring.<stop>
+The chef cooked dinner. Q: Who cooked dinner? A: the chef.<stop>
+The chef cooked dinner. Q: What did the chef cook? A: dinner.<stop>
+The clouds covered the sky. Q: What covered the sky? A: the clouds.<stop>
+The clouds covered the sky. Q: What did the clouds cover? A: the sky.<stop>
+The lion roared loudly. Q: What roared loudly? A: the lion.<stop>
+The lion roared loudly. Q: How did the lion roar? A: loudly.<stop>
+The bee landed on the flower. Q: What landed on the flower? A: the bee.<stop>
+The bee landed on the flower. Q: Where did the bee land? A: on the flower.<stop>
+The sun warmed the earth. Q: What warmed the earth? A: the sun.<stop>
+The sun warmed the earth. Q: What did the sun warm? A: the earth.<stop>
+The kids built a sandcastle. Q: Who built a sandcastle? A: the kids.<stop>
+The kids built a sandcastle. Q: What did the kids build? A: a sandcastle.<stop>
+The door creaked open. Q: What creaked open? A: the door.<stop>
+The door creaked open. Q: How did the door open? A: creaked.<stop>

@@ -219,7 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let args = args[1..].to_vec();
 
         let mut input = args.join(" ") + " ";
-        println!("Predicting next token for: '{:?}'", input);
+        println!("Completing: '{:?}'", input);
 
         let mut buf = String::new();
         loop {
@@ -240,6 +240,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 buf.clear()
             }
         }
+
+        return Ok(());
     }
 
     if args[0] == "self_test" {
