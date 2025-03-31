@@ -94,34 +94,32 @@ pub fn tokenize(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut token = String::new();
 
-    let mut index = 0;
     let mut to_skip = 0;
-    for c in input.chars() {
+
+    for (index, c) in input.chars().enumerate() {
         if to_skip > 0 {
             to_skip -= 1;
             continue;
         }
-        if c == '<' {
-            if token.len() > 0 {
-                tokens.push(token.clone());
-                token.clear();
-            }
 
+        if c == '<' {
             // Check for sys tokens
             let potential_sys_token = input.chars().skip(index).take(MAX_SYS_TOKEN_LEN).collect::<String>();
             let mut found_token = false;
             for sys_token in SYSTEM_TOKENS.iter() {
                 if potential_sys_token.starts_with(sys_token) {
-                    tokens.push(sys_token.to_string());
-                    // skip the rest of the sys token
-                    to_skip += sys_token.len();
-
-                    // check if next token is a newline and skip by convention.
-                    if input.chars().nth(index).unwrap() == '\n' {
-                        to_skip += 1;
+                    if token.len() > 0 {
+                        tokens.push(token.clone());
+                        token.clear();
                     }
 
+                    tokens.push(sys_token.to_string());
+                    // skip the rest of the sys token
+                    to_skip += sys_token.len() - 1;
+
                     found_token = true;
+                } else {
+                    println!("not sys token: {} {}", potential_sys_token, sys_token);
                 }
             }
             if found_token {
@@ -137,7 +135,6 @@ pub fn tokenize(input: &str) -> Vec<String> {
         } else {
             token.push(c);
         }
-        index += 1;
     }
 
     if token.len() > 0 {
@@ -188,13 +185,35 @@ mod tests {
     fn test_sys_tokens() {
         let tokens = tokenize("Hello, world!<stop>\nTest sentence.");
 
-        assert_eq!(tokens, vec!["Hello", ",", " ", "world", "!", "<stop>", "Test", " ", "sentence", "."]);
+        assert_eq!(tokens, vec!["Hello", ",", " ", "world", "!", "<stop>", "\n", "Test", " ", "sentence", "."]);
     }
 
     #[test]
     fn test_sys_tokens_at_end_of_token() {
         let tokens = tokenize("Hello, world<stop>\nTest sentence.");
 
-        assert_eq!(tokens, vec!["Hello", ",", " ", "world", "<stop>", "Test", " ", "sentence", "."]);
+        assert_eq!(tokens, vec!["Hello", ",", " ", "world", "<stop>", "\n", "Test", " ", "sentence", "."]);
     }
+
+    #[test]
+    fn test_sys_tokens_at_end_of_dot() {
+        let tokens = tokenize("Hello, world.<stop>\nTest sentence.");
+
+        assert_eq!(tokens, vec!["Hello", ",", " ", "world", ".", "<stop>", "\n", "Test", " ", "sentence", "."]);
+    }
+
+    #[test]
+    fn test_2_stop_tokens() {
+        let tokens = tokenize("Hello, world.<stop>\nTest sentence.<stop>");
+
+        assert_eq!(tokens, vec!["Hello", ",", " ", "world", ".", "<stop>", "\n", "Test", " ", "sentence", ".", "<stop>"]);
+    }
+
+    #[test]
+    fn test_3_stop_tokens() {
+        let tokens = tokenize("Hello, world.<stop>\nTest sentence.<stop>.<stop>");
+
+        assert_eq!(tokens, vec!["Hello", ",", " ", "world", ".", "<stop>", "\n", "Test", " ", "sentence", ".", "<stop>", ".", "<stop>"]);
+    }
+
 }

@@ -213,7 +213,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if args[0] == "run" {
-        println!("Loading test model");
+        println!("Loading model");
         let model = Model::load_from_path("data/model", &device)?;
 
         let args = args[1..].to_vec();
@@ -224,6 +224,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut buf = String::new();
         loop {
             let pred = model.predict_next_token(input.as_str(), &device)?;
+
+            println!("pred == STOP_TOKEN {} {} {}", pred, STOP_TOKEN, pred == STOP_TOKEN);
 
             if pred == STOP_TOKEN {
                 println!("{} - ", buf);
