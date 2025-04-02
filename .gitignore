@@ -6,4 +6,3 @@ flamegraph.svg
 tracing*.svg
 *.folded
 *.log
-corpus.txt
