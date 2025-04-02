@@ -24,3 +24,13 @@ profile:
 	CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --root -- train
 dump_loss:
 	cat train_log.log  | grep Loss | sed "s/Epoch    //g" | sed "s/\/.* Loss = /\t/g"
+minitest_qa:
+	cargo run run The squirrels twinkled at night. Q: What twinkled at night? A:
+	cargo run run The squirrels climbed the tree Q: What climbed the tree? A:
+	cargo run run The birds climbed the tree Q: What climbed the tree? A:
+	cargo run run The squirrels twinkled at night. Q: What twinkled at night? A:
+	cargo run run The boy kicked the ball. Q: Who kicked the ball? A:
+	cargo run run The dog kicked the ball. Q: Who kicked the ball? A:
+	cargo run run The car was red. Q: What was red? A: 
+	cargo run run The dog was red. Q: What was red? A: 
+	cargo run run The cat was red. Q: What was red? A: 
