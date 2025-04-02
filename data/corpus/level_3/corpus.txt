@@ -1,18 +1,30 @@
 The dog barked loudly, and the cat darted under the couch.<stop>
+The cat meowed loudly, and the dog darted under the couch.<stop>
+The dog barked loudly, and the cat went under the couch.<stop>
 After resting on the mat, the cat stretched and yawned lazily.<stop>
+After resting on the mat, the dog stretched and yawned lazily.<stop>
+After resting on the mat, the dog yawned lazily.<stop>
 Two birds were flying high above the sea while the sun was setting.<stop>
+Three birds were flying high above the sea while the sun was setting.<stop>
 The fish swam swiftly through the coral reef, dodging tiny bubbles.<stop>
 Although it was tired, the old dog still chased the bouncing ball.<stop>
+Although it was tired, the old cat still chased the bouncing ball.<stop>
+Although it was tired, the cat chased the mouse.<stop>
 A sailboat is drifting toward the shore as the wind begins to fade.<stop>
 The man sat quietly on the wooden bench under the shady tree.<stop>
 Because it was raining, the birds hid in the thick branches.<stop>
+Because it was raining, the birds hid in the branches.<stop>
+It was raining, so the birds hid in the branches.<stop>
+It was raining, so the birds hid in the trees.<stop>
 The cat saw the fish in the bowl, but it didn’t make a sound.<stop>
-While the carrot was growing in the garden, a rabbit watched from afar.<stop>
 The dog sat beside the boy, wagging its tail with excitement.<stop>
 A tired seagull landed on the sailboat, then quickly flew away.<stop>
+An old seagull landed on the sailboat, then flew away.<stop>
 Before the sun rose, the birds were already singing in the trees.<stop>
+Before the sun rose, the birds were already singing.<stop>
 The garden was silent, except for a bee buzzing near the carrots.<stop>
 The dog barked again and again until the mailman finally left.<stop>
+The cat meowed again and again until the mailman finally left.<stop>
 Although the cat looked peaceful, it was ready to pounce.<stop>
 A soft breeze moved through the tall grass where the dog was lying.<stop>
 The fish circled in its bowl, unaware of the curious kitten nearby.<stop>
@@ -63,6 +75,9 @@ The cat sat on the mat. Q: Where did the cat sit? A: on the mat.<stop>
 The dog barked loudly. Q: Who barked? A: the dog.<stop>
 The dog barked loudly. Q: How did the dog bark? A: loudly.<stop>
 A fish swam in the sea. Q: What swam in the sea? A: a fish.<stop>
+A shark swam in the sea. Q: What swam in the sea? A: a shark.<stop>
+A shark swam. Q: What swam? A: a shark.<stop>
+A fish swam. Q: What swam? A: a fish.<stop>
 A fish swam in the sea. Q: Where did the fish swim? A: in the sea.<stop>
 Two birds flew overhead. Q: How many birds flew overhead? A: two.<stop>
 Two birds flew overhead. Q: What flew overhead? A: birds.<stop>
@@ -70,14 +85,21 @@ The wind whispered through the trees. Q: What whispered through the trees? A: th
 The man closed his eyes. Q: Who closed his eyes? A: the man.<stop>
 The carrot grew in the garden. Q: Where did the carrot grow? A: in the garden.<stop>
 The carrot grew in the garden. Q: What grew in the garden? A: the carrot.<stop>
+The radish grew in the garden. Q: What grew in the garden? A: the radish.<stop>
+The carrot grew. Q: What grew? A: the carrot.<stop>
+The tomato grew in the garden. Q: What grew in the garden? A: the tomato.<stop>
 The sailboat drifted quietly. Q: What drifted quietly? A: the sailboat.<stop>
 The sailboat drifted quietly. Q: How did the sailboat drift? A: quietly.<stop>
 The dog chased the ball. Q: What did the dog chase? A: the ball.<stop>
 The dog chased the ball. Q: Who chased the ball? A: the dog.<stop>
+The cat chased the ball. Q: Who chased the ball? A: the cat.<stop>
 The cat watched the fish. Q: Who watched the fish? A: the cat.<stop>
 The cat watched the fish. Q: What did the cat watch? A: the fish.<stop>
 A bee buzzed near the flowers. Q: What buzzed near the flowers? A: a bee.<stop>
 A bee buzzed near the flowers. Q: Where did the bee buzz? A: near the flowers.<stop>
+The cat ran across the field. Q: What ran across the field? A: the cat.<stop>
+The dog ran across the field. Q: What ran across the field? A: the dog.<stop>
+The birds flew across the field. Q: What flew across the field? A: the birds.<stop>
 The child ran across the field. Q: Who ran across the field? A: the child.<stop>
 The child ran across the field. Q: Where did the child run? A: across the field.<stop>
 A tired man sat on a bench. Q: What was the man doing? A: sitting on a bench.<stop>
@@ -134,8 +156,12 @@ The wind howled through the trees. Q: What howled through the trees? A: the wind
 The wind howled through the trees. Q: Where did the wind howl? A: through the trees.<stop>
 The cat slept on the windowsill. Q: Who slept on the windowsill? A: the cat.<stop>
 The cat slept on the windowsill. Q: Where did the cat sleep? A: on the windowsill.<stop>
+The teacher wrote on the notebook. Q: Who wrote on the board? A: the teacher.<stop>
 The teacher wrote on the board. Q: Who wrote on the board? A: the teacher.<stop>
 The teacher wrote on the board. Q: What did the teacher write on? A: the board.<stop>
+The teacher wrote on the notebook. Q: What did the teacher write on? A: the notebook.<stop>
+The snow fell quickly. Q: What fell quickly? A: the snow.<stop>
+The snow fell fast. Q: What fell fast? A: the snow.<stop>
 The snow fell quietly. Q: What fell quietly? A: the snow.<stop>
 The snow fell quietly. Q: How did the snow fall? A: quietly.<stop>
 The frog jumped into the pond. Q: What jumped into the pond? A: the frog.<stop>
@@ -144,6 +170,7 @@ The phone rang suddenly. Q: What rang suddenly? A: the phone.<stop>
 The phone rang suddenly. Q: How did the phone ring? A: suddenly.<stop>
 The man closed the door. Q: Who closed the door? A: the man.<stop>
 The man closed the door. Q: What did the man close? A: the door.<stop>
+The birds flew over the hills. Q: What flew over the hills? A: birds.<stop>
 The sun rose over the hills. Q: What rose over the hills? A: the sun.<stop>
 The sun rose over the hills. Q: Where did the sun rise? A: over the hills.<stop>
 The child drew a house. Q: Who drew a house? A: the child.<stop>
@@ -152,12 +179,17 @@ The bird sang in the morning. Q: What sang in the morning? A: the bird.<stop>
 The bird sang in the morning. Q: When did the bird sing? A: in the morning.<stop>
 The boy kicked the ball. Q: Who kicked the ball? A: the boy.<stop>
 The boy kicked the ball. Q: What did the boy kick? A: the ball.<stop>
+Spring arrived late. Q: What arrived late? A: spring.<stop>
+The dog arrived late. Q: What arrived late? A: the dog.<stop>
+The mailman arrived late. Q: What arrived late? A: the mailman.<stop>
 The train arrived late. Q: What arrived late? A: the train.<stop>
 The train arrived late. Q: When did the train arrive? A: late.<stop>
 The children laughed together. Q: Who laughed together? A: the children.<stop>
 The children laughed together. Q: How did the children laugh? A: together.<stop>
+The dog barked at night. Q: What barked at night? A: the dog.<stop>
 The owl hooted at night. Q: What hooted at night? A: the owl.<stop>
 The owl hooted at night. Q: When did the owl hoot? A: at night.<stop>
+The mailman opened the window. Q: Who opened the window? A: the mailman.<stop>
 The man opened the window. Q: Who opened the window? A: the man.<stop>
 The man opened the window. Q: What did the man open? A: the window.<stop>
 The lightning flashed across the sky. Q: What flashed across the sky? A: the lightning.<stop>
@@ -175,16 +207,26 @@ The boat floated on the lake. Q: Where did the boat float? A: on the lake.<stop>
 The flowers bloomed in spring. Q: What bloomed in spring? A: the flowers.<stop>
 The flowers bloomed in spring. Q: When did the flowers bloom? A: in spring.<stop>
 The chef cooked dinner. Q: Who cooked dinner? A: the chef.<stop>
+Dad cooked dinner. Q: Who cooked dinner? A: dad.<stop>
+Mom cooked dinner. Q: Who cooked dinner? A: mom.<stop>
 The chef cooked dinner. Q: What did the chef cook? A: dinner.<stop>
+The chef cooked a chicken. Q: What did the chef cook? A: a chicken.<stop>
+The chef baked cookies. Q: What did the chef bake? A: cookies.<stop>
+The chef baked bread. Q: What did the chef bake? A: bread.<stop>
 The clouds covered the sky. Q: What covered the sky? A: the clouds.<stop>
 The clouds covered the sky. Q: What did the clouds cover? A: the sky.<stop>
 The lion roared loudly. Q: What roared loudly? A: the lion.<stop>
 The lion roared loudly. Q: How did the lion roar? A: loudly.<stop>
 The bee landed on the flower. Q: What landed on the flower? A: the bee.<stop>
 The bee landed on the flower. Q: Where did the bee land? A: on the flower.<stop>
+The bee landed on the leaf. Q: Where did the bee land? A: on the leaf.<stop>
+The bee landed on the flower. Q: On what did the bee land? A: on the flower.<stop>
+The bee landed on the flower. Q: On what did the bee land? A: the flower.<stop>
 The sun warmed the earth. Q: What warmed the earth? A: the sun.<stop>
 The sun warmed the earth. Q: What did the sun warm? A: the earth.<stop>
 The kids built a sandcastle. Q: Who built a sandcastle? A: the kids.<stop>
 The kids built a sandcastle. Q: What did the kids build? A: a sandcastle.<stop>
 The door creaked open. Q: What creaked open? A: the door.<stop>
 The door creaked open. Q: How did the door open? A: creaked.<stop>
+The door creaked open. Q: How did the door open? A: it creaked.<stop>
+The door creaked open. Q: What opened? A: the door.<stop>
