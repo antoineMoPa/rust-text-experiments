@@ -25,7 +25,7 @@ A small experimental Rust project exploring tokenization and training a basic ne
 
 ```bash
 cargo run pretrain_encoder_decoder
-cargo run pretrain
+cargo run train
 cargo run self_test
 cargo run run The cat sat on
 # the mat.
