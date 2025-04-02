@@ -23,12 +23,13 @@ popd
 
 pushd .
 cd level_3/
-sort -R ../level_2/corpus.txt > corpus.1.corpus
-sort -R corpus.txt >> corpus.1.corpus
-sort -R corpus.1.corpus > corpus.corpus
-sort -R corpus.1.corpus >> corpus.corpus
-sort -R corpus.1.corpus >> corpus.corpus
+shuf ../level_2/corpus.txt > corpus.1.corpus
+shuf ../level_2/corpus.txt >> corpus.1.corpus
+shuf ../level_2/corpus.txt >> corpus.1.corpus
+shuf corpus.txt >> corpus.1.corpus
+shuf corpus.1.corpus > corpus.corpus
+shuf corpus.1.corpus >> corpus.corpus
+shuf corpus.1.corpus >> corpus.corpus
+
+du -h corpus.corpus
 popd
-
-
-du -h corpus.txt
