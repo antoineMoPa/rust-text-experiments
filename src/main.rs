@@ -7,9 +7,10 @@ use candle_nn::{VarMap, VarBuilder};
 
 use crate::{
     token_utils::{tokenize, STOP_TOKEN},
-    attention_predictor::{get_device, Model, FILE_PATH}, encoder_decoder::EncoderDecoder
+    attention_predictor::{get_device, Model, FILE_PATH}, encoder_decoder::EncoderDecoder, model_tests::{self_test, qa_test}
 };
 
+mod model_tests;
 mod token_utils;
 mod attention_block;
 mod simple_predictor;
@@ -26,66 +27,6 @@ fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
     handle.read_to_string(&mut content)?;
 
     Ok(content)
-}
-
-fn self_test() -> Result<(), Box<dyn std::error::Error>> {
-    let device = get_device()?;
-    println!("Loading test model");
-    let model = Model::load_from_path("data/model", &device)?;
-
-    let level_file_paths = vec![
-        "data/corpus/level_2/corpus.txt",
-        "data/corpus/level_3/corpus.txt",
-    ];
-
-    for level_file_path in level_file_paths.iter() {
-        let level_file_path = level_file_path;
-
-        let mut file = fs::File::open(level_file_path)?;
-        let mut content: String = String::new();
-        file.read_to_string(&mut content)?;
-
-        let mut match_count = 0;
-        let mut total = 0;
-
-        for line in content.split("\n") {
-            let words: Vec<&str> = line.split(" ").take(3).collect();
-            let expected_completion = line.split(" ").skip(3);
-            let original_input = words.join(" ");
-            let mut input = original_input.clone() + " ";
-
-            let mut buf = String::new();
-            loop {
-                let pred = model.predict_next_token(input.as_str(), &device)?;
-                input = input + pred.as_str();
-
-                buf.push_str(pred.as_str());
-
-                if buf.len() > 50 || pred == "." {
-                    break;
-                }
-            }
-
-            let expected_completion: Vec<&str> = expected_completion.collect();
-            let expected_completion = expected_completion.join(" ").replace("<stop>", "");
-
-            if buf == expected_completion {
-                match_count += 1;
-                println!("'{}' |> '{}' ~ '{}' - match", original_input, buf, expected_completion);
-            }
-            else {
-                println!("'{}' |> '{}' ~ '{}' - no match", original_input, buf, expected_completion);
-            }
-
-            total += 1;
-        }
-
-        let success_rate = match_count as f32 / total as f32;
-
-        println!("corpus {} - matches - {}, total - {}, success rate - {}", level_file_path, match_count, total, success_rate);
-    }
-
-    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -249,6 +190,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+
+    if args[0] == "qa_test" {
+        qa_test()?;
+        return Ok(());
+    }
 
     println!("Please provide a valid command: 'train' or 'run'");
     Ok(())
