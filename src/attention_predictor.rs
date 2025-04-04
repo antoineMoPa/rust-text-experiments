@@ -11,7 +11,7 @@ use crate::token_utils::STOP_TOKEN;
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
-const DOWNSCALE_FACTOR: usize = 4;
+const DOWNSCALE_FACTOR: usize = 3;
 const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 21;

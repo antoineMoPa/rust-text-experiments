@@ -24,8 +24,8 @@ pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
         let mut total = 0;
 
         for line in content.split("\n") {
-            let words: Vec<&str> = line.split(" ").take(3).collect();
-            let expected_completion = line.split(" ").skip(3);
+            let words: Vec<&str> = line.split(" ").take(6).collect();
+            let expected_completion = line.split(" ").skip(6);
             let original_input = words.join(" ");
             let mut input = original_input.clone() + " ";
 
