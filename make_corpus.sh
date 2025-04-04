@@ -27,6 +27,7 @@ shuf ../level_2/corpus.txt > corpus.1.corpus
 shuf ../level_2/corpus.txt >> corpus.1.corpus
 shuf ../level_2/corpus.txt >> corpus.1.corpus
 shuf corpus.txt >> corpus.1.corpus
+./auto_corpus.sh >> corpus.1.corpus
 shuf corpus.1.corpus > corpus.corpus
 shuf corpus.1.corpus >> corpus.corpus
 shuf corpus.1.corpus >> corpus.corpus
