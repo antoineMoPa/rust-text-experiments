@@ -12,12 +12,13 @@ A small experimental Rust project exploring tokenization and training a basic ne
 
 [See doc here](./docs/simple_predictor.md)
 
+
 ## Second model: using LSTM
 
 [See doc here](./docs/lstm_predictor.md)
 
 
-## Third model: Attention
+## Current model: Attention
 
 [See doc here](./docs/attention_predictor.md)
 
