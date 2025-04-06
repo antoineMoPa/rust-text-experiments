@@ -3,8 +3,6 @@ use std::{fs, io::Error, collections::BTreeMap};
 use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
 use nn::{VarMap, Optimizer, VarBuilder};
-#[cfg(test)]
-use nn::ParamsAdamW;
 use colored::Colorize;
 use crate::models::RunStr;
 use crate::token_utils::STOP_TOKEN;
@@ -20,7 +18,7 @@ const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_3/corpus.corpus";
 const LR: f64 = 3.0e-4;
-const EPOCHS: u32 = 100;
+const EPOCHS: u32 = 30;
 const TOKEN_BATCH_SIZE: usize = 128;
 
 // large

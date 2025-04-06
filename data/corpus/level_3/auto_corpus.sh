@@ -20,7 +20,7 @@ for subject in "${subjects[@]}"; do
       question="Who $verb the $object?"
       answer="$subject"
 
-      echo -e "$sentence Q: $question A: the $answer<stop>"
+      echo -e "$sentence Q: $question A: the $answer.<stop>"
     done
   done
 done

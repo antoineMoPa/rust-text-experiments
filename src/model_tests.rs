@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::prelude::*;
 
-use crate::attention_predictor::{get_device, Model};
+use crate::{attention_predictor::{get_device, Model}, token_utils::STOP_TOKEN};
 
 pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
     let device = get_device()?;
@@ -34,11 +34,16 @@ pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
                 let pred = model.predict_next_token(input.as_str(), &device)?;
                 input = input + pred.as_str();
 
-                buf.push_str(pred.as_str());
-
                 if buf.len() > 50 || pred == "." {
+                    buf.push_str(pred.as_str());
                     break;
                 }
+
+                if pred == STOP_TOKEN {
+                    break;
+                }
+
+                buf.push_str(pred.as_str());
             }
 
             let expected_completion: Vec<&str> = expected_completion.collect();
@@ -90,15 +95,20 @@ pub fn qa_test() -> Result<(), Box<dyn std::error::Error>> {
             let pred = model.predict_next_token(&input, &device)?;
             input = input + pred.as_str();
 
-            buf.push_str(pred.as_str());
-
             if buf.len() > 50 || pred == "." {
+                buf.push_str(pred.as_str());
                 break;
             }
+
+            if pred == STOP_TOKEN {
+                break;
+            }
+
+            buf.push_str(pred.as_str());
         }
 
-        let buf = buf.trim().to_lowercase();
-        let answer = answer.trim().to_lowercase();
+        let buf = buf.trim().to_lowercase().replace(".", "");
+        let answer = answer.trim().to_lowercase().replace(".", "");
 
         if buf == answer {
             match_count += 1;
