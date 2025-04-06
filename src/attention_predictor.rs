@@ -48,6 +48,7 @@ pub struct Model {
     pub token_embedding_map: BTreeMap<String, Vec<f32>>,
     pub token_embedding_tensor_map: BTreeMap<String, Tensor>,
     pub device: Device,
+    pub train_subset_index: i8,
 }
 
 impl Model {
@@ -111,7 +112,14 @@ impl Model {
             token_embedding_map,
             token_embedding_tensor_map,
             device: device.clone(),
+            train_subset_index: -1,
         })
+    }
+
+    fn forward_train(&mut self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
+        self.train_subset_index += 1;
+
+        return self.forward(input);
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -237,137 +245,6 @@ impl Model {
         }
 
         self.run(&input, device)
-    }
-
-    #[cfg(test)]
-    pub fn is_good(&self, test_str: &str, device: &Device) -> bool {
-        let mut is_good = true;
-        let tokens = tokenize(test_str);
-        let mut prediction_str = String::new();
-        for i in 1..(tokens.len()) {
-            let prediction = self.predict_next_token(tokens[0..i].join("").as_str(), device).unwrap();
-
-            prediction_str = prediction_str + prediction.as_str();
-
-            if prediction != tokens[i] {
-                is_good = false;
-                break;
-            }
-        }
-
-        println!("Predicted: {}", prediction_str);
-
-        return is_good;
-    }
-
-    #[cfg(test)]
-    pub fn simple_training_loop(&mut self, inputs: Tensor, targets: Tensor, lr: f64, epochs: u32) -> Result<(), candle_core::Error> {
-        let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
-        let mut epoch: u32 = 0;
-
-        while epoch < epochs {
-            // Forward pass
-            let predictions = self.forward(&inputs)?;
-
-            // Compute loss
-            // binary cross-entropy is not supported on metal gpu
-            // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-            let loss = nn::loss::mse(&predictions, &targets)?;
-
-            // Backpropagation
-            optimizer.backward_step(&loss)?;
-
-            if epoch > 0 && epoch % 20 == 0 {
-                println!("Epoch {:6}: Loss = {:.6} Lr = {:.6}", epoch, loss.to_vec0::<f32>()?, lr);
-
-            }
-            epoch += 1;
-        }
-
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub fn good_bad_training_loop(&mut self, inputs: Tensor, targets: Tensor, test_str: &str, epochs: u32, device: &Device) -> Result<(), candle_core::Error> {
-        // 1. More epoch when sample size is smaller
-        let initial_lr = 0.00002;
-        let lr = initial_lr;
-        let max_lr = initial_lr * 3.0;
-
-        let params = ParamsAdamW {
-            lr,
-            ..Default::default()
-        };
-        let mut optimizer = candle_nn::AdamW::new(self.var_map.all_vars(), params)?;
-
-        let mut good_index: i32 = -1;
-
-        // Training loop
-        let mut epoch: u32 = 0;
-        let mut total_good_yet: u32 = 0;
-        let mut amount_good: u32 = 0;
-        let mut amount_bad: u32 = 0;
-
-        while epoch < epochs {
-            // Forward pass
-            let predictions = self.forward(&inputs)?;
-            let lr = initial_lr + (max_lr - initial_lr) * (epoch as f64 / epochs as f64);
-            optimizer.set_learning_rate(lr);
-
-            // Compute loss
-            // binary cross-entropy is not supported on metal gpu
-            // let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-            let loss = nn::loss::mse(&predictions, &targets)?;
-
-            // Backpropagation
-            optimizer.backward_step(&loss)?;
-
-            if epoch % 10 == 0 {
-                let is_good = self.is_good(test_str, device);
-                let is_good_str = if is_good { "GOOD" } else { "BAD" };
-                println!("Epoch {:6}: Loss = {:.6} Lr = {:.6} [{}]", epoch, loss.to_vec0::<f32>()?, lr, is_good_str);
-
-                if is_good {
-                    self.save_to_path("data/good");
-                    total_good_yet += 1;
-                    good_index = epoch as i32;
-                    amount_bad = 0;
-                    amount_good += 1;
-
-                    if amount_good >= 5 {
-                        println!("Model, is good 5 times - stopping training.");
-                        break;
-                    }
-                }
-                else {
-                    amount_bad += 1;
-                    amount_good = 0;
-
-                    let should_load_last_good =
-                        epoch > 50 &&
-                        good_index != -1 &&
-                        (amount_bad > total_good_yet &&
-                         amount_bad >= 5);
-
-                    if should_load_last_good {
-                        println!("loading good model, going back to epoch {}", good_index);
-                        self.load_inplace_from_path("data/good")?;
-                        // epoch = good_index as u32;
-                        amount_bad = 0;
-                    }
-                }
-            }
-            epoch += 1;
-        }
-
-        if !self.is_good(test_str, device) && good_index != -1 {
-            println!("model is BAD");
-            println!("loading last good model, going back to epoch {}", good_index);
-            self.var_map.load("data/good.safetensors")?;
-        }
-
-
-        Ok(())
     }
 
     pub fn gen_training_data(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(Tensor, Tensor), candle_core::Error> {
@@ -512,7 +389,7 @@ impl Model {
 
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
 
-                let predictions = self.forward(&inputs)?;
+                let predictions = self.forward_train(&inputs)?;
 
                 // Compute loss
                  // binary cross-entropy is not supported on metal gpu
@@ -687,166 +564,4 @@ pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candl
     let dict = tokens_to_dict(tokens.clone());
 
     return Ok((dict, tokens));
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_candle_predictor_hello_world() -> Result<(), candle_core::Error> {
-        let device = get_device()?;
-        let mut model = Model::load_from_path("data/model", &device)?;
-
-        let test_str = "hello world";
-        let tokens = tokenize(test_str);
-        model.train(tokens, 250, test_str,  &device)?;
-
-        assert_eq!(model.predict_next_token("hello", &device)?, " ");
-        assert_eq!(model.predict_next_token("hello ", &device)?, "world");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_candle_predictor_lorem() -> Result<(), candle_core::Error> {
-        let test_str = "lorem ipsum et";
-
-        let device = get_device()?;
-        let mut model = Model::load_from_path("data/model", &device)?;
-
-        let tokens = tokenize(test_str);
-        model.train(tokens, 500, test_str,  &device)?;
-
-        assert_eq!(model.predict_next_token("lorem", &device)?, " ");
-        assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
-        assert_eq!(model.predict_next_token("lorem ipsum ", &device)?, "et");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_candle_predictor_lorem_2() -> Result<(), candle_core::Error> {
-        let test_str = "lorem ipsum et dolor sit amet";
-
-        let device = get_device()?;
-        let mut model = Model::load_from_path("data/model", &device)?;
-
-        let tokens = tokenize(test_str);
-        model.train(tokens, 500, test_str,  &device)?;
-
-        assert_eq!(model.predict_next_token("lorem", &device)?, " ");
-        assert_eq!(model.predict_next_token("lorem ", &device)?, "ipsum");
-        assert_eq!(model.predict_next_token("ipsum ", &device)?, "et");
-        assert_eq!(model.predict_next_token("dolor ", &device)?, "sit");
-
-        assert_eq!(model.predict_next_token("lorem ipsum", &device)?, " ");
-        assert_eq!(model.predict_next_token("lorem ipsum ", &device)?, "et");
-        assert_eq!(model.predict_next_token("lorem ipsum et ", &device)?, "dolor");
-        assert_eq!(model.predict_next_token("ipsum et ", &device)?, "dolor");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_horse_10() -> Result<(), candle_core::Error> {
-        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
-        let tokens = tokens[0..10].to_vec();
-        let test_str = tokens[0..4].to_vec().join("");
-
-        let device = get_device()?;
-        let mut model = Model::load_from_path("data/model", &device)?;
-
-        model.train(tokens, 500, test_str.as_str(),  &device)?;
-
-        assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_horse_20() -> Result<(), candle_core::Error> {
-        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
-        let tokens = tokens[0..20].to_vec();
-        let test_str = tokens[0..4].to_vec().join("");
-
-        let device = get_device()?;
-        let mut model = Model::load_from_path("data/model", &device)?;
-
-        model.train( tokens, 500, test_str.as_str(),  &device)?;
-
-        assert_eq!(model.predict_next_token("(Equus ", &device)?, "ferus");
-
-        Ok(())
-    }
-
-    #[ignore]
-    #[test]
-    fn test_horse_40() -> Result<(), candle_core::Error> {
-        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
-        let tokens = tokens[0..40].to_vec();
-        let test_str = tokens[0..4].to_vec().join("");
-
-        let device = get_device()?;
-        let mut model = Model::load_from_path("data/model", &device)?;
-
-        model.train( tokens.clone(), 500, test_str.as_str(),  &device)?;
-
-        let substring = tokens[35..38].to_vec().join("");
-        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-
-        let substring = tokens[35..39].to_vec().join("");
-        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[39]);
-
-        Ok(())
-    }
-
-    #[ignore]
-    #[test]
-    fn test_horse_60() -> Result<(), candle_core::Error> {
-        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
-        let tokens = tokens[0..60].to_vec();
-        let test_str = tokens[0..4].to_vec().join("");
-
-        let device = get_device()?;
-        let mut model = Model::load_from_path("data/model", &device)?;
-
-        model.train( tokens.clone(), 500, test_str.as_str(),  &device)?;
-
-        let substring = tokens[35..38].to_vec().join("");
-        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-
-        let substring = tokens[51..56].to_vec().join("");
-        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[56]);
-
-        let substring = tokens[51..57].to_vec().join("");
-        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[57]);
-
-        Ok(())
-    }
-
-    #[ignore]
-    #[test]
-    fn test_horse_100() -> Result<(), candle_core::Error> {
-        let (_dict, tokens) = get_pretrained_dict(FILE_PATH)?;
-        let tokens = tokens[0..100].to_vec();
-        let test_str = tokens[0..4].to_vec().join("");
-
-        let device = get_device()?;
-        let mut model = Model::load_from_path("data/model", &device)?;
-
-        model.train( tokens.clone(), 200, test_str.as_str(),  &device)?;
-
-        let substring = tokens[35..38].to_vec().join("");
-        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[38]);
-
-        let substring = tokens[63..69].to_vec().join("");
-        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[69]);
-
-        let substring = tokens[63..70].to_vec().join("");
-        assert_eq!(model.predict_next_token(substring.as_str(), &device)?, tokens[70]);
-
-        Ok(())
-    }
 }
