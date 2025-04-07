@@ -115,7 +115,7 @@ impl Model {
     }
 
     fn forward_train(&mut self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        self.train_subset_index += 1;
+        self.train_subset_index = (self.train_subset_index + 1) % 2;
 
         return self.forward(input);
     }
