@@ -9,7 +9,7 @@ use crate::token_utils::STOP_TOKEN;
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
 
 // smoll
-const DOWNSCALE_FACTOR: usize = 3;
+const DOWNSCALE_FACTOR: usize = 2;
 const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 21;
@@ -18,8 +18,9 @@ const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "data/corpus/level_3/corpus.corpus";
 const LR: f64 = 3.0e-4;
-const EPOCHS: u32 = 30;
+const EPOCHS: u32 = 60;
 const TOKEN_BATCH_SIZE: usize = 128;
+pub const TRAINING_SUBSETS: i8 = 3; // we have 21 attention head - training 7 at the time
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -115,7 +116,7 @@ impl Model {
     }
 
     fn forward_train(&mut self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        self.train_subset_index = (self.train_subset_index + 1) % 2;
+        self.train_subset_index = (self.train_subset_index + 1) % TRAINING_SUBSETS;
 
         return self.forward(input);
     }
@@ -125,7 +126,7 @@ impl Model {
         let downscaled_input = result.clone();
 
         for block in self.blocks.iter() {
-            result = block.forward(&result)?.tanh()?;
+            result = block.forward(&result, self.train_subset_index)?.tanh()?;
         }
 
         if result.sum_all()?.to_vec0::<f32>()?.is_nan() {

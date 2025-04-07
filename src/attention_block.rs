@@ -2,6 +2,8 @@ use candle_core::{Tensor, D};
 use candle_nn::{self as nn, Module};
 use nn::VarBuilder;
 
+use crate::attention_predictor::TRAINING_SUBSETS;
+
 pub struct AttentionBlock {
     pub linear: Vec<nn::Linear>,
     pub qs: Vec<nn::Linear>,
@@ -77,7 +79,7 @@ impl AttentionBlock {
         return Ok(encoding);
     }
 
-    pub fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
+    pub fn forward(&self, input: &Tensor, train_subset_index: i8) -> Result<Tensor, candle_core::Error> {
         let input = (self.position_encoding(input)? + input)?;
         let input = nn::ops::dropout(&input, 0.2)?;
 
@@ -109,7 +111,15 @@ impl AttentionBlock {
 
             let result = (((result * 0.4)? + portions.clone())? * 0.15)?;
 
-            results.push(result);
+            let subset_size: i8 = self.config.num_attention_heads as i8 / TRAINING_SUBSETS;
+            let current_subset_index = i as i8 / subset_size;
+
+            if current_subset_index == train_subset_index {
+                results.push(result);
+            } else {
+                let result = result.detach();
+                results.push(result);
+            }
         }
 
         let result = Tensor::cat(&results, D::Minus1)?;
