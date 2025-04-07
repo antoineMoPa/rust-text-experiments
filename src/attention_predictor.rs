@@ -110,7 +110,7 @@ impl Model {
             token_embedding_map,
             token_embedding_tensor_map,
             device: device.clone(),
-            train_subset_index: -1,
+            train_subset_index: 0,
         })
     }
 
