@@ -309,16 +309,6 @@ impl Model {
         return Ok((inputs, targets));
     }
 
-    #[cfg(test)]
-    pub fn train(&mut self, tokens_chain: Vec<String>, epochs: u32, test_str: &str, device: &Device) -> Result<(), candle_core::Error> {
-
-        let (inputs, targets) = self.gen_training_data(tokens_chain, device)?;
-
-        self.good_bad_training_loop(inputs, targets, test_str, epochs, device)?;
-
-        Ok(())
-    }
-
     pub fn tensor_to_token(&self, tensor: &Tensor) -> Result<String, candle_core::Error> {
         let output = self.encdec.unembed(&tensor)?;
 
@@ -472,21 +462,6 @@ impl Model {
         model.var_map.load(var_map_path.as_str()).unwrap();
 
         Ok(model)
-    }
-
-    #[cfg(test)]
-    pub fn load_inplace_from_path(&mut self, path: &str) -> Result<(), Error> {
-        let dict_path = format!("{}.dict", path);
-        let file = fs::File::open(dict_path).unwrap();
-        let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
-
-        let dict = tokens_to_dict(dict_words);
-        self.encdec.dict = dict;
-
-        let var_map_path = format!("{}.safetensors", path);
-        self.var_map.load(var_map_path.as_str()).unwrap();
-
-        Ok(())
     }
 }
 
