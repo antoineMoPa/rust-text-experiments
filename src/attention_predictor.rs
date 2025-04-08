@@ -253,11 +253,6 @@ impl Model {
         // pad token chain with context window zeros
         let tokens_chain = tokens_chain.clone();
 
-        for _ in 0..CONTEXT_WINDOW {
-            //padding.push(" ".to_string());
-            //tokens_chain.insert(0, " ".to_string());
-        }
-
         // iterate over tokens_chain
         for index in 0..(tokens_chain.len()) {
             let target_token = tokens_chain[index].clone();
@@ -381,7 +376,7 @@ impl Model {
                 let predictions = self.forward_train(&inputs)?;
 
                 // Compute loss
-                 // binary cross-entropy is not supported on metal gpu
+                // binary cross-entropy is not supported on metal gpu
                 //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
                 let loss = nn::loss::mse(&predictions, &targets)?;
                 let batch_size = end - start;
