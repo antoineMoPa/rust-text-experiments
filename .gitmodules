@@ -1,0 +1,3 @@
+[submodule "common-corpus"]
+	path = common-corpus
+	url = git@github.com:antoineMoPa/common-corpus.git
