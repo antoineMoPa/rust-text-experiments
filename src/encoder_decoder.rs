@@ -405,7 +405,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_encoder_decoder_level0() -> Result<(), candle_core::Error> {
-        let level_file_path = "data/corpus/level_2/corpus.corpus";
+        let level_file_path = "common-corpus/level_2/corpus.corpus";
         let mut file = fs::File::open(level_file_path)?;
         let mut content: String = String::new();
         file.read_to_string(&mut content)?;

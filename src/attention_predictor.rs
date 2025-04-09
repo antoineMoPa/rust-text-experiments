@@ -16,7 +16,7 @@ const NUM_ATTENTION_HEADS: usize = 21;
 const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
-pub const FILE_PATH: &str = "data/corpus/level_3/corpus.corpus";
+pub const FILE_PATH: &str = "common-corpus/level_3/corpus.corpus";
 const LR: f64 = 3.0e-4;
 const EPOCHS: u32 = 60;
 const TOKEN_BATCH_SIZE: usize = 128;
@@ -30,7 +30,7 @@ pub const TRAINING_SUBSETS: i8 = 3; // we have 21 attention head - training 7 at
 // const HIDDEN_SIZE: usize = 4096;
 // const NUM_BLOCKS: usize = 10;
 // pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
-// const FILE_PATH: &str = "data/corpus/blogtext.csv";
+// const FILE_PATH: &str = "common-corpus/blogtext.csv";
 
 
 const NOT_FOUND: &str = "<notfound>";

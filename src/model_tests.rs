@@ -9,8 +9,8 @@ pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
     let model = Model::load_from_path("data/model", &device)?;
 
     let level_file_paths = vec![
-        "data/corpus/level_2/corpus.txt",
-        "data/corpus/level_3/corpus.txt",
+        "common-corpus/level_2/corpus.txt",
+        "common-corpus/level_3/corpus.txt",
     ];
 
     for level_file_path in level_file_paths.iter() {
@@ -74,7 +74,7 @@ pub fn qa_test() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading test model");
     let model = Model::load_from_path("data/model", &device)?;
 
-    let file_path = "data/corpus/level_3/qa.txt";
+    let file_path = "common-corpus/level_3/qa.txt";
     let mut file = fs::File::open(file_path)?;
     let mut content: String = String::new();
     file.read_to_string(&mut content)?;
