@@ -81,7 +81,7 @@ impl AttentionBlock {
 
     pub fn forward(&self, input: &Tensor, train_subset_index: i8) -> Result<Tensor, candle_core::Error> {
         let input = (self.position_encoding(input)? + input)?;
-        let input = nn::ops::dropout(&input, 0.1)?;
+        //let input = nn::ops::dropout(&input, 0.01?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
