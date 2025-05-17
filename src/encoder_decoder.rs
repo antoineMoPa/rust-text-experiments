@@ -60,6 +60,7 @@ impl EncoderDecoder {
         return Ok(vec);
 
     }
+    
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let result = self.fc1.forward(&input)?;
         let result = nn::ops::dropout(&result, 0.3)?;
