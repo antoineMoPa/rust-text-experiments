@@ -400,9 +400,15 @@ impl Model {
                 }
 
                 optimizer.step()?;
+
+                if j % 50 == 0 {
+                    print!("\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6}", epoch, epochs, j, num_batches, loss_stat);
+                    use std::io::Write;
+                    std::io::stdout().flush().ok();
+                }
             }
 
-            println!("Epoch {:6}/{:6} : Loss = {:.6}", epoch, epochs, loss_stat);
+            println!("\rEpoch {:6}/{:6} : Loss = {:.6}              ", epoch, epochs, loss_stat);
             let prediction = self.run_str("Two birds", 15)?;
             let prediction = prediction.replace("\n", "_");
             print!("The birds|>{:.40}", prediction);
