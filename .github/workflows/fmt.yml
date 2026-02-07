@@ -1,0 +1,15 @@
+name: Rust Format Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt -- --check
