@@ -1,13 +1,18 @@
-use std::{fs, io::Error, collections::BTreeMap};
+use std::{collections::BTreeMap, fs, io::Error};
 
-use candle_core::{Device, Tensor, DType, D};
-use candle_nn::{self as nn, Module};
-use nn::{VarMap, VarBuilder};
-use colored::Colorize;
+use crate::grad_accum::AccumAdamW;
 use crate::models::RunStr;
 use crate::token_utils::STOP_TOKEN;
-use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
-use crate::grad_accum::AccumAdamW;
+use crate::{
+    attention_block::{AttentionBlock, AttentionBlockConfig},
+    encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE},
+    read_n_chars,
+    token_utils::{tokenize, tokens_to_dict, Dict},
+};
+use candle_core::{DType, Device, Tensor, D};
+use candle_nn::{self as nn, Module};
+use colored::Colorize;
+use nn::{VarBuilder, VarMap};
 
 // smoll
 const DOWNSCALE_FACTOR: usize = 3;
@@ -34,7 +39,6 @@ const MICRO_BATCH_SIZE: usize = 16;
 // pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
 // const FILE_PATH: &str = "common-corpus/blogtext.csv";
 
-
 const NOT_FOUND: &str = "<notfound>";
 
 pub struct Model {
@@ -53,17 +57,27 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn new(var_map: VarMap, vb: VarBuilder, device: &Device) -> Result<Self, candle_core::Error> {
+    pub fn new(
+        var_map: VarMap,
+        vb: VarBuilder,
+        device: &Device,
+    ) -> Result<Self, candle_core::Error> {
         if EMBEDDING_SIZE % NUM_ATTENTION_HEADS != 0 {
             // List out possible num attention heads
             for i in 1..(EMBEDDING_SIZE / 2) {
                 if EMBEDDING_SIZE % i == 0 {
-                    println!("Possible num attention heads for this embedding size: {}", i);
+                    println!(
+                        "Possible num attention heads for this embedding size: {}",
+                        i
+                    );
                 }
             }
             // List out possible embeddding size
             for i in 1..10 {
-                println!("Possible embedding size for this num attention heads: {}", i * NUM_ATTENTION_HEADS);
+                println!(
+                    "Possible embedding size for this num attention heads: {}",
+                    i * NUM_ATTENTION_HEADS
+                );
             }
 
             panic!("The embedding size should be divisible by the number of attention heads!");
@@ -84,8 +98,18 @@ impl Model {
             blocks.push(block);
         }
 
-        let downscaler = nn::linear_b(INPUT_SIZE, INPUT_SIZE / DOWNSCALE_FACTOR, true, vb.pp("downscaler"))?;
-        let fc1 = nn::linear_b(INPUT_SIZE / DOWNSCALE_FACTOR, HIDDEN_SIZE, true, vb.pp("fc1"))?;
+        let downscaler = nn::linear_b(
+            INPUT_SIZE,
+            INPUT_SIZE / DOWNSCALE_FACTOR,
+            true,
+            vb.pp("downscaler"),
+        )?;
+        let fc1 = nn::linear_b(
+            INPUT_SIZE / DOWNSCALE_FACTOR,
+            HIDDEN_SIZE,
+            true,
+            vb.pp("fc1"),
+        )?;
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
         let fc4 = nn::linear_b(EMBEDDING_SIZE, EMBEDDING_SIZE, true, vb.pp("fc4"))?;
@@ -93,16 +117,29 @@ impl Model {
         let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
 
         let token_embedding_map: BTreeMap<String, Vec<f32>> = encdec.build_token_embedding_map()?;
-        let token_embedding_tensor_map: BTreeMap<String, Tensor> = encdec.build_token_embedding_tensor_map()?;
+        let token_embedding_tensor_map: BTreeMap<String, Tensor> =
+            encdec.build_token_embedding_tensor_map()?;
 
         // Print the following info in
-        println!("Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR");
-        let output = format!("{}, {}, {}, {}, {}, {}, {}, {}, {}", encdec.dict.len(), EMBEDDING_SIZE, CONTEXT_WINDOW, EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR, TOKEN_BATCH_SIZE);
+        println!(
+            "Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR"
+        );
+        let output = format!(
+            "{}, {}, {}, {}, {}, {}, {}, {}, {}",
+            encdec.dict.len(),
+            EMBEDDING_SIZE,
+            CONTEXT_WINDOW,
+            EPOCHS,
+            HIDDEN_SIZE,
+            NUM_BLOCKS,
+            NUM_ATTENTION_HEADS,
+            LR,
+            TOKEN_BATCH_SIZE
+        );
         println!("{}", output.on_white().black());
 
-
         Ok(Self {
-	    downscaler,
+            downscaler,
             fc1,
             fc2,
             fc3,
@@ -195,7 +232,11 @@ impl Model {
         return Ok(result);
     }
 
-    pub fn run(&self, input_embedding: &Vec<Vec<f32>>, device: &Device) -> Result<String, candle_core::Error> {
+    pub fn run(
+        &self,
+        input_embedding: &Vec<Vec<f32>>,
+        device: &Device,
+    ) -> Result<String, candle_core::Error> {
         let mut input: Vec<f32> = Vec::new();
 
         if input_embedding.len() > CONTEXT_WINDOW {
@@ -203,8 +244,7 @@ impl Model {
             let start = input_embedding.len() - CONTEXT_WINDOW;
             let end = start + CONTEXT_WINDOW;
             input.append(&mut input_embedding[start..end].to_vec().concat());
-        }
-        else {
+        } else {
             // pad with zeros
             input = vec![0.0; (CONTEXT_WINDOW - input_embedding.len()) * EMBEDDING_SIZE as usize];
             input.append(&mut input_embedding.to_vec().concat());
@@ -226,7 +266,11 @@ impl Model {
         return Ok(max_token.0.clone());
     }
 
-    pub fn predict_next_token(&self, input: &str, device: &Device) -> Result<String, candle_core::Error> {
+    pub fn predict_next_token(
+        &self,
+        input: &str,
+        device: &Device,
+    ) -> Result<String, candle_core::Error> {
         let tokens = tokenize(&input);
         let mut input: Vec<Vec<f32>> = Vec::new();
 
@@ -235,14 +279,18 @@ impl Model {
                 Some(embedding) => input.push(embedding.clone()),
                 None => {
                     input.push(self.token_embedding_map.get(NOT_FOUND).unwrap().clone());
-                },
+                }
             }
         }
 
         self.run(&input, device)
     }
 
-    pub fn gen_training_data(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(Tensor, Tensor), candle_core::Error> {
+    pub fn gen_training_data(
+        &mut self,
+        tokens_chain: Vec<String>,
+        device: &Device,
+    ) -> Result<(Tensor, Tensor), candle_core::Error> {
         let mut inputs: Vec<Tensor> = Vec::new();
         let mut targets: Vec<Tensor> = Vec::new();
 
@@ -262,7 +310,7 @@ impl Model {
                 input_tokens = tokens_chain[0..index].to_vec();
                 let mut padding: Vec<String> = Vec::new();
 
-                for _i in 0..CONTEXT_WINDOW-index {
+                for _i in 0..CONTEXT_WINDOW - index {
                     padding.push(String::from(" "));
                 }
 
@@ -274,8 +322,10 @@ impl Model {
             // debug input and output
             // println!("input: {:?}, output: {:?}", input_tokens, target_token);
 
-            let input: Vec<f32> = input_tokens.iter().flat_map(|token| self.token_embedding_map.get(token).unwrap().to_vec()).collect();
-
+            let input: Vec<f32> = input_tokens
+                .iter()
+                .flat_map(|token| self.token_embedding_map.get(token).unwrap().to_vec())
+                .collect();
 
             let input = Tensor::new(input, &device)?;
             let target = self.token_embedding_tensor_map.get(target_token.as_str());
@@ -283,13 +333,16 @@ impl Model {
                 Some(t) => t.clone(),
                 None => {
                     println!("Token not found: {}", target_token);
-                    self.token_embedding_tensor_map.get(NOT_FOUND).unwrap().clone()
-                },
+                    self.token_embedding_tensor_map
+                        .get(NOT_FOUND)
+                        .unwrap()
+                        .clone()
+                }
             };
 
             // Add some noise to input
             let input_shape = input.shape().clone();
-            let input = (input + Tensor::randn( 0.0 as f32, 0.00625 as f32, input_shape, device)?)?;
+            let input = (input + Tensor::randn(0.0 as f32, 0.00625 as f32, input_shape, device)?)?;
 
             inputs.push(input);
             targets.push(target.squeeze(0)?);
@@ -314,12 +367,14 @@ impl Model {
         return Ok(max_token.0.clone());
     }
 
-    pub fn tensors_to_tokens(&self, tokens: &Vec<Tensor>) -> Result<Vec<String>, candle_core::Error> {
-        Ok(tokens.into_iter()
-            .map(
-                | t:& Tensor |
-                self.tensor_to_token(&t.unsqueeze(0).unwrap()).unwrap()
-            ).collect())
+    pub fn tensors_to_tokens(
+        &self,
+        tokens: &Vec<Tensor>,
+    ) -> Result<Vec<String>, candle_core::Error> {
+        Ok(tokens
+            .into_iter()
+            .map(|t: &Tensor| self.tensor_to_token(&t.unsqueeze(0).unwrap()).unwrap())
+            .collect())
     }
 
     pub fn crash_dump(&self, inputs: Tensor, targets: Tensor) -> Result<(), candle_core::Error> {
@@ -332,7 +387,6 @@ impl Model {
 
         let inputs = inputs.chunk(batch_size, 0)?;
         let targets = targets.chunk(batch_size, 0)?;
-
 
         for i in 0..batch_size {
             let input = inputs[i].squeeze(0)?.chunk(CONTEXT_WINDOW, 0)?;
@@ -347,7 +401,11 @@ impl Model {
         return Ok(());
     }
 
-    pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
+    pub fn simple_train(
+        &mut self,
+        tokens_chain: Vec<String>,
+        device: &Device,
+    ) -> Result<(), candle_core::Error> {
         let token_batch_size = TOKEN_BATCH_SIZE;
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
@@ -402,13 +460,19 @@ impl Model {
                 optimizer.step()?;
 
                 if j % 50 == 0 {
-                    print!("\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6}", epoch, epochs, j, num_batches, loss_stat);
+                    print!(
+                        "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6}",
+                        epoch, epochs, j, num_batches, loss_stat
+                    );
                     use std::io::Write;
                     std::io::stdout().flush().ok();
                 }
             }
 
-            println!("\rEpoch {:6}/{:6} : Loss = {:.6}              ", epoch, epochs, loss_stat);
+            println!(
+                "\rEpoch {:6}/{:6} : Loss = {:.6}              ",
+                epoch, epochs, loss_stat
+            );
             let prediction = self.run_str("Two birds", 15)?;
             let prediction = prediction.replace("\n", "_");
             print!("The birds|>{:.40}", prediction);
@@ -448,7 +512,10 @@ impl Model {
             let max = var.max_all()?.to_vec0::<f32>()?;
             let mean = var.mean_all()?.to_vec0::<f32>()?;
             let variance = var.flatten_all()?.var(D::Minus1)?.to_vec0::<f32>()?;
-            println!("{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3}", "", min, max, mean, variance);
+            println!(
+                "{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3}",
+                "", min, max, mean, variance
+            );
         }
 
         Ok(())
@@ -458,7 +525,12 @@ impl Model {
         let var_map_path = format!("{}.safetensors", path);
         self.var_map.save(var_map_path.as_str()).unwrap();
 
-        let dict_words = self.encdec.dict.iter().map(|(word, _)| word.clone()).collect::<Vec<String>>();
+        let dict_words = self
+            .encdec
+            .dict
+            .iter()
+            .map(|(word, _)| word.clone())
+            .collect::<Vec<String>>();
 
         let dict_path = format!("{}.dict", path);
         let file = fs::File::create(dict_path).unwrap();
@@ -466,7 +538,6 @@ impl Model {
     }
 
     pub fn load_from_path(path: &str, device: &Device) -> Result<Self, Error> {
-
         let mut model = create_model(device).unwrap();
 
         let var_map_path = format!("{}.safetensors", path);

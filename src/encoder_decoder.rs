@@ -1,13 +1,13 @@
-use std::collections::BTreeMap;
-use std::fs;
 use candle_core::{Device, Tensor, D};
 use candle_nn::VarMap;
 use candle_nn::{self as nn, Module};
-use nn::{VarBuilder, AdamW, Optimizer};
 use nn::encoding::one_hot;
+use nn::{AdamW, Optimizer, VarBuilder};
+use std::collections::BTreeMap;
+use std::fs;
 
 use crate::attention_predictor::{get_pretrained_dict, FILE_PATH};
-use crate::token_utils::{Dict, GetTokenEmbedding, tokens_to_dict};
+use crate::token_utils::{tokens_to_dict, Dict, GetTokenEmbedding};
 
 pub const EMBEDDING_SIZE: usize = 252;
 
@@ -22,7 +22,12 @@ pub struct EncoderDecoder {
 }
 
 impl EncoderDecoder {
-    pub fn new(dict: Dict, var_map: VarMap, vb: VarBuilder, device: &Device) -> Result<Self, candle_core::Error> {
+    pub fn new(
+        dict: Dict,
+        var_map: VarMap,
+        vb: VarBuilder,
+        device: &Device,
+    ) -> Result<Self, candle_core::Error> {
         let hidden_size = EMBEDDING_SIZE;
 
         let fc1 = nn::linear_b(dict.len(), hidden_size, false, vb.pp("fc1"))?;
@@ -32,7 +37,15 @@ impl EncoderDecoder {
 
         let token_index = dict.build_index();
 
-        Ok(Self { fc1, fc2, fc3, dict, var_map, token_index, device})
+        Ok(Self {
+            fc1,
+            fc2,
+            fc3,
+            dict,
+            var_map,
+            token_index,
+            device,
+        })
     }
 
     pub fn get_token_embedding(&self, token: &str) -> Result<Tensor, candle_core::Error> {
@@ -58,9 +71,8 @@ impl EncoderDecoder {
         let vec = result.to_vec1::<f32>()?;
 
         return Ok(vec);
-
     }
-    
+
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let result = self.fc1.forward(&input)?;
         let result = nn::ops::dropout(&result, 0.3)?;
@@ -88,7 +100,12 @@ impl EncoderDecoder {
     pub fn token_to_tensor(&self, input: &str) -> Result<Tensor, candle_core::Error> {
         let token_index = *self.token_index.get(input).unwrap();
         let arr = vec![token_index as u32];
-        let input = one_hot(Tensor::new(arr, &self.device)?, self.dict.len(), 1.0 as f32, 0.0 as f32)?;
+        let input = one_hot(
+            Tensor::new(arr, &self.device)?,
+            self.dict.len(),
+            1.0 as f32,
+            0.0 as f32,
+        )?;
 
         return Ok(input);
     }
@@ -104,7 +121,8 @@ impl EncoderDecoder {
             for i in 0..last_batch {
                 let mut inputs = Vec::new();
 
-                for (token, _token_index) in self.dict.iter().skip(i*batch_size).take(batch_size) {
+                for (token, _token_index) in self.dict.iter().skip(i * batch_size).take(batch_size)
+                {
                     let input = self.token_to_tensor(token)?;
 
                     inputs.push(input);
@@ -126,7 +144,13 @@ impl EncoderDecoder {
                 optimizer.backward_step(&loss)?;
 
                 if epoch % 10 == 0 {
-                    println!("Epoch {:6}: Loss = {:.6} {}/{}", epoch, loss.to_vec0::<f32>()?, i, last_batch);
+                    println!(
+                        "Epoch {:6}: Loss = {:.6} {}/{}",
+                        epoch,
+                        loss.to_vec0::<f32>()?,
+                        i,
+                        last_batch
+                    );
                     self.evaluate()?;
                 }
             }
@@ -147,7 +171,7 @@ impl EncoderDecoder {
         let last_batch = tokens.len() / batch_size + 1;
         let epochs = 10;
         for epoch in 0..epochs {
-            for i in 0..(last_batch+1) {
+            for i in 0..(last_batch + 1) {
                 let mut inputs = Vec::new();
                 let start = i * batch_size + 1;
                 let end = (start + batch_size).min(tokens.len()) - 1;
@@ -169,9 +193,9 @@ impl EncoderDecoder {
                 };
 
                 for w in start..end {
-                    let previous_token = tokens[w-1].clone();
+                    let previous_token = tokens[w - 1].clone();
                     let token = tokens[w].clone();
-                    let next_token = tokens[w+1].clone();
+                    let next_token = tokens[w + 1].clone();
 
                     let previous = self.token_to_tensor(previous_token.as_str())? * f;
                     let input = self.token_to_tensor(token.as_str())?;
@@ -198,7 +222,15 @@ impl EncoderDecoder {
                 optimizer.backward_step(&loss)?;
 
                 if i % 10 == 0 {
-                    print!("Epoch {:3}/{:3} Batch {:4}/{:4}: Loss = {:.6} f = {:.2} -    ", epoch, epochs, i, last_batch, loss.to_vec0::<f32>()?, f);
+                    print!(
+                        "Epoch {:3}/{:3} Batch {:4}/{:4}: Loss = {:.6} f = {:.2} -    ",
+                        epoch,
+                        epochs,
+                        i,
+                        last_batch,
+                        loss.to_vec0::<f32>()?,
+                        f
+                    );
                     self.evaluate()?;
                 }
             }
@@ -245,7 +277,11 @@ impl EncoderDecoder {
         let var_map_path = format!("{}.safetensors", path);
         self.var_map.save(var_map_path.as_str()).unwrap();
 
-        let dict_words = self.dict.iter().map(|(word, _)| word.clone()).collect::<Vec<String>>();
+        let dict_words = self
+            .dict
+            .iter()
+            .map(|(word, _)| word.clone())
+            .collect::<Vec<String>>();
 
         let dict_path = format!("{}.dict", path);
         let file = fs::File::create(dict_path).unwrap();
@@ -277,16 +313,23 @@ impl EncoderDecoder {
                 Device::Metal(m) => m,
                 _ => panic!("Device is not Metal"),
             };
-        return Ok(device);
+            return Ok(device);
         } else {
             return Device::new_cuda(0);
         }
     }
 
-    pub fn build_token_embedding_map(&self) -> Result<BTreeMap<String, Vec<f32>>, candle_core::Error> {
+    pub fn build_token_embedding_map(
+        &self,
+    ) -> Result<BTreeMap<String, Vec<f32>>, candle_core::Error> {
         let mut token_embedding_map: BTreeMap<String, Vec<f32>> = BTreeMap::new();
         let tokens_chain: Vec<String> = self.dict.keys().cloned().collect();
-        let unique_tokens: Vec<String> = tokens_chain.iter().cloned().collect::<std::collections::HashSet<String>>().into_iter().collect();
+        let unique_tokens: Vec<String> = tokens_chain
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashSet<String>>()
+            .into_iter()
+            .collect();
         for token in unique_tokens {
             let token_embedding = self.get_token_embedding_vec(token.as_str())?;
             token_embedding_map.insert(token, token_embedding);
@@ -295,10 +338,17 @@ impl EncoderDecoder {
         return Ok(token_embedding_map);
     }
 
-    pub fn build_token_embedding_tensor_map(&self) -> Result<BTreeMap<String, Tensor>, candle_core::Error> {
+    pub fn build_token_embedding_tensor_map(
+        &self,
+    ) -> Result<BTreeMap<String, Tensor>, candle_core::Error> {
         let mut token_embedding_map: BTreeMap<String, Tensor> = BTreeMap::new();
         let tokens_chain: Vec<String> = self.dict.keys().cloned().collect();
-        let unique_tokens: Vec<String> = tokens_chain.iter().cloned().collect::<std::collections::HashSet<String>>().into_iter().collect();
+        let unique_tokens: Vec<String> = tokens_chain
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashSet<String>>()
+            .into_iter()
+            .collect();
         for token in unique_tokens {
             let token_embedding = self.get_token_embedding(token.as_str())?;
             token_embedding_map.insert(token, token_embedding);
@@ -320,7 +370,10 @@ impl EncoderDecoder {
             let abs_min = var.abs()?.min_all()?.to_vec0::<f32>()?;
             let abs_max = var.abs()?.max_all()?.to_vec0::<f32>()?;
 
-            println!("min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3} abs_min: {:.4} abs_max: {:.4}", min, max, mean, variance, abs_min, abs_max);
+            println!(
+                "min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3} abs_min: {:.4} abs_max: {:.4}",
+                min, max, mean, variance, abs_min, abs_max
+            );
         }
 
         Ok(())
@@ -335,7 +388,6 @@ impl EncoderDecoder {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -383,7 +435,6 @@ mod tests {
 
         Ok(())
     }
-
 
     #[test]
     fn test_encoder_decoder_corpus_training() -> Result<(), candle_core::Error> {

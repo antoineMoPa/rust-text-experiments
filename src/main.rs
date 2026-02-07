@@ -3,20 +3,22 @@ use std::io::prelude::*;
 
 use attention_predictor::{create_model, get_pretrained_dict};
 use candle_core::Var;
-use candle_nn::{VarMap, VarBuilder};
+use candle_nn::{VarBuilder, VarMap};
 
 use crate::{
+    attention_predictor::{get_device, Model, FILE_PATH},
+    encoder_decoder::EncoderDecoder,
+    model_tests::{qa_test, self_test},
     token_utils::{tokenize, STOP_TOKEN},
-    attention_predictor::{get_device, Model, FILE_PATH}, encoder_decoder::EncoderDecoder, model_tests::{self_test, qa_test}
 };
 
-mod model_tests;
-mod token_utils;
 mod attention_block;
-mod encoder_decoder;
 mod attention_predictor;
-mod models;
+mod encoder_decoder;
 mod grad_accum;
+mod model_tests;
+mod models;
+mod token_utils;
 
 fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
     let file = fs::File::open(file_path)?;
@@ -29,7 +31,6 @@ fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     let args: Vec<String> = std::env::args().collect();
     let args = args[1..].to_vec();
 
@@ -138,7 +139,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let value_a = data_a.get(key).unwrap().as_tensor();
             let value_b = data_b.get(key).unwrap().as_tensor();
             let average = ((value_a + value_b).unwrap() / 2.0).unwrap();
-            data_average.insert(key.clone(), Var::from_tensor(&average).unwrap()).unwrap();
+            data_average
+                .insert(key.clone(), Var::from_tensor(&average).unwrap())
+                .unwrap();
             println!("merged {}", key);
         });
 
@@ -188,7 +191,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         self_test()?;
         return Ok(());
     }
-
 
     if args[0] == "qa_test" {
         qa_test()?;

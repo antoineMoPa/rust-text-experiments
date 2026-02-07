@@ -1,7 +1,10 @@
 use std::fs;
 use std::io::prelude::*;
 
-use crate::{attention_predictor::{get_device, Model}, token_utils::STOP_TOKEN};
+use crate::{
+    attention_predictor::{get_device, Model},
+    token_utils::STOP_TOKEN,
+};
 
 pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
     let device = get_device()?;
@@ -51,10 +54,15 @@ pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
 
             if buf == expected_completion {
                 match_count += 1;
-                println!("'{}' |> '{}' ~ '{}' - match", original_input, buf, expected_completion);
-            }
-            else {
-                println!("'{}' |> '{}' ~ '{}' - no match", original_input, buf, expected_completion);
+                println!(
+                    "'{}' |> '{}' ~ '{}' - match",
+                    original_input, buf, expected_completion
+                );
+            } else {
+                println!(
+                    "'{}' |> '{}' ~ '{}' - no match",
+                    original_input, buf, expected_completion
+                );
             }
 
             total += 1;
@@ -62,7 +70,10 @@ pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
 
         let success_rate = match_count as f32 / total as f32;
 
-        println!("corpus {} - matches - {}, total - {}, success rate - {}", level_file_path, match_count, total, success_rate);
+        println!(
+            "corpus {} - matches - {}, total - {}, success rate - {}",
+            level_file_path, match_count, total, success_rate
+        );
     }
 
     Ok(())
@@ -113,8 +124,7 @@ pub fn qa_test() -> Result<(), Box<dyn std::error::Error>> {
         if buf == answer {
             match_count += 1;
             println!("'{}' |> '{}' ~ '{}' - match", question, buf, answer);
-        }
-        else {
+        } else {
             println!("'{}' |> '{}' ~ '{}' - no match", question, buf, answer);
         }
 
@@ -123,7 +133,10 @@ pub fn qa_test() -> Result<(), Box<dyn std::error::Error>> {
 
     let success_rate = match_count as f32 / total as f32;
 
-    println!("question file: {} - matches - {}, total - {}, success rate - {}", file_path, match_count, total, success_rate);
+    println!(
+        "question file: {} - matches - {}, total - {}, success rate - {}",
+        file_path, match_count, total, success_rate
+    );
 
     Ok(())
 }

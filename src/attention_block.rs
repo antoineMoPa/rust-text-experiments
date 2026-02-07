@@ -41,13 +41,25 @@ impl AttentionBlock {
             config.input_size,
             config.output_size,
             false,
-            vb.pp("out_linear")
+            vb.pp("out_linear"),
         )?;
 
-        Ok(Self { linear, qs, ks, vs, out_linear, config })
+        Ok(Self {
+            linear,
+            qs,
+            ks,
+            vs,
+            out_linear,
+            config,
+        })
     }
 
-    fn scaled_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor, candle_core::Error> {
+    fn scaled_dot_product_attention(
+        &self,
+        q: &Tensor,
+        k: &Tensor,
+        v: &Tensor,
+    ) -> Result<Tensor, candle_core::Error> {
         let scale = 1.0 / ((self.config.input_size) as f64).sqrt();
         let result = q.matmul(&k.t()?)?;
         let result = (result * scale)?;
@@ -62,7 +74,8 @@ impl AttentionBlock {
 
         for i in 0..self.config.context_window {
             for j in 0..self.config.embedding_size {
-                let val = (i as f32) / (10000 as f32).powf(2.0 * (j as f32) / self.config.embedding_size as f32);
+                let val = (i as f32)
+                    / (10000 as f32).powf(2.0 * (j as f32) / self.config.embedding_size as f32);
                 if j % 2 == 0 {
                     position.push(val.sin());
                 } else {
@@ -79,7 +92,11 @@ impl AttentionBlock {
         return Ok(encoding);
     }
 
-    pub fn forward(&self, input: &Tensor, train_subset_index: i8) -> Result<Tensor, candle_core::Error> {
+    pub fn forward(
+        &self,
+        input: &Tensor,
+        train_subset_index: i8,
+    ) -> Result<Tensor, candle_core::Error> {
         let input = (self.position_encoding(input)? + input)?;
         //let input = nn::ops::dropout(&input, 0.01?;
 
