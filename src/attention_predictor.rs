@@ -2,11 +2,12 @@ use std::{fs, io::Error, collections::BTreeMap};
 
 use candle_core::{Device, Tensor, DType, D};
 use candle_nn::{self as nn, Module};
-use nn::{VarMap, Optimizer, VarBuilder};
+use nn::{VarMap, VarBuilder};
 use colored::Colorize;
 use crate::models::RunStr;
 use crate::token_utils::STOP_TOKEN;
 use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
+use crate::grad_accum::AccumAdamW;
 
 // smoll
 const DOWNSCALE_FACTOR: usize = 3;
@@ -21,6 +22,7 @@ const LR: f64 = 3.0e-4;
 const EPOCHS: u32 = 60;
 const TOKEN_BATCH_SIZE: usize = 128;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 21 attention head - training 7 at the time
+const MICRO_BATCH_SIZE: usize = 16;
 
 // large
 // const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -113,12 +115,6 @@ impl Model {
             device: device.clone(),
             train_subset_index: 0,
         })
-    }
-
-    fn forward_train(&mut self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        self.train_subset_index = (self.train_subset_index + 1) % TRAINING_SUBSETS;
-
-        return self.forward(input);
     }
 
     fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
@@ -356,7 +352,7 @@ impl Model {
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
-        let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
+        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
             let mut loss_stat: f32 = 1.0;
@@ -373,24 +369,37 @@ impl Model {
 
                 let (inputs, targets) = self.gen_training_data(tokens, device)?;
 
-                let predictions = self.forward_train(&inputs)?;
-
-                // Compute loss
-                // binary cross-entropy is not supported on metal gpu
-                //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-                let loss = nn::loss::mse(&predictions, &targets)?;
                 let batch_size = end - start;
                 let factor = 20.0 / batch_size as f64;
                 optimizer.set_learning_rate(LR * factor);
 
-                loss_stat = loss.to_vec0::<f32>()?;
+                // Rotate train subset once per batch
+                self.train_subset_index = (self.train_subset_index + 1) % TRAINING_SUBSETS;
 
-                if loss_stat.is_nan() {
-                    self.crash_dump(inputs, targets)?;
-                    panic!("Loss is nan, gradient probably exploded or vanished.");
+                // Split into micro-batches for gradient accumulation
+                let num_samples = inputs.dim(0)?;
+                let num_micro = (num_samples + MICRO_BATCH_SIZE - 1) / MICRO_BATCH_SIZE;
+
+                for m in 0..num_micro {
+                    let micro_start = m * MICRO_BATCH_SIZE;
+                    let micro_len = MICRO_BATCH_SIZE.min(num_samples - micro_start);
+                    let micro_inputs = inputs.narrow(0, micro_start, micro_len)?;
+                    let micro_targets = targets.narrow(0, micro_start, micro_len)?;
+
+                    let predictions = self.forward(&micro_inputs)?;
+
+                    let loss = nn::loss::mse(&predictions, &micro_targets)?;
+                    loss_stat = loss.to_vec0::<f32>()?;
+
+                    if loss_stat.is_nan() {
+                        self.crash_dump(inputs, targets)?;
+                        panic!("Loss is nan, gradient probably exploded or vanished.");
+                    }
+
+                    optimizer.accumulate(&loss)?;
                 }
 
-                optimizer.backward_step(&loss)?;
+                optimizer.step()?;
             }
 
             println!("Epoch {:6}/{:6} : Loss = {:.6}", epoch, epochs, loss_stat);

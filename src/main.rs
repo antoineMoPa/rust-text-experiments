@@ -16,6 +16,7 @@ mod attention_block;
 mod encoder_decoder;
 mod attention_predictor;
 mod models;
+mod grad_accum;
 
 fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
     let file = fs::File::open(file_path)?;
