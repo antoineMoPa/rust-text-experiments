@@ -45,27 +45,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         model.print_stats()?;
         return Ok(());
     }
-    if args[0] == "train_new" {
+
+    if args[0] == "train" {
         println!("Training new model");
 
         let device = get_device()?;
-        let (dict, tokens) = get_pretrained_dict(FILE_PATH)?;
+        let (dict, _tokens) = get_pretrained_dict(FILE_PATH)?;
         let mut model = create_model(&dict, &device)?;
-
-        println!("Training on {} tokens", tokens.len());
-
-        model.simple_train(tokens, &device)?;
-        model.save_to_path("data/base_model");
-
-        return Ok(());
-    }
-
-    if args[0] == "train" {
-        let path = "data/base_model";
-        println!("Continuing training existing model {}", path);
-
-        let device = get_device()?;
-        let mut model = Model::load_from_path(path, &device)?;
 
         let level_file_path = FILE_PATH;
         let mut file = fs::File::open(level_file_path)?;

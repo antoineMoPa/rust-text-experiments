@@ -2,16 +2,12 @@ args = RUST_BACKTRACE=1
 
 run:
 	$(args) cargo run --release run
-train_new:
-	$(args) nohup time cargo run --release train_new 2>&1 | tee train_log.log
 train:
 	$(args) nohup time cargo run --release train 2>&1 | tee train_log.log
 merge:
-	$(time cargo run --release merge 2>&1
-print_stats:
+	$sheesshsshshsh(time cargo run --release merge 2>&1
+print_stats:ssas
 	$(args) cargo run --release print_stats
-pretrain_encoder_decoder:
-	$(args) cargo run --release pretrain_encoder_decoder
 test:
 	$(args) cargo test attention -- --nocapture --test-threads 1
 profile:
