@@ -83,13 +83,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Training new model");
 
         let device = get_device()?;
-        let mut model = create_model(&device)?;
-
-        let level_file_path = FILE_PATH;
-        let mut file = fs::File::open(level_file_path)?;
-        let mut content: String = String::new();
-        file.read_to_string(&mut content)?;
-        let tokens = tokenize(content.as_str());
+        let (dict, tokens) = get_pretrained_dict(FILE_PATH)?;
+        let mut model = create_model(&dict, &device)?;
 
         println!("Training on {} tokens", tokens.len());
 
