@@ -3,11 +3,9 @@ args = RUST_BACKTRACE=1
 run:
 	$(args) cargo run --release run
 train_new:
-	$(args) nohup time cargo run --release train_new 2>&1 > train_log.log &
-	tail -f train_log.log
+	$(args) nohup time cargo run --release train_new 2>&1 | tee train_log.log
 train:
-	$(args) nohup time cargo run --release train 2>&1 > train_log.log &
-	tail -f train_log.log
+	$(args) nohup time cargo run --release train 2>&1 | tee train_log.log
 merge:
 	$(time cargo run --release merge 2>&1
 print_stats:
