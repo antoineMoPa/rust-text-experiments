@@ -8,7 +8,7 @@ use crate::{
     read_n_chars,
     token_utils::{tokenize, tokens_to_dict, Dict, DictIndex, GetTokenEmbedding},
 };
-use candle_core::{DType, Device, Tensor, D};
+use candle_core::{DType, Device, Error as CandleError, Tensor, D};
 use candle_nn::{self as nn, Module};
 use colored::Colorize;
 use nn::{VarBuilder, VarMap};
@@ -56,6 +56,15 @@ pub struct Model {
     pub device: Device,
     pub train_subset_index: i8,
 }
+
+fn is_oom_error(e: &CandleError) -> bool {
+    if let CandleError::Cuda(inner) = e {
+        return inner.to_string().contains("out of memory");
+    }
+    false
+}
+
+const OOM_RETRY_DELAY_SECS: u64 = 30;
 
 impl Model {
     pub fn new(
@@ -312,9 +321,6 @@ impl Model {
                 if end <= start {
                     continue;
                 }
-                let tokens = tokens_chain[start..end].to_vec();
-
-                let (inputs, targets) = self.gen_training_data(tokens, device)?;
 
                 let batch_size = end - start;
                 let factor = 20.0 / batch_size as f64;
@@ -323,30 +329,53 @@ impl Model {
                 // Rotate train subset once per batch
                 self.train_subset_index = (self.train_subset_index + 1) % TRAINING_SUBSETS;
 
-                // Split into micro-batches for gradient accumulation
-                let num_samples = inputs.dim(0)?;
-                let num_micro = (num_samples + MICRO_BATCH_SIZE - 1) / MICRO_BATCH_SIZE;
+                loop {
+                    let result: Result<(), CandleError> = (|| {
+                        let tokens = tokens_chain[start..end].to_vec();
+                        let (inputs, targets) = self.gen_training_data(tokens, device)?;
 
-                for m in 0..num_micro {
-                    let micro_start = m * MICRO_BATCH_SIZE;
-                    let micro_len = MICRO_BATCH_SIZE.min(num_samples - micro_start);
-                    let micro_inputs = inputs.narrow(0, micro_start, micro_len)?;
-                    let micro_targets = targets.narrow(0, micro_start, micro_len)?;
+                        // Split into micro-batches for gradient accumulation
+                        let num_samples = inputs.dim(0)?;
+                        let num_micro = (num_samples + MICRO_BATCH_SIZE - 1) / MICRO_BATCH_SIZE;
 
-                    let predictions = self.forward(&micro_inputs)?;
+                        for m in 0..num_micro {
+                            let micro_start = m * MICRO_BATCH_SIZE;
+                            let micro_len = MICRO_BATCH_SIZE.min(num_samples - micro_start);
+                            let micro_inputs = inputs.narrow(0, micro_start, micro_len)?;
+                            let micro_targets = targets.narrow(0, micro_start, micro_len)?;
 
-                    let loss = nn::loss::cross_entropy(&predictions, &micro_targets)?;
-                    loss_stat = loss.to_vec0::<f32>()?;
+                            let predictions = self.forward(&micro_inputs)?;
 
-                    if loss_stat.is_nan() {
-                        self.crash_dump(inputs, targets)?;
-                        panic!("Loss is nan, gradient probably exploded or vanished.");
+                            let loss =
+                                nn::loss::cross_entropy(&predictions, &micro_targets)?;
+                            loss_stat = loss.to_vec0::<f32>()?;
+
+                            if loss_stat.is_nan() {
+                                self.crash_dump(inputs, targets)?;
+                                panic!("Loss is nan, gradient probably exploded or vanished.");
+                            }
+
+                            optimizer.accumulate(&loss)?;
+                        }
+
+                        optimizer.step()?;
+                        Ok(())
+                    })();
+
+                    match result {
+                        Ok(()) => break,
+                        Err(e) if is_oom_error(&e) => {
+                            optimizer.clear_accumulated();
+                            eprintln!(
+                                "\nCUDA OOM on batch {j}, retrying in {OOM_RETRY_DELAY_SECS}s...",
+                            );
+                            std::thread::sleep(std::time::Duration::from_secs(
+                                OOM_RETRY_DELAY_SECS,
+                            ));
+                        }
+                        Err(e) => return Err(e),
                     }
-
-                    optimizer.accumulate(&loss)?;
                 }
-
-                optimizer.step()?;
 
                 if j % 50 == 0 {
                     print!(

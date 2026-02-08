@@ -28,8 +28,9 @@ fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().collect();
-    let args = args[1..].to_vec();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    let command = args.first().map(|s| s.as_str()).unwrap_or("");
 
     let device = get_device()?;
 
@@ -39,14 +40,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // can output a sequence of words + spaces
     // then train with larger dataset if the model is a good one.
 
-    if args[0] == "print_stats" {
+    if command == "print_stats" {
         println!("Loading test model");
         let model = Model::load_from_path("data/model", &device)?;
         model.print_stats()?;
         return Ok(());
     }
 
-    if args[0] == "train" {
+    if command == "train" {
         println!("Training new model");
 
         let device = get_device()?;
@@ -67,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if args[0] == "merge" {
+    if command == "merge" {
         let path_a = "data/model_a";
         let path_b = "data/model_b";
         let path_average = "data/model_a_b_average";
@@ -102,7 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if args[0] == "run" {
+    if command == "run" {
         println!("Loading model");
         let model = Model::load_from_path("data/model", &device)?;
 
@@ -134,16 +135,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if args[0] == "self_test" {
+    if command == "self_test" {
         self_test()?;
         return Ok(());
     }
 
-    if args[0] == "qa_test" {
+    if command == "qa_test" {
         qa_test()?;
         return Ok(());
     }
 
-    println!("Please provide a valid command: 'train' or 'run'");
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, self_test, qa_test");
     Ok(())
 }

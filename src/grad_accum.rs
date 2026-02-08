@@ -113,4 +113,10 @@ impl AccumAdamW {
 
         Ok(())
     }
+
+    /// Discard any accumulated gradients without applying them.
+    pub fn clear_accumulated(&mut self) {
+        self.accumulated_grads.clear();
+        self.accum_count = 0;
+    }
 }
