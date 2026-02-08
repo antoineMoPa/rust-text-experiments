@@ -53,7 +53,6 @@ pub struct Model {
     pub dict: Dict,
     pub token_index: DictIndex,
     pub index_to_token: Vec<String>,
-    pub vocab_size: usize,
     pub device: Device,
     pub train_subset_index: i8,
 }
@@ -155,7 +154,6 @@ impl Model {
             dict,
             token_index,
             index_to_token,
-            vocab_size,
             device: device.clone(),
             train_subset_index: 0,
         })
@@ -264,11 +262,6 @@ impl Model {
         let targets = Tensor::new(targets.as_slice(), device)?;
 
         return Ok((inputs, targets));
-    }
-
-    pub fn logits_to_token(&self, logits: &Tensor) -> Result<String, candle_core::Error> {
-        let token_id = logits.argmax(D::Minus1)?.to_vec1::<u32>()?[0];
-        return Ok(self.id_to_token(token_id).to_string());
     }
 
     pub fn crash_dump(&self, inputs: Tensor, targets: Tensor) -> Result<(), candle_core::Error> {

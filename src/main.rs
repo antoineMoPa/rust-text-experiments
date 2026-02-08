@@ -3,18 +3,15 @@ use std::io::prelude::*;
 
 use attention_predictor::{create_model, get_pretrained_dict};
 use candle_core::Var;
-use candle_nn::{VarBuilder, VarMap};
 
 use crate::{
     attention_predictor::{get_device, Model, FILE_PATH},
-    encoder_decoder::EncoderDecoder,
     model_tests::{qa_test, self_test},
     token_utils::{tokenize, STOP_TOKEN},
 };
 
 mod attention_block;
 mod attention_predictor;
-mod encoder_decoder;
 mod grad_accum;
 mod model_tests;
 mod models;
@@ -42,43 +39,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // can output a sequence of words + spaces
     // then train with larger dataset if the model is a good one.
 
-    if args[0] == "pretrain_encoder_decoder" {
-        let level_file_path = FILE_PATH;
-        let (dict, _tokens) = get_pretrained_dict(level_file_path)?;
-        let device = EncoderDecoder::get_device()?;
-        let vm = VarMap::new();
-        let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
-        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb, &device)?;
-
-        println!("Training encoder decoder");
-        encoder_decoder.train_strategy()?;
-        encoder_decoder.save_to_path("data/encdec");
-
-        encoder_decoder.evaluate()?;
-
-        return Ok(());
-    }
-
     if args[0] == "print_stats" {
         println!("Loading test model");
         let model = Model::load_from_path("data/model", &device)?;
         model.print_stats()?;
         return Ok(());
     }
-    if args[0] == "print_dict_embeddings" {
-        println!("Loading test model");
-        let model = EncoderDecoder::load_from_path("data/encdec", &device)?;
-        model.print_dict_embeddings()?;
-        return Ok(());
-    }
-
-    if args[0] == "print_stats_encoder_decoder" {
-        println!("Loading encoder decoder model");
-        let model = EncoderDecoder::load_from_path("data/encdec", &device)?;
-        model.print_stats()?;
-        return Ok(());
-    }
-
     if args[0] == "train_new" {
         println!("Training new model");
 
