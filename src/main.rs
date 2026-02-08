@@ -55,13 +55,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Training on {} tokens", tokens.len());
 
         model.simple_train(tokens, &device)?;
-        model.save_to_path("data/model");
+        model.save_to_path("data/base_model");
 
         return Ok(());
     }
 
     if args[0] == "train" {
-        let path = "data/model";
+        let path = "data/base_model";
         println!("Continuing training existing model {}", path);
 
         let device = get_device()?;
