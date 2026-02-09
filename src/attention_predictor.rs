@@ -29,16 +29,6 @@ const TOKEN_BATCH_SIZE: usize = 128;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 21 attention head - training 7 at the time
 const MICRO_BATCH_SIZE: usize = 16;
 
-// large
-// const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-// const NUM_ATTENTION_HEADS: usize = 8;
-// const ATTENTION_HEAD_INPUT_SIZE: usize = (EMBEDDING_SIZE / NUM_ATTENTION_HEADS) * CONTEXT_WINDOW;
-// const CONTEXT_WINDOW: usize = 40;
-// const HIDDEN_SIZE: usize = 4096;
-// const NUM_BLOCKS: usize = 10;
-// pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
-// const FILE_PATH: &str = "common-corpus/blogtext.csv";
-
 const NOT_FOUND: &str = "<notfound>";
 
 pub struct Model {
@@ -110,7 +100,6 @@ impl Model {
                 num_attention_heads: NUM_ATTENTION_HEADS,
                 context_window: CONTEXT_WINDOW,
                 embedding_size: EMBEDDING_SIZE / DOWNSCALE_FACTOR,
-                output_size: INPUT_SIZE / DOWNSCALE_FACTOR,
             };
 
             let block = AttentionBlock::new(config, vb.push_prefix(&format!("block_{}", b)))?;

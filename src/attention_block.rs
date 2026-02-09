@@ -18,7 +18,6 @@ pub struct AttentionBlockConfig {
     pub num_attention_heads: usize,
     pub context_window: usize,
     pub embedding_size: usize,
-    pub output_size: usize,
 }
 
 impl AttentionBlock {
@@ -85,7 +84,7 @@ impl AttentionBlock {
         let scale = 1.0 / (d_head as f64).sqrt();
 
         // K^T: [batch, seq_len, d_head] -> [batch, d_head, seq_len]
-        let k_t = k.transpose(1, 2)?;
+        let k_t = k.transpose(1, 2)?.contiguous()?;
 
         // Q @ K^T: [batch, seq_len, seq_len]
         let scores = q.matmul(&k_t)?;
@@ -158,7 +157,7 @@ impl AttentionBlock {
         for i in 0..self.config.num_attention_heads {
             // Extract this head's slice: [batch, seq_len, d_head]
             let start = i * d_head;
-            let portions = input.narrow(2, start, d_head)?;
+            let portions = input.narrow(2, start, d_head)?.contiguous()?;
 
             // Per-token linear + Q/K/V projections: [batch, seq_len, d_head]
             let linear_output = portions.apply(&self.linear[i])?;
