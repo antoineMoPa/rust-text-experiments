@@ -369,7 +369,7 @@ impl Model {
                     }
                 }
 
-                if j % 50 == 0 {
+                if j % 200 == 0 {
                     println!(
                         "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6}",
                         epoch, epochs, j, num_batches, loss_stat
