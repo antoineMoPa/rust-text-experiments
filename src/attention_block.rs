@@ -1,4 +1,4 @@
-use candle_core::{Tensor, D};
+use candle_core::Tensor;
 use candle_nn::{self as nn, Module};
 use nn::VarBuilder;
 
@@ -28,18 +28,38 @@ impl AttentionBlock {
         let mut ks: Vec<nn::Linear> = Vec::new();
         let mut vs: Vec<nn::Linear> = Vec::new();
 
-        let s = config.input_size / config.num_attention_heads;
+        let d_head = config.embedding_size / config.num_attention_heads;
 
         for i in 0..config.num_attention_heads {
-            linear.push(nn::linear_b(s, s, true, vb.pp(&format!("linear{}", i)))?);
-            qs.push(nn::linear_b(s, s, true, vb.pp(&format!("q{}", i)))?);
-            ks.push(nn::linear_b(s, s, true, vb.pp(&format!("k{}", i)))?);
-            vs.push(nn::linear_b(s, s, true, vb.pp(&format!("v{}", i)))?);
+            linear.push(nn::linear_b(
+                d_head,
+                d_head,
+                true,
+                vb.pp(&format!("linear{}", i)),
+            )?);
+            qs.push(nn::linear_b(
+                d_head,
+                d_head,
+                true,
+                vb.pp(&format!("q{}", i)),
+            )?);
+            ks.push(nn::linear_b(
+                d_head,
+                d_head,
+                true,
+                vb.pp(&format!("k{}", i)),
+            )?);
+            vs.push(nn::linear_b(
+                d_head,
+                d_head,
+                true,
+                vb.pp(&format!("v{}", i)),
+            )?);
         }
 
         let out_linear = nn::linear_b(
-            config.input_size,
-            config.output_size,
+            config.embedding_size,
+            config.embedding_size,
             false,
             vb.pp("out_linear"),
         )?;
@@ -60,11 +80,31 @@ impl AttentionBlock {
         k: &Tensor,
         v: &Tensor,
     ) -> Result<Tensor, candle_core::Error> {
-        let scale = 1.0 / ((self.config.input_size) as f64).sqrt();
-        let result = q.matmul(&k.t()?)?;
-        let result = (result * scale)?;
-        let result = nn::ops::softmax(&result, D::Minus1)?;
-        let result = result.matmul(&v)?;
+        // q, k, v: [batch, seq_len, d_head]
+        let d_head = self.config.embedding_size / self.config.num_attention_heads;
+        let scale = 1.0 / (d_head as f64).sqrt();
+
+        // K^T: [batch, seq_len, d_head] -> [batch, d_head, seq_len]
+        let k_t = k.transpose(1, 2)?;
+
+        // Q @ K^T: [batch, seq_len, seq_len]
+        let scores = q.matmul(&k_t)?;
+        let scores = (scores * scale)?;
+
+        // Causal mask: lower triangle = 0.0, upper triangle = -inf
+        let seq_len = self.config.context_window;
+        let mask: Vec<f32> = (0..seq_len)
+            .flat_map(|i| (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 }))
+            .collect();
+        let mask = Tensor::from_slice(&mask, (seq_len, seq_len), q.device())?;
+
+        // [batch, seq_len, seq_len] + [seq_len, seq_len] (broadcast over batch)
+        let scores = scores.broadcast_add(&mask)?;
+
+        let attn_weights = nn::ops::softmax(&scores, candle_core::D::Minus1)?;
+
+        // [batch, seq_len, seq_len] @ [batch, seq_len, d_head] = [batch, seq_len, d_head]
+        let result = attn_weights.matmul(&v)?;
 
         Ok(result)
     }
@@ -75,7 +115,7 @@ impl AttentionBlock {
         for i in 0..self.config.context_window {
             for j in 0..self.config.embedding_size {
                 let val = (i as f32)
-                    / (10000 as f32).powf(2.0 * (j as f32) / self.config.embedding_size as f32);
+                    / (10000_f32).powf(2.0 * (j as f32) / self.config.embedding_size as f32);
                 if j % 2 == 0 {
                     position.push(val.sin());
                 } else {
@@ -84,12 +124,14 @@ impl AttentionBlock {
             }
         }
 
-        let position = Tensor::new(position, input.device())?;
+        // [1, context_window, embedding_size] for broadcasting over batch
+        let position = Tensor::from_slice(
+            &position,
+            (1, self.config.context_window, self.config.embedding_size),
+            input.device(),
+        )?;
 
-        let batch_size = input.dim(0)?;
-        let encoding = position.repeat(&[batch_size, 1])?;
-
-        return Ok(encoding);
+        Ok(position)
     }
 
     pub fn forward(
@@ -97,36 +139,38 @@ impl AttentionBlock {
         input: &Tensor,
         train_subset_index: i8,
     ) -> Result<Tensor, candle_core::Error> {
-        let input = (self.position_encoding(input)? + input)?;
-        //let input = nn::ops::dropout(&input, 0.01?;
+        let batch_size = input.dim(0)?;
 
+        // Reshape [batch, context_window * embedding_size] -> [batch, context_window, embedding_size]
+        let input = input.reshape((
+            batch_size,
+            self.config.context_window,
+            self.config.embedding_size,
+        ))?;
+
+        // Add position encoding [1, context_window, embedding_size] (broadcasts over batch)
+        let pos_enc = self.position_encoding(&input)?;
+        let input = input.broadcast_add(&pos_enc)?;
+
+        let d_head = self.config.embedding_size / self.config.num_attention_heads;
         let mut results: Vec<Tensor> = Vec::new();
 
         for i in 0..self.config.num_attention_heads {
-            let portion_size = self.config.embedding_size / self.config.num_attention_heads;
-            // take a portion of every embedded token
-            // input is a vector of size EMBEDDING_SIZE * CONTEXT_WINDOW with tokens next to each other, I want to take just a portion of each token
-            let mut portions: Vec<Tensor> = Vec::new();
+            // Extract this head's slice: [batch, seq_len, d_head]
+            let start = i * d_head;
+            let portions = input.narrow(2, start, d_head)?;
 
-            for j in 0..self.config.context_window {
-                let start = j * self.config.embedding_size;
-                let end = start + portion_size;
-                let indexes: Vec<u32> = ((start as u32)..(end as u32)).collect();
-                let indexes = Tensor::new(indexes, input.device())?;
-                let portion = input.index_select(&indexes, D::Minus1)?;
-                portions.push(portion);
-            }
-
-            let portions = Tensor::cat(&portions, D::Minus1)?;
+            // Per-token linear + Q/K/V projections: [batch, seq_len, d_head]
             let linear_output = portions.apply(&self.linear[i])?;
 
             let q = linear_output.apply(&self.qs[i])?;
             let k = linear_output.apply(&self.ks[i])?;
             let v = linear_output.apply(&self.vs[i])?;
 
+            // Causal attention: [batch, seq_len, d_head]
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
-            let result = (((result * 0.4)? + portions.clone())? * 0.5)?;
+            let result = (((result * 0.4)? + portions)? * 0.5)?;
 
             let subset_size: i8 = self.config.num_attention_heads as i8 / TRAINING_SUBSETS;
             let current_subset_index = i as i8 / subset_size;
@@ -139,9 +183,15 @@ impl AttentionBlock {
             }
         }
 
-        let result = Tensor::cat(&results, D::Minus1)?;
+        // Concat heads: [batch, seq_len, embedding_size]
+        let result = Tensor::cat(&results, 2)?;
+
+        // Output projection per token: [batch, seq_len, embedding_size]
         let result = self.out_linear.forward(&result)?;
 
-        return Ok(result);
+        // Flatten back: [batch, context_window * embedding_size]
+        let result = result.reshape((batch_size, self.config.input_size))?;
+
+        Ok(result)
     }
 }
