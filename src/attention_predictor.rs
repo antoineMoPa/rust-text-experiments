@@ -1,11 +1,10 @@
-use std::{fs, io::Error};
+use std::{fs, io::Error, io::Read as IoRead};
 
 use crate::grad_accum::AccumAdamW;
 use crate::models::RunStr;
 use crate::token_utils::STOP_TOKEN;
 use crate::{
     attention_block::{AttentionBlock, AttentionBlockConfig},
-    read_n_chars,
     token_utils::{tokenize, tokens_to_dict, Dict, DictIndex, GetTokenEmbedding},
 };
 use candle_core::{DType, Device, Error as CandleError, Tensor, D};
@@ -15,7 +14,6 @@ use nn::{VarBuilder, VarMap};
 
 // smoll
 const EMBEDDING_SIZE: usize = 252;
-const DOWNSCALE_FACTOR: usize = 3;
 const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
@@ -33,7 +31,6 @@ const NOT_FOUND: &str = "<notfound>";
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
-    pub downscaler: nn::Linear,
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
     pub fc3: nn::Linear,
@@ -96,10 +93,10 @@ impl Model {
 
         for b in 0..NUM_BLOCKS {
             let config: AttentionBlockConfig = AttentionBlockConfig {
-                input_size: INPUT_SIZE / DOWNSCALE_FACTOR,
+                input_size: INPUT_SIZE,
                 num_attention_heads: NUM_ATTENTION_HEADS,
                 context_window: CONTEXT_WINDOW,
-                embedding_size: EMBEDDING_SIZE / DOWNSCALE_FACTOR,
+                embedding_size: EMBEDDING_SIZE,
             };
 
             let block = AttentionBlock::new(config, vb.push_prefix(&format!("block_{}", b)))?;
@@ -107,14 +104,8 @@ impl Model {
         }
 
         let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
-        let downscaler = nn::linear_b(
-            INPUT_SIZE,
-            INPUT_SIZE / DOWNSCALE_FACTOR,
-            true,
-            vb.pp("downscaler"),
-        )?;
         let fc1 = nn::linear_b(
-            INPUT_SIZE / DOWNSCALE_FACTOR,
+            INPUT_SIZE,
             HIDDEN_SIZE,
             true,
             vb.pp("fc1"),
@@ -141,7 +132,6 @@ impl Model {
         println!("{}", output.on_white().black());
 
         Ok(Self {
-            downscaler,
             fc1,
             fc2,
             fc3,
@@ -166,8 +156,7 @@ impl Model {
         let batch_size = embedded.dim(0)?;
         let input = embedded.reshape((batch_size, INPUT_SIZE))?;
 
-        let mut result = self.downscaler.forward(&input)?;
-        let downscaled_input = result.clone();
+        let mut result = input.clone();
 
         for block in self.blocks.iter() {
             result = block
@@ -175,7 +164,7 @@ impl Model {
                 .tanh()?;
         }
 
-        let result = (result + (downscaled_input * 0.2)?)?;
+        let result = (result + (input * 0.2)?)?;
         let result = (result * 0.2)?;
 
         let result = self.fc1.forward(&result)?;
@@ -511,10 +500,15 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
     }
 }
 
+fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
+    let file = fs::File::open(file_path)?;
+    let mut content = String::new();
+    let mut handle = file.take(n);
+    handle.read_to_string(&mut content)?;
+    Ok(content)
+}
+
 pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candle_core::Error> {
-    // Experiments with char count
-    // exponent 15+ makes no sense, no spaces, etc.
-    // exponent 14+ has some spaces after 8 iterations
     let char_count = CHARS_TO_TRAIN_ON as u64;
 
     println!("Reading {} chars from file: {}", char_count, file_path);
@@ -526,7 +520,7 @@ pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candl
 
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
-    let sys_tokens = vec![String::from(NOT_FOUND)];
+    let sys_tokens = vec![String::from(NOT_FOUND), String::from(STOP_TOKEN)];
 
     let tokens = [tokens, lorem_tokens, hello_world_tokens, sys_tokens].concat();
 

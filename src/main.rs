@@ -17,28 +17,12 @@ mod model_tests;
 mod models;
 mod token_utils;
 
-fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
-    let file = fs::File::open(file_path)?;
-    let mut content = String::new();
-    let mut handle = file.take(n);
-
-    handle.read_to_string(&mut content)?;
-
-    Ok(content)
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     let command = args.first().map(|s| s.as_str()).unwrap_or("");
 
     let device = get_device()?;
-
-    // idea: pre train with a 300 words
-    // see if it responds well in a number of ways:
-    // can learn hello world
-    // can output a sequence of words + spaces
-    // then train with larger dataset if the model is a good one.
 
     if command == "print_stats" {
         println!("Loading test model");
