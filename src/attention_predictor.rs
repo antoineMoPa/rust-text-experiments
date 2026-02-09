@@ -24,7 +24,7 @@ const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_3/corpus.corpus";
 const LR: f64 = 3.0e-4;
-const EPOCHS: u32 = 12;
+const EPOCHS: u32 = 10;
 const TOKEN_BATCH_SIZE: usize = 128;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 21 attention head - training 7 at the time
 const MICRO_BATCH_SIZE: usize = 16;
@@ -179,7 +179,17 @@ impl Model {
         let result = (result * 0.2)?;
 
         let result = self.fc1.forward(&result)?;
+        let result = if train {
+            nn::ops::dropout(&result, 0.1)?
+        } else {
+            result
+        };
         let result = self.fc2.forward(&result)?;
+        let result = if train {
+            nn::ops::dropout(&result, 0.1)?
+        } else {
+            result
+        };
         let result = self.fc3.forward(&result)?;
         let result = self.output_proj.forward(&result)?;
 
