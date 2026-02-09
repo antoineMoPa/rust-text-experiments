@@ -21,7 +21,7 @@ const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 20) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
-const LR: f64 = 3.0e-4;
+const LR: f64 = 1.0e-4;
 const EPOCHS: u32 = 4;
 const TOKEN_BATCH_SIZE: usize = 128;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
@@ -313,7 +313,10 @@ impl Model {
                 }
 
                 let batch_size = end - start;
-                let factor = 20.0 / batch_size as f64;
+                // Scale LR inversely with batch size so smaller batches get proportionally
+                // larger updates. Clamp to 1.0 to prevent tiny batches (e.g. last batch in
+                // epoch) from causing disproportionately large weight updates.
+                let factor = (20.0 / batch_size as f64).min(1.0);
                 optimizer.set_learning_rate(LR * factor);
 
                 // Rotate train subset once per batch
