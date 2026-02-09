@@ -18,7 +18,7 @@ const EMBEDDING_SIZE: usize = 252;
 const DOWNSCALE_FACTOR: usize = 3;
 const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 21;
+const NUM_ATTENTION_HEADS: usize = 12;
 const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
@@ -26,7 +26,7 @@ pub const FILE_PATH: &str = "common-corpus/level_3/corpus.corpus";
 const LR: f64 = 3.0e-4;
 const EPOCHS: u32 = 10;
 const TOKEN_BATCH_SIZE: usize = 128;
-pub const TRAINING_SUBSETS: i8 = 3; // we have 21 attention head - training 7 at the time
+pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
 const MICRO_BATCH_SIZE: usize = 16;
 
 const NOT_FOUND: &str = "<notfound>";
