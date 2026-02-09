@@ -175,8 +175,6 @@ impl AttentionBlock {
             // Causal attention: [batch, seq_len, d_head]
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
-            let result = (((result * 0.4)? + portions)? * 0.5)?;
-
             let subset_size: i8 = self.config.num_attention_heads as i8 / TRAINING_SUBSETS;
             let current_subset_index = i as i8 / subset_size;
 

@@ -164,7 +164,7 @@ impl Model {
                 .tanh()?;
         }
 
-        let result = (result + (input * 0.5)?)?;
+        let result = (result + input)?;
 
         let result = self.fc1.forward(&result)?;
         let result = if train {
