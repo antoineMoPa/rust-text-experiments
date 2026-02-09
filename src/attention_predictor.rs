@@ -1,14 +1,20 @@
-use std::{fs, io::Error, collections::BTreeMap};
+use std::{fs, io::Error};
 
-use candle_core::{Device, Tensor, DType, D};
-use candle_nn::{self as nn, Module};
-use nn::{VarMap, Optimizer, VarBuilder};
-use colored::Colorize;
+use crate::grad_accum::AccumAdamW;
 use crate::models::RunStr;
 use crate::token_utils::STOP_TOKEN;
-use crate::{token_utils::{tokenize, tokens_to_dict, Dict}, read_n_chars, encoder_decoder::{EncoderDecoder, EMBEDDING_SIZE}, attention_block::{AttentionBlockConfig, AttentionBlock}};
+use crate::{
+    attention_block::{AttentionBlock, AttentionBlockConfig},
+    read_n_chars,
+    token_utils::{tokenize, tokens_to_dict, Dict, DictIndex, GetTokenEmbedding},
+};
+use candle_core::{DType, Device, Error as CandleError, Tensor, D};
+use candle_nn::{self as nn, Module};
+use colored::Colorize;
+use nn::{VarBuilder, VarMap};
 
 // smoll
+const EMBEDDING_SIZE: usize = 252;
 const DOWNSCALE_FACTOR: usize = 3;
 const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
@@ -18,20 +24,10 @@ const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_3/corpus.corpus";
 const LR: f64 = 3.0e-4;
-const EPOCHS: u32 = 60;
+const EPOCHS: u32 = 12;
 const TOKEN_BATCH_SIZE: usize = 128;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 21 attention head - training 7 at the time
-
-// large
-// const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-// const NUM_ATTENTION_HEADS: usize = 8;
-// const ATTENTION_HEAD_INPUT_SIZE: usize = (EMBEDDING_SIZE / NUM_ATTENTION_HEADS) * CONTEXT_WINDOW;
-// const CONTEXT_WINDOW: usize = 40;
-// const HIDDEN_SIZE: usize = 4096;
-// const NUM_BLOCKS: usize = 10;
-// pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 15) as usize;
-// const FILE_PATH: &str = "common-corpus/blogtext.csv";
-
+const MICRO_BATCH_SIZE: usize = 16;
 
 const NOT_FOUND: &str = "<notfound>";
 
@@ -41,31 +37,60 @@ pub struct Model {
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
     pub fc3: nn::Linear,
-    pub fc4: nn::Linear,
+    pub output_proj: nn::Linear,
+    pub embedding: nn::Embedding,
     pub var_map: VarMap,
-    pub encdec: EncoderDecoder,
-    pub token_embedding_map: BTreeMap<String, Vec<f32>>,
-    pub token_embedding_tensor_map: BTreeMap<String, Tensor>,
+    pub dict: Dict,
+    pub token_index: DictIndex,
+    pub index_to_token: Vec<String>,
     pub device: Device,
     pub train_subset_index: i8,
 }
 
+fn is_oom_error(e: &CandleError) -> bool {
+    if let CandleError::Cuda(inner) = e {
+        return inner.to_string().contains("out of memory");
+    }
+    false
+}
+
+const OOM_RETRY_DELAY_SECS: u64 = 30;
+
 impl Model {
-    pub fn new(var_map: VarMap, vb: VarBuilder, device: &Device) -> Result<Self, candle_core::Error> {
+    pub fn new(
+        dict: Dict,
+        var_map: VarMap,
+        vb: VarBuilder,
+        device: &Device,
+    ) -> Result<Self, candle_core::Error> {
         if EMBEDDING_SIZE % NUM_ATTENTION_HEADS != 0 {
-            // List out possible num attention heads
             for i in 1..(EMBEDDING_SIZE / 2) {
                 if EMBEDDING_SIZE % i == 0 {
-                    println!("Possible num attention heads for this embedding size: {}", i);
+                    println!(
+                        "Possible num attention heads for this embedding size: {}",
+                        i
+                    );
                 }
             }
-            // List out possible embeddding size
             for i in 1..10 {
-                println!("Possible embedding size for this num attention heads: {}", i * NUM_ATTENTION_HEADS);
+                println!(
+                    "Possible embedding size for this num attention heads: {}",
+                    i * NUM_ATTENTION_HEADS
+                );
             }
 
             panic!("The embedding size should be divisible by the number of attention heads!");
         }
+
+        let vocab_size = dict.len();
+        let token_index = dict.build_index();
+        let index_to_token: Vec<String> = {
+            let mut tokens = vec![String::new(); vocab_size];
+            for (token, &idx) in &token_index {
+                tokens[idx as usize] = token.clone();
+            }
+            tokens
+        };
 
         let mut blocks = Vec::new();
 
@@ -75,288 +100,206 @@ impl Model {
                 num_attention_heads: NUM_ATTENTION_HEADS,
                 context_window: CONTEXT_WINDOW,
                 embedding_size: EMBEDDING_SIZE / DOWNSCALE_FACTOR,
-                output_size: INPUT_SIZE / DOWNSCALE_FACTOR,
             };
 
             let block = AttentionBlock::new(config, vb.push_prefix(&format!("block_{}", b)))?;
             blocks.push(block);
         }
 
-        let downscaler = nn::linear_b(INPUT_SIZE, INPUT_SIZE / DOWNSCALE_FACTOR, true, vb.pp("downscaler"))?;
-        let fc1 = nn::linear_b(INPUT_SIZE / DOWNSCALE_FACTOR, HIDDEN_SIZE, true, vb.pp("fc1"))?;
+        let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
+        let downscaler = nn::linear_b(
+            INPUT_SIZE,
+            INPUT_SIZE / DOWNSCALE_FACTOR,
+            true,
+            vb.pp("downscaler"),
+        )?;
+        let fc1 = nn::linear_b(
+            INPUT_SIZE / DOWNSCALE_FACTOR,
+            HIDDEN_SIZE,
+            true,
+            vb.pp("fc1"),
+        )?;
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
-        let fc4 = nn::linear_b(EMBEDDING_SIZE, EMBEDDING_SIZE, true, vb.pp("fc4"))?;
+        let output_proj = nn::linear_b(EMBEDDING_SIZE, vocab_size, true, vb.pp("output_proj"))?;
 
-        let encdec = EncoderDecoder::load_from_path("data/encdec", &device)?;
-
-        let token_embedding_map: BTreeMap<String, Vec<f32>> = encdec.build_token_embedding_map()?;
-        let token_embedding_tensor_map: BTreeMap<String, Tensor> = encdec.build_token_embedding_tensor_map()?;
-
-        // Print the following info in
-        println!("Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR");
-        let output = format!("{}, {}, {}, {}, {}, {}, {}, {}, {}", encdec.dict.len(), EMBEDDING_SIZE, CONTEXT_WINDOW, EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR, TOKEN_BATCH_SIZE);
+        println!(
+            "Vocab, Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR, Batch Size"
+        );
+        let output = format!(
+            "{}, {}, {}, {}, {}, {}, {}, {}, {}",
+            vocab_size,
+            EMBEDDING_SIZE,
+            CONTEXT_WINDOW,
+            EPOCHS,
+            HIDDEN_SIZE,
+            NUM_BLOCKS,
+            NUM_ATTENTION_HEADS,
+            LR,
+            TOKEN_BATCH_SIZE
+        );
         println!("{}", output.on_white().black());
 
-
         Ok(Self {
-	    downscaler,
+            downscaler,
             fc1,
             fc2,
             fc3,
-            fc4,
+            output_proj,
+            embedding,
             blocks,
             var_map,
-            encdec,
-            token_embedding_map,
-            token_embedding_tensor_map,
+            dict,
+            token_index,
+            index_to_token,
             device: device.clone(),
             train_subset_index: 0,
         })
     }
 
-    fn forward_train(&mut self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        self.train_subset_index = (self.train_subset_index + 1) % TRAINING_SUBSETS;
+    /// input_ids: [batch, CONTEXT_WINDOW] of u32 token indices
+    /// returns: [batch, vocab_size] logits
+    fn forward(&self, input_ids: &Tensor, train: bool) -> Result<Tensor, candle_core::Error> {
+        // Embedding lookup: [batch, CONTEXT_WINDOW] -> [batch, CONTEXT_WINDOW, EMBEDDING_SIZE]
+        let embedded = self.embedding.forward(input_ids)?;
+        // Flatten: [batch, CONTEXT_WINDOW * EMBEDDING_SIZE] = [batch, INPUT_SIZE]
+        let batch_size = embedded.dim(0)?;
+        let input = embedded.reshape((batch_size, INPUT_SIZE))?;
 
-        return self.forward(input);
-    }
-
-    fn forward(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
         let mut result = self.downscaler.forward(&input)?;
         let downscaled_input = result.clone();
 
         for block in self.blocks.iter() {
-            result = block.forward(&result, self.train_subset_index)?.tanh()?;
-        }
-
-        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
-            println!("Result is nan after attention blocks");
+            result = block
+                .forward(&result, self.train_subset_index, train)?
+                .tanh()?;
         }
 
         let result = (result + (downscaled_input * 0.2)?)?;
         let result = (result * 0.2)?;
 
-        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
-            println!("Result is nan after input addition");
-        }
-
         let result = self.fc1.forward(&result)?;
-
-        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
-            println!("Result is nan after fc1");
-
-            let w = self.fc1.weight();
-            let b = self.fc1.bias().unwrap();
-
-            let i: f32 = input.abs()?.max_all()?.to_vec0()?;
-            println!("i = {:?}", i);
-            let r: f32 = result.abs()?.max_all()?.to_vec0()?;
-            println!("r = {:?}", r);
-            let w: f32 = w.abs()?.max_all()?.to_vec0()?;
-            println!("w = {:?}", w);
-            let b: f32 = b.abs()?.max_all()?.to_vec0()?;
-            println!("b = {:?}", b);
-        }
-
         let result = self.fc2.forward(&result)?;
-
-        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
-            println!("Result is nan after fc2");
-        }
-
         let result = self.fc3.forward(&result)?;
-
-        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
-            println!("Result is nan after fc3");
-        }
-
-        // Re-use encdec layer
-        //let result = result.gelu()?;
-        let result = self.encdec.fc2.forward(&result)?;
-
-        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
-            println!("Result is nan after encdec fc2");
-        }
-
-        let result = result.tanh()?;
-
-        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
-            println!("Result is nan after tanh");
-        }
-
-        let result = self.fc4.forward(&result)?;
-
-        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
-            println!("Result is nan after fc4");
-        }
-
-        let result = result.tanh()?;
-
-        if result.sum_all()?.to_vec0::<f32>()?.is_nan() {
-            println!("Result is nan after final tanh");
-        }
+        let result = self.output_proj.forward(&result)?;
 
         return Ok(result);
     }
 
-    pub fn run(&self, input_embedding: &Vec<Vec<f32>>, device: &Device) -> Result<String, candle_core::Error> {
-        let mut input: Vec<f32> = Vec::new();
-
-        if input_embedding.len() > CONTEXT_WINDOW {
-            // ... then add the input
-            let start = input_embedding.len() - CONTEXT_WINDOW;
-            let end = start + CONTEXT_WINDOW;
-            input.append(&mut input_embedding[start..end].to_vec().concat());
-        }
-        else {
-            // pad with zeros
-            input = vec![0.0; (CONTEXT_WINDOW - input_embedding.len()) * EMBEDDING_SIZE as usize];
-            input.append(&mut input_embedding.to_vec().concat());
-        }
-
-        let input = Tensor::new(input, device)?.unsqueeze(0)?;
-
-        let output = self.forward(&input)?;
-
-        let output = self.encdec.unembed(&output)?;
-
-        let output = (output / 2.0)?;
-
-        let output_prob_max_index = output.argmax(1)?;
-        let n = output_prob_max_index.to_vec1::<u32>()?[0];
-
-        let max_token = self.encdec.dict.iter().nth(n as usize).unwrap();
-
-        return Ok(max_token.0.clone());
+    fn token_to_id(&self, token: &str) -> u32 {
+        *self
+            .token_index
+            .get(token)
+            .unwrap_or(self.token_index.get(NOT_FOUND).unwrap())
     }
 
-    pub fn predict_next_token(&self, input: &str, device: &Device) -> Result<String, candle_core::Error> {
+    fn id_to_token(&self, id: u32) -> &str {
+        &self.index_to_token[id as usize]
+    }
+
+    pub fn run(&self, input_ids: &Vec<u32>, device: &Device) -> Result<String, candle_core::Error> {
+        let ids: Vec<u32> = if input_ids.len() > CONTEXT_WINDOW {
+            let start = input_ids.len() - CONTEXT_WINDOW;
+            input_ids[start..].to_vec()
+        } else {
+            let pad_id = self.token_to_id(" ");
+            let mut padded = vec![pad_id; CONTEXT_WINDOW - input_ids.len()];
+            padded.extend_from_slice(input_ids);
+            padded
+        };
+
+        let input = Tensor::new(ids.as_slice(), device)?.unsqueeze(0)?;
+        let logits = self.forward(&input, false)?;
+        let token_id = logits.argmax(D::Minus1)?.to_vec1::<u32>()?[0];
+
+        return Ok(self.id_to_token(token_id).to_string());
+    }
+
+    pub fn predict_next_token(
+        &self,
+        input: &str,
+        device: &Device,
+    ) -> Result<String, candle_core::Error> {
         let tokens = tokenize(&input);
-        let mut input: Vec<Vec<f32>> = Vec::new();
-
-        for token in tokens {
-            match self.token_embedding_map.get(token.as_str()) {
-                Some(embedding) => input.push(embedding.clone()),
-                None => {
-                    input.push(self.token_embedding_map.get(NOT_FOUND).unwrap().clone());
-                },
-            }
-        }
-
-        self.run(&input, device)
+        let input_ids: Vec<u32> = tokens.iter().map(|t| self.token_to_id(t)).collect();
+        self.run(&input_ids, device)
     }
 
-    pub fn gen_training_data(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(Tensor, Tensor), candle_core::Error> {
-        let mut inputs: Vec<Tensor> = Vec::new();
-        let mut targets: Vec<Tensor> = Vec::new();
+    pub fn gen_training_data(
+        &self,
+        tokens_chain: Vec<String>,
+        device: &Device,
+    ) -> Result<(Tensor, Tensor), candle_core::Error> {
+        let mut inputs: Vec<Vec<u32>> = Vec::new();
+        let mut targets: Vec<u32> = Vec::new();
+        let pad_id = self.token_to_id(" ");
 
-        // pad token chain with context window zeros
-        let tokens_chain = tokens_chain.clone();
+        for index in 1..tokens_chain.len() {
+            let target_id = self.token_to_id(&tokens_chain[index]);
 
-        // iterate over tokens_chain
-        for index in 0..(tokens_chain.len()) {
-            let target_token = tokens_chain[index].clone();
-            let mut input_tokens: Vec<String>;
-
-            if index == 0 {
-                continue;
-            }
-
-            if index < CONTEXT_WINDOW {
-                input_tokens = tokens_chain[0..index].to_vec();
-                let mut padding: Vec<String> = Vec::new();
-
-                for _i in 0..CONTEXT_WINDOW-index {
-                    padding.push(String::from(" "));
+            let input_ids: Vec<u32> = if index < CONTEXT_WINDOW {
+                let mut padded = vec![pad_id; CONTEXT_WINDOW - index];
+                for t in &tokens_chain[0..index] {
+                    padded.push(self.token_to_id(t));
                 }
-
-                input_tokens = [padding, input_tokens].concat();
+                padded
             } else {
-                input_tokens = tokens_chain[index - CONTEXT_WINDOW..index].to_vec();
-            }
-
-            // debug input and output
-            // println!("input: {:?}, output: {:?}", input_tokens, target_token);
-
-            let input: Vec<f32> = input_tokens.iter().flat_map(|token| self.token_embedding_map.get(token).unwrap().to_vec()).collect();
-
-
-            let input = Tensor::new(input, &device)?;
-            let target = self.token_embedding_tensor_map.get(target_token.as_str());
-            let target = match target {
-                Some(t) => t.clone(),
-                None => {
-                    println!("Token not found: {}", target_token);
-                    self.token_embedding_tensor_map.get(NOT_FOUND).unwrap().clone()
-                },
+                tokens_chain[index - CONTEXT_WINDOW..index]
+                    .iter()
+                    .map(|t| self.token_to_id(t))
+                    .collect()
             };
 
-            // Add some noise to input
-            let input_shape = input.shape().clone();
-            let input = (input + Tensor::randn( 0.0 as f32, 0.00625 as f32, input_shape, device)?)?;
-
-            inputs.push(input);
-            targets.push(target.squeeze(0)?);
+            inputs.push(input_ids);
+            targets.push(target_id);
         }
 
+        let inputs: Vec<Tensor> = inputs
+            .iter()
+            .map(|ids| Tensor::new(ids.as_slice(), device).unwrap())
+            .collect();
         let inputs = Tensor::stack(&inputs, 0)?;
-        let targets = Tensor::stack(&targets, 0)?;
+        let targets = Tensor::new(targets.as_slice(), device)?;
 
         return Ok((inputs, targets));
     }
 
-    pub fn tensor_to_token(&self, tensor: &Tensor) -> Result<String, candle_core::Error> {
-        let output = self.encdec.unembed(&tensor)?;
-
-        let output = (output / 2.0)?;
-
-        let output_prob_max_index = output.argmax(1)?;
-        let n = output_prob_max_index.to_vec1::<u32>()?[0];
-
-        let max_token = self.encdec.dict.iter().nth(n as usize).unwrap();
-
-        return Ok(max_token.0.clone());
-    }
-
-    pub fn tensors_to_tokens(&self, tokens: &Vec<Tensor>) -> Result<Vec<String>, candle_core::Error> {
-        Ok(tokens.into_iter()
-            .map(
-                | t:& Tensor |
-                self.tensor_to_token(&t.unsqueeze(0).unwrap()).unwrap()
-            ).collect())
-    }
-
     pub fn crash_dump(&self, inputs: Tensor, targets: Tensor) -> Result<(), candle_core::Error> {
         self.save_to_path("data/model");
-
-        let batch_size = inputs.dim(0)?;
         self.print_stats()?;
 
+        let batch_size = inputs.dim(0)?;
         println!("Batch size {}", batch_size);
 
-        let inputs = inputs.chunk(batch_size, 0)?;
-        let targets = targets.chunk(batch_size, 0)?;
-
+        let input_ids = inputs.to_vec2::<u32>()?;
+        let target_ids = targets.to_vec1::<u32>()?;
 
         for i in 0..batch_size {
-            let input = inputs[i].squeeze(0)?.chunk(CONTEXT_WINDOW, 0)?;
+            let input_tokens: Vec<&str> = input_ids[i]
+                .iter()
+                .map(|&id| self.id_to_token(id))
+                .collect();
             println!(
                 "batch[{}] {:?} -> {:?}",
                 i,
-                self.tensors_to_tokens(&input)?,
-                self.tensor_to_token(&targets[i])?
+                input_tokens,
+                self.id_to_token(target_ids[i])
             );
         }
 
         return Ok(());
     }
 
-    pub fn simple_train(&mut self, tokens_chain: Vec<String>, device: &Device) -> Result<(), candle_core::Error> {
+    pub fn simple_train(
+        &mut self,
+        tokens_chain: Vec<String>,
+        device: &Device,
+    ) -> Result<(), candle_core::Error> {
         let token_batch_size = TOKEN_BATCH_SIZE;
         let epochs: u32 = EPOCHS;
         let num_batches = tokens_chain.len() / token_batch_size + 1;
         let lr = LR;
-        let mut optimizer = candle_nn::AdamW::new_lr(self.var_map.all_vars(), lr)?;
+        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), lr)?;
 
         for epoch in 0..epochs {
             let mut loss_stat: f32 = 1.0;
@@ -369,31 +312,75 @@ impl Model {
                 if end <= start {
                     continue;
                 }
-                let tokens = tokens_chain[start..end].to_vec();
 
-                let (inputs, targets) = self.gen_training_data(tokens, device)?;
-
-                let predictions = self.forward_train(&inputs)?;
-
-                // Compute loss
-                // binary cross-entropy is not supported on metal gpu
-                //let loss = nn::loss::binary_cross_entropy_with_logit(&predictions, &targets)?;
-                let loss = nn::loss::mse(&predictions, &targets)?;
                 let batch_size = end - start;
                 let factor = 20.0 / batch_size as f64;
                 optimizer.set_learning_rate(LR * factor);
 
-                loss_stat = loss.to_vec0::<f32>()?;
+                // Rotate train subset once per batch
+                self.train_subset_index = (self.train_subset_index + 1) % TRAINING_SUBSETS;
 
-                if loss_stat.is_nan() {
-                    self.crash_dump(inputs, targets)?;
-                    panic!("Loss is nan, gradient probably exploded or vanished.");
+                loop {
+                    let result: Result<(), CandleError> = (|| {
+                        let tokens = tokens_chain[start..end].to_vec();
+                        let (inputs, targets) = self.gen_training_data(tokens, device)?;
+
+                        // Split into micro-batches for gradient accumulation
+                        let num_samples = inputs.dim(0)?;
+                        let num_micro = (num_samples + MICRO_BATCH_SIZE - 1) / MICRO_BATCH_SIZE;
+
+                        for m in 0..num_micro {
+                            let micro_start = m * MICRO_BATCH_SIZE;
+                            let micro_len = MICRO_BATCH_SIZE.min(num_samples - micro_start);
+                            let micro_inputs = inputs.narrow(0, micro_start, micro_len)?;
+                            let micro_targets = targets.narrow(0, micro_start, micro_len)?;
+
+                            let predictions = self.forward(&micro_inputs, true)?;
+
+                            let loss = nn::loss::cross_entropy(&predictions, &micro_targets)?;
+                            loss_stat = loss.to_vec0::<f32>()?;
+
+                            if loss_stat.is_nan() {
+                                self.crash_dump(inputs, targets)?;
+                                panic!("Loss is nan, gradient probably exploded or vanished.");
+                            }
+
+                            optimizer.accumulate(&loss)?;
+                        }
+
+                        optimizer.step()?;
+                        Ok(())
+                    })();
+
+                    match result {
+                        Ok(()) => break,
+                        Err(e) if is_oom_error(&e) => {
+                            optimizer.clear_accumulated();
+                            eprintln!(
+                                "\nCUDA OOM on batch {j}, retrying in {OOM_RETRY_DELAY_SECS}s...",
+                            );
+                            std::thread::sleep(std::time::Duration::from_secs(
+                                OOM_RETRY_DELAY_SECS,
+                            ));
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
 
-                optimizer.backward_step(&loss)?;
+                if j % 50 == 0 {
+                    print!(
+                        "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6}",
+                        epoch, epochs, j, num_batches, loss_stat
+                    );
+                    use std::io::Write;
+                    std::io::stdout().flush().ok();
+                }
             }
 
-            println!("Epoch {:6}/{:6} : Loss = {:.6}", epoch, epochs, loss_stat);
+            println!(
+                "\rEpoch {:6}/{:6} : Loss = {:.6}              ",
+                epoch, epochs, loss_stat
+            );
             let prediction = self.run_str("Two birds", 15)?;
             let prediction = prediction.replace("\n", "_");
             print!("The birds|>{:.40}", prediction);
@@ -425,7 +412,7 @@ impl Model {
 
     pub fn print_stats(&self) -> Result<(), candle_core::Error> {
         println!("Model stats:");
-        println!("Dict size: {}", self.encdec.dict.len());
+        println!("Dict size: {}", self.dict.len());
 
         // print min, max, mean, std of all tensors
         for var in self.var_map.all_vars().iter() {
@@ -433,7 +420,10 @@ impl Model {
             let max = var.max_all()?.to_vec0::<f32>()?;
             let mean = var.mean_all()?.to_vec0::<f32>()?;
             let variance = var.flatten_all()?.var(D::Minus1)?.to_vec0::<f32>()?;
-            println!("{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3}", "", min, max, mean, variance);
+            println!(
+                "{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3}",
+                "", min, max, mean, variance
+            );
         }
 
         Ok(())
@@ -443,7 +433,11 @@ impl Model {
         let var_map_path = format!("{}.safetensors", path);
         self.var_map.save(var_map_path.as_str()).unwrap();
 
-        let dict_words = self.encdec.dict.iter().map(|(word, _)| word.clone()).collect::<Vec<String>>();
+        let dict_words = self
+            .dict
+            .iter()
+            .map(|(word, _)| word.clone())
+            .collect::<Vec<String>>();
 
         let dict_path = format!("{}.dict", path);
         let file = fs::File::create(dict_path).unwrap();
@@ -451,8 +445,12 @@ impl Model {
     }
 
     pub fn load_from_path(path: &str, device: &Device) -> Result<Self, Error> {
+        let dict_path = format!("{}.dict", path);
+        let file = fs::File::open(&dict_path).unwrap();
+        let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
+        let dict = tokens_to_dict(dict_words);
 
-        let mut model = create_model(device).unwrap();
+        let mut model = create_model(&dict, device).unwrap();
 
         let var_map_path = format!("{}.safetensors", path);
         model.var_map.load(var_map_path.as_str()).unwrap();
@@ -465,35 +463,29 @@ impl RunStr for Model {
     fn run_str(&self, input: &str, len: usize) -> Result<String, candle_core::Error> {
         let mut output = String::new();
         let tokens = tokenize(input);
-        let mut input: Vec<Vec<f32>> = Vec::new();
-
-        for token in tokens {
-            let result = self.encdec.get_token_embedding_vec(token.as_str())?;
-            input.push(result);
-        }
+        let mut input_ids: Vec<u32> = tokens.iter().map(|t| self.token_to_id(t)).collect();
 
         for _ in 0..len {
-            let prediction = self.run(&input, &self.device)?;
-            let token_embedding = self.encdec.get_token_embedding_vec(prediction.as_str())?;
-            input.push(token_embedding);
+            let prediction = self.run(&input_ids, &self.device)?;
+            let pred_id = self.token_to_id(&prediction);
+            input_ids.push(pred_id);
 
             if prediction == STOP_TOKEN {
                 break;
             }
 
-            output.push_str(prediction.as_str());
+            output.push_str(&prediction);
         }
 
         return Ok(output);
     }
 }
 
-pub fn create_model(device: &Device) -> Result<Model, candle_core::Error> {
-    // Create Varbuilder
+pub fn create_model(dict: &Dict, device: &Device) -> Result<Model, candle_core::Error> {
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    let model = Model::new(varmap, vb, device)?;
+    let model = Model::new(dict.clone(), varmap, vb, device)?;
 
     Ok(model)
 }

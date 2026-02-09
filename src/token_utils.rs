@@ -62,33 +62,8 @@ impl GetTokenEmbedding for Dict {
 
 pub fn tokenize(input: &str) -> Vec<String> {
     let split_symbols = [
-        ' ',
-        ',',
-        '.',
-        '!',
-        '?',
-        ';',
-        ':',
-        '\n',
-        '\t',
-        '(',
-        ')',
-        '{',
-        '}',
-        '[',
-        ']',
-        '<',
-        '>',
-        '=',
-        '+',
-        '-',
-        '*',
-        '/',
-        '&',
-        '|',
-        '^',
-        '%',
-        '$',
+        ' ', ',', '.', '!', '?', ';', ':', '\n', '\t', '(', ')', '{', '}', '[', ']', '<', '>', '=',
+        '+', '-', '*', '/', '&', '|', '^', '%', '$',
     ];
 
     let mut tokens = Vec::new();
@@ -104,7 +79,11 @@ pub fn tokenize(input: &str) -> Vec<String> {
 
         if c == '<' {
             // Check for sys tokens
-            let potential_sys_token = input.chars().skip(index).take(MAX_SYS_TOKEN_LEN).collect::<String>();
+            let potential_sys_token = input
+                .chars()
+                .skip(index)
+                .take(MAX_SYS_TOKEN_LEN)
+                .collect::<String>();
             let mut found_token = false;
             for sys_token in SYSTEM_TOKENS.iter() {
                 if potential_sys_token.starts_with(sys_token) {
@@ -155,9 +134,7 @@ pub fn tokens_to_dict(vocabulary: Vec<String>) -> Dict {
 
 pub const MAX_SYS_TOKEN_LEN: usize = 10;
 pub const STOP_TOKEN: &str = "<stop>";
-pub const SYSTEM_TOKENS: [&str; 1] = [
-    STOP_TOKEN
-];
+pub const SYSTEM_TOKENS: [&str; 1] = [STOP_TOKEN];
 
 #[cfg(test)]
 mod tests {
@@ -165,7 +142,10 @@ mod tests {
 
     #[test]
     fn test_tokenize() {
-        assert_eq!(tokenize("Hello, world!"), vec!["Hello", ",", " ", "world", "!"]);
+        assert_eq!(
+            tokenize("Hello, world!"),
+            vec!["Hello", ",", " ", "world", "!"]
+        );
     }
 
     #[test]
@@ -173,8 +153,10 @@ mod tests {
         let vocabulary = tokenize("Hello, world!");
         let vocabulary_dict = tokens_to_dict(vocabulary);
 
-        assert_ne!(vocabulary_dict.get("Hello").unwrap(),
-                   vocabulary_dict.get("world").unwrap());
+        assert_ne!(
+            vocabulary_dict.get("Hello").unwrap(),
+            vocabulary_dict.get("world").unwrap()
+        );
 
         assert!(*vocabulary_dict.get("world").unwrap() > 0.0);
     }
@@ -183,35 +165,55 @@ mod tests {
     fn test_sys_tokens() {
         let tokens = tokenize("Hello, world!<stop>\nTest sentence.");
 
-        assert_eq!(tokens, vec!["Hello", ",", " ", "world", "!", "<stop>", "\n", "Test", " ", "sentence", "."]);
+        assert_eq!(
+            tokens,
+            vec!["Hello", ",", " ", "world", "!", "<stop>", "\n", "Test", " ", "sentence", "."]
+        );
     }
 
     #[test]
     fn test_sys_tokens_at_end_of_token() {
         let tokens = tokenize("Hello, world<stop>\nTest sentence.");
 
-        assert_eq!(tokens, vec!["Hello", ",", " ", "world", "<stop>", "\n", "Test", " ", "sentence", "."]);
+        assert_eq!(
+            tokens,
+            vec!["Hello", ",", " ", "world", "<stop>", "\n", "Test", " ", "sentence", "."]
+        );
     }
 
     #[test]
     fn test_sys_tokens_at_end_of_dot() {
         let tokens = tokenize("Hello, world.<stop>\nTest sentence.");
 
-        assert_eq!(tokens, vec!["Hello", ",", " ", "world", ".", "<stop>", "\n", "Test", " ", "sentence", "."]);
+        assert_eq!(
+            tokens,
+            vec!["Hello", ",", " ", "world", ".", "<stop>", "\n", "Test", " ", "sentence", "."]
+        );
     }
 
     #[test]
     fn test_2_stop_tokens() {
         let tokens = tokenize("Hello, world.<stop>\nTest sentence.<stop>");
 
-        assert_eq!(tokens, vec!["Hello", ",", " ", "world", ".", "<stop>", "\n", "Test", " ", "sentence", ".", "<stop>"]);
+        assert_eq!(
+            tokens,
+            vec![
+                "Hello", ",", " ", "world", ".", "<stop>", "\n", "Test", " ", "sentence", ".",
+                "<stop>"
+            ]
+        );
     }
 
     #[test]
     fn test_3_stop_tokens() {
         let tokens = tokenize("Hello, world.<stop>\nTest sentence.<stop>.<stop>");
 
-        assert_eq!(tokens, vec!["Hello", ",", " ", "world", ".", "<stop>", "\n", "Test", " ", "sentence", ".", "<stop>", ".", "<stop>"]);
+        assert_eq!(
+            tokens,
+            vec![
+                "Hello", ",", " ", "world", ".", "<stop>", "\n", "Test", " ", "sentence", ".",
+                "<stop>", ".", "<stop>"
+            ]
+        );
     }
-
 }

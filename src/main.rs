@@ -3,19 +3,19 @@ use std::io::prelude::*;
 
 use attention_predictor::{create_model, get_pretrained_dict};
 use candle_core::Var;
-use candle_nn::{VarMap, VarBuilder};
 
 use crate::{
+    attention_predictor::{get_device, Model, FILE_PATH},
+    model_tests::{qa_test, self_test},
     token_utils::{tokenize, STOP_TOKEN},
-    attention_predictor::{get_device, Model, FILE_PATH}, encoder_decoder::EncoderDecoder, model_tests::{self_test, qa_test}
 };
 
-mod model_tests;
-mod token_utils;
 mod attention_block;
-mod encoder_decoder;
 mod attention_predictor;
+mod grad_accum;
+mod model_tests;
 mod models;
+mod token_utils;
 
 fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
     let file = fs::File::open(file_path)?;
@@ -28,9 +28,9 @@ fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let args: Vec<String> = std::env::args().collect();
-    let args = args[1..].to_vec();
+    let command = args.first().map(|s| s.as_str()).unwrap_or("");
 
     let device = get_device()?;
 
@@ -40,48 +40,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // can output a sequence of words + spaces
     // then train with larger dataset if the model is a good one.
 
-    if args[0] == "pretrain_encoder_decoder" {
-        let level_file_path = FILE_PATH;
-        let (dict, _tokens) = get_pretrained_dict(level_file_path)?;
-        let device = EncoderDecoder::get_device()?;
-        let vm = VarMap::new();
-        let vb = VarBuilder::from_varmap(&vm, candle_core::DType::F32, &device);
-        let mut encoder_decoder = EncoderDecoder::new(dict, vm, vb, &device)?;
-
-        println!("Training encoder decoder");
-        encoder_decoder.train_strategy()?;
-        encoder_decoder.save_to_path("data/encdec");
-
-        encoder_decoder.evaluate()?;
-
-        return Ok(());
-    }
-
-    if args[0] == "print_stats" {
+    if command == "print_stats" {
         println!("Loading test model");
         let model = Model::load_from_path("data/model", &device)?;
         model.print_stats()?;
         return Ok(());
     }
-    if args[0] == "print_dict_embeddings" {
-        println!("Loading test model");
-        let model = EncoderDecoder::load_from_path("data/encdec", &device)?;
-        model.print_dict_embeddings()?;
-        return Ok(());
-    }
 
-    if args[0] == "print_stats_encoder_decoder" {
-        println!("Loading encoder decoder model");
-        let model = EncoderDecoder::load_from_path("data/encdec", &device)?;
-        model.print_stats()?;
-        return Ok(());
-    }
-
-    if args[0] == "train_new" {
+    if command == "train" {
         println!("Training new model");
 
         let device = get_device()?;
-        let mut model = create_model(&device)?;
+        let (dict, _tokens) = get_pretrained_dict(FILE_PATH)?;
+        let mut model = create_model(&dict, &device)?;
 
         let level_file_path = FILE_PATH;
         let mut file = fs::File::open(level_file_path)?;
@@ -97,28 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if args[0] == "train" {
-        let path = "data/model";
-        println!("Continuing training existing model {}", path);
-
-        let device = get_device()?;
-        let mut model = Model::load_from_path(path, &device)?;
-
-        let level_file_path = FILE_PATH;
-        let mut file = fs::File::open(level_file_path)?;
-        let mut content: String = String::new();
-        file.read_to_string(&mut content)?;
-        let tokens = tokenize(content.as_str());
-
-        println!("Training on {} tokens", tokens.len());
-
-        model.simple_train(tokens, &device)?;
-        model.save_to_path("data/model");
-
-        return Ok(());
-    }
-
-    if args[0] == "merge" {
+    if command == "merge" {
         let path_a = "data/model_a";
         let path_b = "data/model_b";
         let path_average = "data/model_a_b_average";
@@ -137,7 +87,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let value_a = data_a.get(key).unwrap().as_tensor();
             let value_b = data_b.get(key).unwrap().as_tensor();
             let average = ((value_a + value_b).unwrap() / 2.0).unwrap();
-            data_average.insert(key.clone(), Var::from_tensor(&average).unwrap()).unwrap();
+            data_average
+                .insert(key.clone(), Var::from_tensor(&average).unwrap())
+                .unwrap();
             println!("merged {}", key);
         });
 
@@ -151,7 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if args[0] == "run" {
+    if command == "run" {
         println!("Loading model");
         let model = Model::load_from_path("data/model", &device)?;
 
@@ -183,17 +135,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if args[0] == "self_test" {
+    if command == "self_test" {
         self_test()?;
         return Ok(());
     }
 
-
-    if args[0] == "qa_test" {
+    if command == "qa_test" {
         qa_test()?;
         return Ok(());
     }
 
-    println!("Please provide a valid command: 'train' or 'run'");
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, self_test, qa_test");
     Ok(())
 }
