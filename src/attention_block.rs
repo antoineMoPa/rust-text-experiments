@@ -137,6 +137,7 @@ impl AttentionBlock {
         &self,
         input: &Tensor,
         train_subset_index: i8,
+        train: bool,
     ) -> Result<Tensor, candle_core::Error> {
         let batch_size = input.dim(0)?;
 
@@ -150,6 +151,11 @@ impl AttentionBlock {
         // Add position encoding [1, context_window, embedding_size] (broadcasts over batch)
         let pos_enc = self.position_encoding(&input)?;
         let input = input.broadcast_add(&pos_enc)?;
+        let input = if train {
+            nn::ops::dropout(&input, 0.1)?
+        } else {
+            input
+        };
 
         let d_head = self.config.embedding_size / self.config.num_attention_heads;
         let mut results: Vec<Tensor> = Vec::new();

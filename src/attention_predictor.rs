@@ -159,7 +159,7 @@ impl Model {
 
     /// input_ids: [batch, CONTEXT_WINDOW] of u32 token indices
     /// returns: [batch, vocab_size] logits
-    fn forward(&self, input_ids: &Tensor) -> Result<Tensor, candle_core::Error> {
+    fn forward(&self, input_ids: &Tensor, train: bool) -> Result<Tensor, candle_core::Error> {
         // Embedding lookup: [batch, CONTEXT_WINDOW] -> [batch, CONTEXT_WINDOW, EMBEDDING_SIZE]
         let embedded = self.embedding.forward(input_ids)?;
         // Flatten: [batch, CONTEXT_WINDOW * EMBEDDING_SIZE] = [batch, INPUT_SIZE]
@@ -170,7 +170,9 @@ impl Model {
         let downscaled_input = result.clone();
 
         for block in self.blocks.iter() {
-            result = block.forward(&result, self.train_subset_index)?.tanh()?;
+            result = block
+                .forward(&result, self.train_subset_index, train)?
+                .tanh()?;
         }
 
         let result = (result + (downscaled_input * 0.2)?)?;
@@ -207,7 +209,7 @@ impl Model {
         };
 
         let input = Tensor::new(ids.as_slice(), device)?.unsqueeze(0)?;
-        let logits = self.forward(&input)?;
+        let logits = self.forward(&input, false)?;
         let token_id = logits.argmax(D::Minus1)?.to_vec1::<u32>()?[0];
 
         return Ok(self.id_to_token(token_id).to_string());
@@ -333,7 +335,7 @@ impl Model {
                             let micro_inputs = inputs.narrow(0, micro_start, micro_len)?;
                             let micro_targets = targets.narrow(0, micro_start, micro_len)?;
 
-                            let predictions = self.forward(&micro_inputs)?;
+                            let predictions = self.forward(&micro_inputs, true)?;
 
                             let loss = nn::loss::cross_entropy(&predictions, &micro_targets)?;
                             loss_stat = loss.to_vec0::<f32>()?;
