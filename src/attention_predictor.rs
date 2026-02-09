@@ -405,8 +405,6 @@ impl Model {
             }
         }
 
-        self.print_stats()?;
-
         Ok(())
     }
 
