@@ -367,10 +367,28 @@ impl Model {
                 }
 
                 if j % 50 == 0 {
-                    print!(
+                    println!(
                         "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6}",
                         epoch, epochs, j, num_batches, loss_stat
                     );
+                    let prediction = self.run_str("Two birds", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!("The birds|>{:.40}", prediction);
+                    let prediction = self.run_str("The cat", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!(" The cat|>{:.40}", prediction);
+                    let prediction = self.run_str("The dog", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    println!(" The dog|>{:.40}", prediction);
+                    let prediction = self.run_str("The fish", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!("The fish|>{:.40}", prediction);
+                    let prediction = self.run_str("A sailboat", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!(" A sailboat|>{:.40}", prediction);
+                    let prediction = self.run_str("A carrot", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    println!(" A carrot|>{:.40}", prediction);
                     use std::io::Write;
                     std::io::stdout().flush().ok();
                 }
@@ -380,24 +398,6 @@ impl Model {
                 "\rEpoch {:6}/{:6} : Loss = {:.6}              ",
                 epoch, epochs, loss_stat
             );
-            let prediction = self.run_str("Two birds", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            print!("The birds|>{:.40}", prediction);
-            let prediction = self.run_str("The cat", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            print!(" The cat|>{:.40}", prediction);
-            let prediction = self.run_str("The dog", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            println!(" The dog|>{:.40}", prediction);
-            let prediction = self.run_str("The fish", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            print!("The fish|>{:.40}", prediction);
-            let prediction = self.run_str("A sailboat", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            print!(" A sailboat|>{:.40}", prediction);
-            let prediction = self.run_str("A carrot", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            println!(" A carrot|>{:.40}", prediction);
 
             if epoch % 40 == 0 {
                 self.save_to_path("data/model");
