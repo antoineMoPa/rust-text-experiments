@@ -1,3 +1,5 @@
+use rand::distributions::WeightedIndex;
+use rand::prelude::Distribution;
 use rand::seq::SliceRandom;
 use std::{fs, io::Error, io::Read as IoRead};
 
@@ -26,7 +28,7 @@ pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 20) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
 const LR: f64 = 6.0e-4;
 const WARMUP_BATCHES: usize = 200;
-const EPOCHS: u32 = 3;
+const EPOCHS: u32 = 5;
 const TOKEN_BATCH_SIZE: usize = 256;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
 const MICRO_BATCH_SIZE: usize = 16;
@@ -215,9 +217,21 @@ impl Model {
         let not_found_id = self.token_to_id(NOT_FOUND) as usize;
         let mut logits_vec = logits.to_vec2::<f32>()?[0].clone();
         logits_vec[not_found_id] = f32::NEG_INFINITY;
-        let logits = Tensor::new(logits_vec.as_slice(), device)?.unsqueeze(0)?;
 
-        let token_id = logits.argmax(D::Minus1)?.to_vec1::<u32>()?[0];
+        // Top-k sampling
+        const TOP_K: usize = 5;
+        let mut indexed: Vec<(f32, usize)> = logits_vec.iter().copied().enumerate().map(|(i, v)| (v, i)).collect();
+        indexed.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        let top_k = &indexed[..TOP_K.min(indexed.len())];
+
+        // Softmax over top-k
+        let max_logit = top_k[0].0;
+        let exps: Vec<f32> = top_k.iter().map(|(v, _)| (v - max_logit).exp()).collect();
+        let sum: f32 = exps.iter().sum();
+        let probs: Vec<f32> = exps.iter().map(|e| e / sum).collect();
+
+        let dist = WeightedIndex::new(&probs).unwrap();
+        let token_id = top_k[dist.sample(&mut rand::thread_rng())].1 as u32;
 
         return Ok(self.id_to_token(token_id).to_string());
     }
