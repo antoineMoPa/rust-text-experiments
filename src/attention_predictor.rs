@@ -1,5 +1,5 @@
-use std::{fs, io::Error, io::Read as IoRead};
 use rand::seq::SliceRandom;
+use std::{fs, io::Error, io::Read as IoRead};
 
 use crate::grad_accum::AccumAdamW;
 use crate::models::RunStr;
@@ -106,12 +106,7 @@ impl Model {
         }
 
         let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
-        let fc1 = nn::linear_b(
-            INPUT_SIZE,
-            HIDDEN_SIZE,
-            true,
-            vb.pp("fc1"),
-        )?;
+        let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
         let output_proj = nn::linear_b(EMBEDDING_SIZE, vocab_size, true, vb.pp("output_proj"))?;
@@ -345,7 +340,13 @@ impl Model {
                             .collect();
                         let batch_targets: Vec<u32> = batch_indices
                             .iter()
-                            .map(|&i| all_targets.narrow(0, i, 1).unwrap().to_vec1::<u32>().unwrap()[0])
+                            .map(|&i| {
+                                all_targets
+                                    .narrow(0, i, 1)
+                                    .unwrap()
+                                    .to_vec1::<u32>()
+                                    .unwrap()[0]
+                            })
                             .collect();
                         let inputs = Tensor::stack(&batch_inputs, 0)?;
                         let targets = Tensor::new(batch_targets.as_slice(), device)?;
