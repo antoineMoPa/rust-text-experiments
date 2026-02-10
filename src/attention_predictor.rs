@@ -27,7 +27,7 @@ pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
 const LR: f64 = 6.0e-4;
 const WARMUP_BATCHES: usize = 200;
 const EPOCHS: u32 = 3;
-const TOKEN_BATCH_SIZE: usize = 128;
+const TOKEN_BATCH_SIZE: usize = 256;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
 const MICRO_BATCH_SIZE: usize = 16;
 
@@ -166,7 +166,6 @@ impl Model {
                 .tanh()?;
         }
 
-        let result = (result + input)?;
         let result = self.norm.forward(&result)?;
 
         let result = self.fc1.forward(&result)?.gelu()?;

@@ -140,6 +140,7 @@ impl AttentionBlock {
         train: bool,
     ) -> Result<Tensor, candle_core::Error> {
         let batch_size = input.dim(0)?;
+        let input_flat = input.clone();
 
         // Reshape [batch, context_window * embedding_size] -> [batch, context_window, embedding_size]
         let input = input.reshape((
@@ -194,6 +195,9 @@ impl AttentionBlock {
 
         // Flatten back: [batch, context_window * embedding_size]
         let result = result.reshape((batch_size, self.config.input_size))?;
+
+        // Residual connection
+        let result = (result + input_flat)?;
 
         Ok(result)
     }
