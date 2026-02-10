@@ -24,7 +24,7 @@ pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 20) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
 const LR: f64 = 6.0e-4;
 const WARMUP_BATCHES: usize = 200;
-const EPOCHS: u32 = 2;
+const EPOCHS: u32 = 3;
 const TOKEN_BATCH_SIZE: usize = 128;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
 const MICRO_BATCH_SIZE: usize = 16;
@@ -163,13 +163,13 @@ impl Model {
 
         let result = (result + input)?;
 
-        let result = self.fc1.forward(&result)?;
+        let result = self.fc1.forward(&result)?.gelu()?;
         let result = if train {
             nn::ops::dropout(&result, 0.1)?
         } else {
             result
         };
-        let result = self.fc2.forward(&result)?;
+        let result = self.fc2.forward(&result)?.gelu()?;
         let result = if train {
             nn::ops::dropout(&result, 0.1)?
         } else {
