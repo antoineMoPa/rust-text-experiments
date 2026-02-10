@@ -49,6 +49,10 @@ impl AccumAdamW {
         })
     }
 
+    pub fn set_learning_rate(&mut self, lr: f64) {
+        self.lr = lr;
+    }
+
     /// Compute gradients for a loss and add them to the accumulator.
     pub fn accumulate(&mut self, loss: &Tensor) -> Result<()> {
         let grads = loss.backward()?;

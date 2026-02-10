@@ -23,6 +23,7 @@ const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 20) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
 const LR: f64 = 6.0e-4;
+const WARMUP_BATCHES: usize = 200;
 const EPOCHS: u32 = 2;
 const TOKEN_BATCH_SIZE: usize = 128;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
@@ -312,6 +313,7 @@ impl Model {
         let _num_batches = (num_samples + MICRO_BATCH_SIZE - 1) / MICRO_BATCH_SIZE;
 
         let mut rng = rand::thread_rng();
+        let mut global_step: usize = 0;
 
         for epoch in 0..epochs {
             let mut loss_stat: f32 = 1.0;
@@ -325,6 +327,11 @@ impl Model {
                 let batch_start = j * TOKEN_BATCH_SIZE;
                 let batch_end = (batch_start + TOKEN_BATCH_SIZE).min(num_samples);
                 let batch_indices = &indices[batch_start..batch_end];
+
+                // Linear warmup: ramp LR from 0 to LR over the first WARMUP_BATCHES steps
+                let warmup_lr = LR * (global_step as f64 / WARMUP_BATCHES as f64).min(1.0);
+                optimizer.set_learning_rate(warmup_lr);
+                global_step += 1;
 
                 // Rotate train subset once per batch
                 self.train_subset_index = (self.train_subset_index + 1) % TRAINING_SUBSETS;
