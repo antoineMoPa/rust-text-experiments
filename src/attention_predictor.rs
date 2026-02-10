@@ -1,4 +1,5 @@
 use std::{fs, io::Error, io::Read as IoRead};
+use rand::seq::SliceRandom;
 
 use crate::grad_accum::AccumAdamW;
 use crate::models::RunStr;
@@ -208,6 +209,13 @@ impl Model {
 
         let input = Tensor::new(ids.as_slice(), device)?.unsqueeze(0)?;
         let logits = self.forward(&input, false)?;
+
+        // Mask <notfound> so it can never be predicted during inference
+        let not_found_id = self.token_to_id(NOT_FOUND) as usize;
+        let mut logits_vec = logits.to_vec2::<f32>()?[0].clone();
+        logits_vec[not_found_id] = f32::NEG_INFINITY;
+        let logits = Tensor::new(logits_vec.as_slice(), device)?.unsqueeze(0)?;
+
         let token_id = logits.argmax(D::Minus1)?.to_vec1::<u32>()?[0];
 
         return Ok(self.id_to_token(token_id).to_string());
@@ -293,38 +301,47 @@ impl Model {
         tokens_chain: Vec<String>,
         device: &Device,
     ) -> Result<(), candle_core::Error> {
-        let token_batch_size = TOKEN_BATCH_SIZE;
         let epochs: u32 = EPOCHS;
-        let num_batches = tokens_chain.len() / token_batch_size + 1;
-        let lr = LR;
-        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), lr)?;
+        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), LR)?;
+
+        // Pre-generate all (input, target) pairs from the full corpus. Each sample is a
+        // self-contained context window, so shuffling them across epochs is safe — it doesn't
+        // break ordering within any article.
+        let (all_inputs, all_targets) = self.gen_training_data(tokens_chain, device)?;
+        let num_samples = all_inputs.dim(0)?;
+        let _num_batches = (num_samples + MICRO_BATCH_SIZE - 1) / MICRO_BATCH_SIZE;
+
+        let mut rng = rand::thread_rng();
 
         for epoch in 0..epochs {
             let mut loss_stat: f32 = 1.0;
 
-            for j in 0..(num_batches + 1) {
-                let start = j * token_batch_size;
-                let overlap = 0;
-                let end = start + token_batch_size + 1 + overlap;
-                let end = end.min(tokens_chain.len());
-                if end <= start {
-                    continue;
-                }
+            // Shuffle sample indices each epoch so batches draw from across the corpus
+            let mut indices: Vec<usize> = (0..num_samples).collect();
+            indices.shuffle(&mut rng);
 
-                let batch_size = end - start;
-                // Scale LR inversely with batch size so smaller batches get proportionally
-                // larger updates. Clamp to 1.0 to prevent tiny batches (e.g. last batch in
-                // epoch) from causing disproportionately large weight updates.
-                let factor = (20.0 / batch_size as f64).min(1.0);
-                optimizer.set_learning_rate(LR * factor);
+            let batch_count = (num_samples + TOKEN_BATCH_SIZE - 1) / TOKEN_BATCH_SIZE;
+            for j in 0..batch_count {
+                let batch_start = j * TOKEN_BATCH_SIZE;
+                let batch_end = (batch_start + TOKEN_BATCH_SIZE).min(num_samples);
+                let batch_indices = &indices[batch_start..batch_end];
 
                 // Rotate train subset once per batch
                 self.train_subset_index = (self.train_subset_index + 1) % TRAINING_SUBSETS;
 
                 loop {
                     let result: Result<(), CandleError> = (|| {
-                        let tokens = tokens_chain[start..end].to_vec();
-                        let (inputs, targets) = self.gen_training_data(tokens, device)?;
+                        // Build this batch's tensors from shuffled indices
+                        let batch_inputs: Vec<Tensor> = batch_indices
+                            .iter()
+                            .map(|&i| all_inputs.narrow(0, i, 1).unwrap().squeeze(0).unwrap())
+                            .collect();
+                        let batch_targets: Vec<u32> = batch_indices
+                            .iter()
+                            .map(|&i| all_targets.narrow(0, i, 1).unwrap().to_vec1::<u32>().unwrap()[0])
+                            .collect();
+                        let inputs = Tensor::stack(&batch_inputs, 0)?;
+                        let targets = Tensor::new(batch_targets.as_slice(), device)?;
 
                         // Split into micro-batches for gradient accumulation
                         let num_samples = inputs.dim(0)?;
@@ -342,7 +359,7 @@ impl Model {
                             loss_stat = loss.to_vec0::<f32>()?;
 
                             if loss_stat.is_nan() {
-                                self.crash_dump(inputs, targets)?;
+                                self.crash_dump(inputs.clone(), targets.clone())?;
                                 panic!("Loss is nan, gradient probably exploded or vanished.");
                             }
 
@@ -371,7 +388,7 @@ impl Model {
                 if j % 200 == 0 {
                     println!(
                         "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6}",
-                        epoch, epochs, j, num_batches, loss_stat
+                        epoch, epochs, j, batch_count, loss_stat
                     );
                     let prediction = self.run_str("Two birds", 15)?;
                     let prediction = prediction.replace("\n", "_");
