@@ -13,6 +13,7 @@ use crate::{
 mod attention_block;
 mod attention_predictor;
 mod grad_accum;
+mod layer_norm;
 mod model_tests;
 mod models;
 mod token_utils;
