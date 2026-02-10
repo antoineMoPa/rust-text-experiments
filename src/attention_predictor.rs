@@ -33,6 +33,7 @@ const NOT_FOUND: &str = "<notfound>";
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
+    pub norm: nn::LayerNorm,
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
     pub fc3: nn::Linear,
@@ -106,6 +107,7 @@ impl Model {
         }
 
         let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
+        let norm = nn::layer_norm(INPUT_SIZE, 1e-5, vb.pp("norm"))?;
         let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
@@ -129,6 +131,7 @@ impl Model {
         println!("{}", output.on_white().black());
 
         Ok(Self {
+            norm,
             fc1,
             fc2,
             fc3,
@@ -162,6 +165,7 @@ impl Model {
         }
 
         let result = (result + input)?;
+        let result = self.norm.forward(&result)?;
 
         let result = self.fc1.forward(&result)?.gelu()?;
         let result = if train {
