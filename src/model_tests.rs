@@ -26,7 +26,7 @@ pub fn print_results() -> Result<(), Box<dyn std::error::Error>> {
     let train = read_ndjson("training_log.json");
     let tests = read_ndjson("test_results.json");
 
-    println!("{}", RESULT_COLS.join("\t"));
+    println!("{}", RESULT_COLS.join(","));
 
     let empty = serde_json::Value::Object(Default::default());
     let n = train.len().max(tests.len());
@@ -41,7 +41,7 @@ pub fn print_results() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .unwrap_or_default()
         }).collect();
-        println!("{}", row.join("\t"));
+        println!("{}", row.join(","));
     }
 
     Ok(())

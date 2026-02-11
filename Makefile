@@ -5,8 +5,8 @@ run:
 train:
 	$(args) nohup time cargo run --release train 2>&1 | tee train_log.log
 merge:
-	$sheesshsshshsh(time cargo run --release merge 2>&1
-print_stats:ssas
+	$(time cargo run --release merge 2>&1
+print_stats:
 	$(args) cargo run --release print_stats
 test:
 	$(args) cargo test attention -- --nocapture --test-threads 1

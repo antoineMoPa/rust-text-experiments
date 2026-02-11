@@ -7,3 +7,5 @@ tracing*.svg
 *.folded
 *.log
 /*.txt
+test_results.json
+training_log.json
