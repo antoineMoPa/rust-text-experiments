@@ -28,7 +28,7 @@ pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 20) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
 const LR: f64 = 3.0e-4;
 const WARMUP_BATCHES: usize = 200;
-const EPOCHS: u32 = 5;
+const EPOCHS: u32 = 4;
 const TOKEN_BATCH_SIZE: usize = 256;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
 const MICRO_BATCH_SIZE: usize = 16;
@@ -111,7 +111,7 @@ impl Model {
         }
 
         let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
-        let norm = LayerNorm::new(INPUT_SIZE, 1e-5, vb.pp("norm"))?;
+        let norm = LayerNorm::new(EMBEDDING_SIZE, 1e-5, vb.pp("norm"))?;
         let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
@@ -168,7 +168,10 @@ impl Model {
                 .tanh()?;
         }
 
+        // Normalize per-token: reshape to [batch, seq, embedding], norm over last dim, flatten back
+        let result = result.reshape((batch_size, CONTEXT_WINDOW, EMBEDDING_SIZE))?;
         let result = self.norm.forward(&result)?;
+        let result = result.reshape((batch_size, INPUT_SIZE))?;
 
         let result = self.fc1.forward(&result)?.gelu()?;
         let result = if train {
