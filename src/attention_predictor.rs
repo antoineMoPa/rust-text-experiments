@@ -163,9 +163,7 @@ impl Model {
         let mut result = input.clone();
 
         for block in self.blocks.iter() {
-            result = block
-                .forward(&result, self.train_subset_index, train)?
-                .tanh()?;
+            result = block.forward(&result, self.train_subset_index, train)?;
         }
 
         // Normalize per-token: reshape to [batch, seq, embedding], norm over last dim, flatten back
