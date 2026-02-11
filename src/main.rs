@@ -6,7 +6,7 @@ use candle_core::Var;
 
 use crate::{
     attention_predictor::{get_device, Model, FILE_PATH},
-    model_tests::{qa_test, self_test},
+    model_tests::{print_results, qa_test, self_test, test_all},
     token_utils::{tokenize, STOP_TOKEN},
 };
 
@@ -130,6 +130,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, self_test, qa_test");
+    if command == "test_all" {
+        test_all()?;
+        return Ok(());
+    }
+
+    if command == "print_results" {
+        print_results()?;
+        return Ok(());
+    }
+
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, self_test, qa_test, test_all, print_results");
     Ok(())
 }

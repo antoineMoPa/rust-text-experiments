@@ -319,7 +319,22 @@ impl Model {
         tokens_chain: Vec<String>,
         device: &Device,
     ) -> Result<(), candle_core::Error> {
+        let start_time = std::time::Instant::now();
         let epochs: u32 = EPOCHS;
+
+        let corpus_level_pre = FILE_PATH
+            .split('/')
+            .find_map(|s| s.strip_prefix("level_").and_then(|n| n.parse::<u32>().ok()))
+            .unwrap_or(0);
+        println!(
+            "Corpus_Level\tDict_Size\tEmbedding_Size\tContext_Window\tEpochs\tHidden_Size\tNum_blocks\tNum_att_heads\tLR\tBatch_Size"
+        );
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            corpus_level_pre, self.dict.len(), EMBEDDING_SIZE, CONTEXT_WINDOW,
+            EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR, TOKEN_BATCH_SIZE
+        );
+
         let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), LR)?;
 
         // Pre-generate all (input, target) pairs from the full corpus. Each sample is a
@@ -451,6 +466,54 @@ impl Model {
             if epoch % 40 == 0 {
                 self.save_to_path("data/model");
             }
+        }
+
+        let elapsed = start_time.elapsed();
+        let h = elapsed.as_secs() / 3600;
+        let m = (elapsed.as_secs() % 3600) / 60;
+        let s = elapsed.as_secs() % 60;
+        let time_str = format!("{}:{:02}:{:02}", h, m, s);
+
+        let date = std::process::Command::new("date")
+            .arg("+%d/%m/%Y")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+
+        let git_hash = std::process::Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+
+        let corpus_level = FILE_PATH
+            .split('/')
+            .find_map(|s| s.strip_prefix("level_").and_then(|n| n.parse::<u32>().ok()))
+            .unwrap_or(0);
+
+        let entry = serde_json::json!({
+            "Corpus_Level": corpus_level,
+            "Dict_Size": self.dict.len(),
+            "Embedding_Size": EMBEDDING_SIZE,
+            "Context_Window": CONTEXT_WINDOW,
+            "Epochs": EPOCHS,
+            "Hidden_Size": HIDDEN_SIZE,
+            "Num_blocks": NUM_BLOCKS,
+            "Num_att_heads": NUM_ATTENTION_HEADS,
+            "LR": LR,
+            "Batch_Size": TOKEN_BATCH_SIZE,
+            "State_of_the_code": git_hash,
+            "Time_to_train": time_str,
+            "Date": date,
+        });
+
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("training_log.json")
+        {
+            use std::io::Write as IoWrite2;
+            let _ = writeln!(file, "{}", serde_json::to_string(&entry).unwrap());
         }
 
         Ok(())

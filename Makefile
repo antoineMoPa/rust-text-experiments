@@ -15,6 +15,6 @@ profile:
 dump_loss:
 	cat train_log.log  | grep Loss | sed "s/Epoch    //g" | sed "s/\/.* Loss = /\t/g"
 test_model:
-	cargo run --release self_test > self_test.txt
-	cargo run --release qa_test > qa_test.txt
-	cat *_test.txt | grep "success rate"
+	$(args) cargo run --release test_all
+results:
+	$(args) cargo run --release print_results

@@ -6,7 +6,93 @@ use crate::{
     token_utils::STOP_TOKEN,
 };
 
+const RESULT_COLS: &[&str] = &[
+    "Corpus_Level", "Dict_Size", "Embedding_Size", "Context_Window",
+    "Epochs", "Hidden_Size", "Num_blocks", "Num_att_heads", "LR", "Batch_Size",
+    "State_of_the_code", "Time_to_train",
+    "Self_Test_Score_L2", "Self_Test_Score_L3", "QA_Test_Score", "Date",
+];
+
+fn read_ndjson(path: &str) -> Vec<serde_json::Value> {
+    fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.is_empty())
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect()
+}
+
+pub fn print_results() -> Result<(), Box<dyn std::error::Error>> {
+    let train = read_ndjson("training_log.json");
+    let tests = read_ndjson("test_results.json");
+
+    println!("{}", RESULT_COLS.join("\t"));
+
+    let empty = serde_json::Value::Object(Default::default());
+    let n = train.len().max(tests.len());
+    for i in 0..n {
+        let t = train.get(i).unwrap_or(&empty);
+        let r = tests.get(i).unwrap_or(&empty);
+        let row: Vec<String> = RESULT_COLS.iter().map(|col| {
+            t.get(*col).or_else(|| r.get(*col))
+                .map(|v| match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+                .unwrap_or_default()
+        }).collect();
+        println!("{}", row.join("\t"));
+    }
+
+    Ok(())
+}
+
 pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
+    let (l2, l3) = self_test_scores()?;
+    println!("Self test scores: L2={}, L3={}", l2, l3);
+    Ok(())
+}
+
+pub fn qa_test() -> Result<(), Box<dyn std::error::Error>> {
+    let score = qa_test_score()?;
+    println!("QA test score: {}", score);
+    Ok(())
+}
+
+pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
+    let (score_l2, score_l3) = self_test_scores()?;
+    let score_qa = qa_test_score()?;
+
+    let date = std::process::Command::new("date")
+        .arg("+%d/%m/%Y")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+
+    let entry = serde_json::json!({
+        "Self_Test_Score_L2": score_l2,
+        "Self_Test_Score_L3": score_l3,
+        "QA_Test_Score": score_qa,
+        "Date": date,
+    });
+
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("test_results.json")
+    {
+        writeln!(file, "{}", serde_json::to_string(&entry).unwrap())?;
+    }
+
+    println!(
+        "Self_Test_Score_L2\tSelf_Test_Score_L3\tQA_Test_Score\tDate"
+    );
+    println!("{}\t{}\t{}\t{}", score_l2, score_l3, score_qa, date);
+
+    Ok(())
+}
+
+fn self_test_scores() -> Result<(f32, f32), Box<dyn std::error::Error>> {
     let device = get_device()?;
     println!("Loading test model");
     let model = Model::load_from_path("data/model", &device)?;
@@ -16,9 +102,9 @@ pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
         "common-corpus/level_3/corpus.txt",
     ];
 
-    for level_file_path in level_file_paths.iter() {
-        let level_file_path = level_file_path;
+    let mut scores: Vec<f32> = Vec::new();
 
+    for level_file_path in level_file_paths.iter() {
         let mut file = fs::File::open(level_file_path)?;
         let mut content: String = String::new();
         file.read_to_string(&mut content)?;
@@ -69,18 +155,17 @@ pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let success_rate = match_count as f32 / total as f32;
-
         println!(
             "corpus {} - matches - {}, total - {}, success rate - {}",
             level_file_path, match_count, total, success_rate
         );
+        scores.push(success_rate);
     }
 
-    Ok(())
+    Ok((scores[0], scores[1]))
 }
 
-// Questions / Answers test
-pub fn qa_test() -> Result<(), Box<dyn std::error::Error>> {
+fn qa_test_score() -> Result<f32, Box<dyn std::error::Error>> {
     let device = get_device()?;
     println!("Loading test model");
     let model = Model::load_from_path("data/model", &device)?;
@@ -132,11 +217,10 @@ pub fn qa_test() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let success_rate = match_count as f32 / total as f32;
-
     println!(
         "question file: {} - matches - {}, total - {}, success rate - {}",
         file_path, match_count, total, success_rate
     );
 
-    Ok(())
+    Ok(success_rate)
 }
