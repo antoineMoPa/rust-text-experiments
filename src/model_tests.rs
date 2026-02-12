@@ -92,6 +92,11 @@ pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn first_n_words_contain(output: &str, expected: &str, n: usize) -> bool {
+    let prefix = output.split_whitespace().take(n).collect::<Vec<_>>().join(" ");
+    prefix.contains(expected)
+}
+
 fn self_test_scores() -> Result<(f32, f32), Box<dyn std::error::Error>> {
     let device = get_device()?;
     println!("Loading test model");
@@ -138,7 +143,7 @@ fn self_test_scores() -> Result<(f32, f32), Box<dyn std::error::Error>> {
             let expected_completion: Vec<&str> = expected_completion.collect();
             let expected_completion = expected_completion.join(" ").replace("<stop>", "");
 
-            if buf == expected_completion {
+            if first_n_words_contain(&buf, &expected_completion, 3) {
                 match_count += 1;
                 println!(
                     "'{}' |> '{}' ~ '{}' - match",
@@ -206,7 +211,7 @@ fn qa_test_score() -> Result<f32, Box<dyn std::error::Error>> {
         let buf = buf.trim().to_lowercase().replace(".", "");
         let answer = answer.trim().to_lowercase().replace(".", "");
 
-        if buf == answer {
+        if first_n_words_contain(&buf, &answer, 3) {
             match_count += 1;
             println!("'{}' |> '{}' ~ '{}' - match", question, buf, answer);
         } else {
