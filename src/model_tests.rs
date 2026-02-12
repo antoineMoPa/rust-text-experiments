@@ -29,10 +29,10 @@ pub fn print_results() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", RESULT_COLS.join(","));
 
     let empty = serde_json::Value::Object(Default::default());
-    let n = train.len().max(tests.len());
-    for i in 0..n {
-        let t = train.get(i).unwrap_or(&empty);
-        let r = tests.get(i).unwrap_or(&empty);
+    for i in 0..train.len() {
+        let t = &train[i];
+        // Pair with same-index test result, fall back to last available
+        let r = tests.get(i).or_else(|| tests.last()).unwrap_or(&empty);
         let row: Vec<String> = RESULT_COLS.iter().map(|col| {
             t.get(*col).or_else(|| r.get(*col))
                 .map(|v| match v {
