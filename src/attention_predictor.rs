@@ -19,7 +19,7 @@ use crate::layer_norm::LayerNorm;
 
 // smoll
 const EMBEDDING_SIZE: usize = 252;
-const CONTEXT_WINDOW: usize = 32;
+const CONTEXT_WINDOW: usize = 64;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
 const HIDDEN_SIZE: usize = 2048;
@@ -245,6 +245,41 @@ impl Model {
         let tokens = tokenize(&input);
         let input_ids: Vec<u32> = tokens.iter().map(|t| self.token_to_id(t)).collect();
         self.run(&input_ids, device)
+    }
+
+    pub fn predict_next_token_greedy(
+        &self,
+        input: &str,
+        device: &Device,
+    ) -> Result<String, candle_core::Error> {
+        let tokens = tokenize(input);
+        let input_ids: Vec<u32> = tokens.iter().map(|t| self.token_to_id(t)).collect();
+
+        let ids: Vec<u32> = if input_ids.len() > CONTEXT_WINDOW {
+            let start = input_ids.len() - CONTEXT_WINDOW;
+            input_ids[start..].to_vec()
+        } else {
+            let pad_id = self.token_to_id(" ");
+            let mut padded = vec![pad_id; CONTEXT_WINDOW - input_ids.len()];
+            padded.extend_from_slice(&input_ids);
+            padded
+        };
+
+        let input_tensor = Tensor::new(ids.as_slice(), device)?.unsqueeze(0)?;
+        let logits = self.forward(&input_tensor, false)?;
+
+        let not_found_id = self.token_to_id(NOT_FOUND) as usize;
+        let mut logits_vec = logits.to_vec2::<f32>()?[0].clone();
+        logits_vec[not_found_id] = f32::NEG_INFINITY;
+
+        let token_id = logits_vec
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(i, _)| i)
+            .unwrap() as u32;
+
+        Ok(self.id_to_token(token_id).to_string())
     }
 
     pub fn gen_training_data(

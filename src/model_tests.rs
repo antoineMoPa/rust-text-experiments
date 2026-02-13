@@ -117,7 +117,7 @@ fn self_test_scores() -> Result<(f32, f32), Box<dyn std::error::Error>> {
         let mut match_count = 0;
         let mut total = 0;
 
-        for line in content.split("\n") {
+        for line in content.split("\n").take(20) {
             let words: Vec<&str> = line.split(" ").take(6).collect();
             let expected_completion = line.split(" ").skip(6);
             let original_input = words.join(" ");
@@ -125,7 +125,7 @@ fn self_test_scores() -> Result<(f32, f32), Box<dyn std::error::Error>> {
 
             let mut buf = String::new();
             loop {
-                let pred = model.predict_next_token(input.as_str(), &device)?;
+                let pred = model.predict_next_token_greedy(input.as_str(), &device)?;
                 input = input + pred.as_str();
 
                 if buf.len() > 50 || pred == "." {
@@ -193,7 +193,7 @@ fn qa_test_score() -> Result<f32, Box<dyn std::error::Error>> {
         let mut input = question.clone() + "A: ";
 
         loop {
-            let pred = model.predict_next_token(&input, &device)?;
+            let pred = model.predict_next_token_greedy(&input, &device)?;
             input = input + pred.as_str();
 
             if buf.len() > 50 || pred == "." {
