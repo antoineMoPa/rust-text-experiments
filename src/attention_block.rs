@@ -149,9 +149,6 @@ impl AttentionBlock {
             self.config.embedding_size,
         ))?;
 
-        // Add position encoding [1, context_window, embedding_size] (broadcasts over batch)
-        let pos_enc = self.position_encoding(&input)?;
-        let input = input.broadcast_add(&pos_enc)?;
         let input = if train {
             nn::ops::dropout(&input, 0.1)?
         } else {

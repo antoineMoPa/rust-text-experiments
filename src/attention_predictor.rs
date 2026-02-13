@@ -19,7 +19,7 @@ use crate::layer_norm::LayerNorm;
 
 // smoll
 const EMBEDDING_SIZE: usize = 108;
-const CONTEXT_WINDOW: usize = 64;
+const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
 const HIDDEN_SIZE: usize = 2048;
@@ -31,7 +31,7 @@ const WARMUP_BATCHES: usize = 200;
 const EPOCHS: u32 = 4;
 const TOKEN_BATCH_SIZE: usize = 256;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
-const MICRO_BATCH_SIZE: usize = 4;
+const MICRO_BATCH_SIZE: usize = 16;
 
 const NOT_FOUND: &str = "<notfound>";
 
@@ -156,6 +156,9 @@ impl Model {
     fn forward(&self, input_ids: &Tensor, train: bool) -> Result<Tensor, candle_core::Error> {
         // Embedding lookup: [batch, CONTEXT_WINDOW] -> [batch, CONTEXT_WINDOW, EMBEDDING_SIZE]
         let embedded = self.embedding.forward(input_ids)?;
+        // Add positional encoding once before the attention blocks
+        let pos_enc = self.blocks[0].position_encoding(&embedded)?;
+        let embedded = embedded.broadcast_add(&pos_enc)?;
         // Flatten: [batch, CONTEXT_WINDOW * EMBEDDING_SIZE] = [batch, INPUT_SIZE]
         let batch_size = embedded.dim(0)?;
         let input = embedded.reshape((batch_size, INPUT_SIZE))?;
