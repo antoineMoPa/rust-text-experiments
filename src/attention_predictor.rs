@@ -18,7 +18,7 @@ use nn::{VarBuilder, VarMap};
 use crate::layer_norm::LayerNorm;
 
 // smoll
-const EMBEDDING_SIZE: usize = 128;
+const EMBEDDING_SIZE: usize = 108;
 const CONTEXT_WINDOW: usize = 64;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
