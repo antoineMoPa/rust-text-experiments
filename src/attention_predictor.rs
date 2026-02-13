@@ -41,7 +41,6 @@ pub struct Model {
     pub fc1: nn::Linear,
     pub fc2: nn::Linear,
     pub fc3: nn::Linear,
-    pub output_proj: nn::Linear,
     pub embedding: nn::Embedding,
     pub var_map: VarMap,
     pub dict: Dict,
@@ -115,7 +114,6 @@ impl Model {
         let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
         let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
         let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
-        let output_proj = nn::linear_b(EMBEDDING_SIZE, vocab_size, true, vb.pp("output_proj"))?;
 
         println!(
             "Vocab, Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR, Batch Size"
@@ -139,7 +137,6 @@ impl Model {
             fc1,
             fc2,
             fc3,
-            output_proj,
             embedding,
             blocks,
             var_map,
@@ -180,14 +177,17 @@ impl Model {
         } else {
             result
         };
+        let fc2_in = result.clone();
         let result = self.fc2.forward(&result)?.gelu()?;
         let result = if train {
             nn::ops::dropout(&result, 0.1)?
         } else {
             result
         };
+        let result = (result + fc2_in)?;
         let result = self.fc3.forward(&result)?;
-        let result = self.output_proj.forward(&result)?;
+        // Weight-tied output projection: reuse embedding matrix transposed [vocab, emb] -> [emb, vocab]
+        let result = result.matmul(&self.embedding.embeddings().t()?)?;
 
         return Ok(result);
     }
