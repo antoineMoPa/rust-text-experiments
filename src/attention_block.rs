@@ -10,6 +10,8 @@ pub struct AttentionBlock {
     pub ks: Vec<nn::Linear>,
     pub vs: Vec<nn::Linear>,
     pub out_linear: nn::Linear,
+    pub ffn_in: nn::Linear,
+    pub ffn_out: nn::Linear,
     pub config: AttentionBlockConfig,
 }
 
@@ -63,12 +65,18 @@ impl AttentionBlock {
             vb.pp("out_linear"),
         )?;
 
+        let ffn_hidden = config.embedding_size * 4;
+        let ffn_in = nn::linear_b(config.embedding_size, ffn_hidden, true, vb.pp("ffn_in"))?;
+        let ffn_out = nn::linear_b(ffn_hidden, config.embedding_size, true, vb.pp("ffn_out"))?;
+
         Ok(Self {
             linear,
             qs,
             ks,
             vs,
             out_linear,
+            ffn_in,
+            ffn_out,
             config,
         })
     }
@@ -140,7 +148,6 @@ impl AttentionBlock {
         train: bool,
     ) -> Result<Tensor, candle_core::Error> {
         let batch_size = input.dim(0)?;
-        let input_flat = input.clone();
 
         // Reshape [batch, context_window * embedding_size] -> [batch, context_window, embedding_size]
         let input = input.reshape((
@@ -190,11 +197,17 @@ impl AttentionBlock {
         // Output projection per token: [batch, seq_len, embedding_size]
         let result = self.out_linear.forward(&result)?;
 
+        // Residual connection (still in [batch, seq, emb])
+        let result = (result + input.reshape((batch_size, self.config.context_window, self.config.embedding_size))?)?;
+
+        // Per-token FFN sublayer with residual
+        let ffn_residual = result.clone();
+        let result = self.ffn_in.forward(&result)?.gelu()?;
+        let result = self.ffn_out.forward(&result)?;
+        let result = (result + ffn_residual)?;
+
         // Flatten back: [batch, context_window * embedding_size]
         let result = result.reshape((batch_size, self.config.input_size))?;
-
-        // Residual connection
-        let result = (result + input_flat)?;
 
         Ok(result)
     }

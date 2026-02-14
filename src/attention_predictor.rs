@@ -22,7 +22,6 @@ const EMBEDDING_SIZE: usize = 108;
 const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
-const HIDDEN_SIZE: usize = 2048;
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
@@ -38,9 +37,6 @@ const NOT_FOUND: &str = "<notfound>";
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
     norm: LayerNorm,
-    pub fc1: nn::Linear,
-    pub fc2: nn::Linear,
-    pub fc3: nn::Linear,
     pub embedding: nn::Embedding,
     pub var_map: VarMap,
     pub dict: Dict,
@@ -111,9 +107,6 @@ impl Model {
 
         let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
         let norm = LayerNorm::new(EMBEDDING_SIZE, 1e-5, vb.pp("norm"))?;
-        let fc1 = nn::linear_b(INPUT_SIZE, HIDDEN_SIZE, true, vb.pp("fc1"))?;
-        let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
-        let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
 
         println!(
             "Vocab, Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR, Batch Size"
@@ -124,7 +117,7 @@ impl Model {
             EMBEDDING_SIZE,
             CONTEXT_WINDOW,
             EPOCHS,
-            HIDDEN_SIZE,
+            EMBEDDING_SIZE * 4,
             NUM_BLOCKS,
             NUM_ATTENTION_HEADS,
             LR,
@@ -134,9 +127,6 @@ impl Model {
 
         Ok(Self {
             norm,
-            fc1,
-            fc2,
-            fc3,
             embedding,
             blocks,
             var_map,
@@ -166,27 +156,14 @@ impl Model {
             result = block.forward(&result, self.train_subset_index, train)?;
         }
 
-        // Normalize per-token: reshape to [batch, seq, embedding], norm over last dim, flatten back
+        // Normalize per-token: [batch, seq, embedding]
         let result = result.reshape((batch_size, CONTEXT_WINDOW, EMBEDDING_SIZE))?;
         let result = self.norm.forward(&result)?;
-        let result = result.reshape((batch_size, INPUT_SIZE))?;
 
-        let result = self.fc1.forward(&result)?.gelu()?;
-        let result = if train {
-            nn::ops::dropout(&result, 0.1)?
-        } else {
-            result
-        };
-        let fc2_in = result.clone();
-        let result = self.fc2.forward(&result)?.gelu()?;
-        let result = if train {
-            nn::ops::dropout(&result, 0.1)?
-        } else {
-            result
-        };
-        let result = (result + fc2_in)?;
-        let result = self.fc3.forward(&result)?;
-        // Weight-tied output projection: reuse embedding matrix transposed [vocab, emb] -> [emb, vocab]
+        // Take last token's representation: [batch, emb]
+        let result = result.narrow(1, CONTEXT_WINDOW - 1, 1)?.squeeze(1)?.contiguous()?;
+
+        // Weight-tied output projection: [batch, emb] @ [emb, vocab] -> [batch, vocab]
         let result = result.matmul(&self.embedding.embeddings().t()?)?;
 
         return Ok(result);
@@ -368,7 +345,7 @@ impl Model {
         println!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             corpus_level_pre, self.dict.len(), EMBEDDING_SIZE, CONTEXT_WINDOW,
-            EPOCHS, HIDDEN_SIZE, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR, TOKEN_BATCH_SIZE
+            EPOCHS, EMBEDDING_SIZE * 4, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR, TOKEN_BATCH_SIZE
         );
 
         let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), LR)?;
@@ -541,7 +518,7 @@ impl Model {
             "Embedding_Size": EMBEDDING_SIZE,
             "Context_Window": CONTEXT_WINDOW,
             "Epochs": EPOCHS,
-            "Hidden_Size": HIDDEN_SIZE,
+            "Hidden_Size": EMBEDDING_SIZE * 4,
             "Num_blocks": NUM_BLOCKS,
             "Num_att_heads": NUM_ATTENTION_HEADS,
             "LR": LR,
