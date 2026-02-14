@@ -382,6 +382,9 @@ impl Model {
 
         let mut rng = rand::thread_rng();
         let mut global_step: usize = 0;
+        let batch_count = (num_samples + TOKEN_BATCH_SIZE - 1) / TOKEN_BATCH_SIZE;
+        let total_steps = epochs as usize * batch_count;
+        let lr_min = LR * 0.1;
 
         for epoch in 0..epochs {
             let mut loss_stat: f32 = 1.0;
@@ -390,15 +393,20 @@ impl Model {
             let mut indices: Vec<usize> = (0..num_samples).collect();
             indices.shuffle(&mut rng);
 
-            let batch_count = (num_samples + TOKEN_BATCH_SIZE - 1) / TOKEN_BATCH_SIZE;
             for j in 0..batch_count {
                 let batch_start = j * TOKEN_BATCH_SIZE;
                 let batch_end = (batch_start + TOKEN_BATCH_SIZE).min(num_samples);
                 let batch_indices = &indices[batch_start..batch_end];
 
-                // Linear warmup: ramp LR from 0 to LR over the first WARMUP_BATCHES steps
-                let warmup_lr = LR * (global_step as f64 / WARMUP_BATCHES as f64).min(1.0);
-                optimizer.set_learning_rate(warmup_lr);
+                // Linear warmup then cosine decay
+                let lr = if global_step < WARMUP_BATCHES {
+                    LR * (global_step as f64 / WARMUP_BATCHES as f64)
+                } else {
+                    let decay_steps = (total_steps - WARMUP_BATCHES).max(1);
+                    let progress = (global_step - WARMUP_BATCHES) as f64 / decay_steps as f64;
+                    lr_min + 0.5 * (LR - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
+                };
+                optimizer.set_learning_rate(lr);
                 global_step += 1;
 
                 // Rotate train subset once per batch
