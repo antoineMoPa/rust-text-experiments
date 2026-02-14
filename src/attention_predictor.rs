@@ -32,7 +32,7 @@ const WARMUP_BATCHES: usize = 200;
 const EPOCHS: u32 = 4;
 const TOKEN_BATCH_SIZE: usize = 256;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
-const MICRO_BATCH_SIZE: usize = 16;
+const MICRO_BATCH_SIZE: usize = 256;
 
 const NOT_FOUND: &str = "<notfound>";
 
@@ -402,23 +402,11 @@ impl Model {
 
                 loop {
                     let result: Result<(), CandleError> = (|| {
-                        // Build this batch's tensors from shuffled indices
-                        let batch_inputs: Vec<Tensor> = batch_indices
-                            .iter()
-                            .map(|&i| all_inputs.narrow(0, i, 1).unwrap().squeeze(0).unwrap())
-                            .collect();
-                        let batch_targets: Vec<u32> = batch_indices
-                            .iter()
-                            .map(|&i| {
-                                all_targets
-                                    .narrow(0, i, 1)
-                                    .unwrap()
-                                    .to_vec1::<u32>()
-                                    .unwrap()[0]
-                            })
-                            .collect();
-                        let inputs = Tensor::stack(&batch_inputs, 0)?;
-                        let targets = Tensor::new(batch_targets.as_slice(), device)?;
+                        // Gather batch in one GPU index_select instead of per-sample narrow/copy
+                        let idx: Vec<u32> = batch_indices.iter().map(|&i| i as u32).collect();
+                        let idx = Tensor::new(idx.as_slice(), device)?;
+                        let inputs = all_inputs.index_select(&idx, 0)?;
+                        let targets = all_targets.index_select(&idx, 0)?;
 
                         // Split into micro-batches for gradient accumulation
                         let num_samples = inputs.dim(0)?;

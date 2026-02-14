@@ -9,3 +9,4 @@ tracing*.svg
 /*.txt
 test_results.json
 training_log.json
+model.id
