@@ -61,11 +61,6 @@ impl GetTokenEmbedding for Dict {
 }
 
 pub fn tokenize(input: &str) -> Vec<String> {
-    let split_symbols = [
-        ' ', ',', '.', '!', '?', ';', ':', '\n', '\t', '(', ')', '{', '}', '[', ']', '<', '>', '=',
-        '+', '-', '*', '/', '&', '|', '^', '%', '$',
-    ];
-
     let mut tokens = Vec::new();
     let mut token = String::new();
 
@@ -103,7 +98,8 @@ pub fn tokenize(input: &str) -> Vec<String> {
                 continue;
             }
         }
-        if split_symbols.contains(&c) {
+        // Split on any non-alphabetic character (punctuation, digits, spaces, dashes, quotes, etc.)
+        if !c.is_alphabetic() {
             if token.len() > 0 {
                 tokens.push(token.clone());
                 token.clear();

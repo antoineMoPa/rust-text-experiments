@@ -10,7 +10,11 @@ pub struct AttentionBlock {
     pub ks: Vec<nn::Linear>,
     pub vs: Vec<nn::Linear>,
     pub out_linear: nn::Linear,
+    pub ffn_in: nn::Linear,
+    pub ffn_out: nn::Linear,
     pub config: AttentionBlockConfig,
+    causal_mask: Tensor,
+    pos_enc: Tensor,
 }
 
 pub struct AttentionBlockConfig {
@@ -18,6 +22,7 @@ pub struct AttentionBlockConfig {
     pub num_attention_heads: usize,
     pub context_window: usize,
     pub embedding_size: usize,
+    pub ffn_hidden: usize,
 }
 
 impl AttentionBlock {
@@ -63,13 +68,38 @@ impl AttentionBlock {
             vb.pp("out_linear"),
         )?;
 
+        let ffn_in = nn::linear_b(config.embedding_size, config.ffn_hidden, true, vb.pp("ffn_in"))?;
+        let ffn_out = nn::linear_b(config.ffn_hidden, config.embedding_size, true, vb.pp("ffn_out"))?;
+
+        let device = vb.device();
+        let seq_len = config.context_window;
+
+        let mask_data: Vec<f32> = (0..seq_len)
+            .flat_map(|i| (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 }))
+            .collect();
+        let causal_mask = Tensor::from_slice(&mask_data, (seq_len, seq_len), device)?;
+
+        let mut pe_data: Vec<f32> = Vec::with_capacity(seq_len * config.embedding_size);
+        for i in 0..seq_len {
+            for j in 0..config.embedding_size {
+                let val = (i as f32)
+                    / (10000_f32).powf(2.0 * (j as f32) / config.embedding_size as f32);
+                pe_data.push(if j % 2 == 0 { val.sin() } else { val.cos() });
+            }
+        }
+        let pos_enc = Tensor::from_slice(&pe_data, (1, seq_len, config.embedding_size), device)?;
+
         Ok(Self {
             linear,
             qs,
             ks,
             vs,
             out_linear,
+            ffn_in,
+            ffn_out,
             config,
+            causal_mask,
+            pos_enc,
         })
     }
 
@@ -90,15 +120,8 @@ impl AttentionBlock {
         let scores = q.matmul(&k_t)?;
         let scores = (scores * scale)?;
 
-        // Causal mask: lower triangle = 0.0, upper triangle = -inf
-        let seq_len = self.config.context_window;
-        let mask: Vec<f32> = (0..seq_len)
-            .flat_map(|i| (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 }))
-            .collect();
-        let mask = Tensor::from_slice(&mask, (seq_len, seq_len), q.device())?;
-
         // [batch, seq_len, seq_len] + [seq_len, seq_len] (broadcast over batch)
-        let scores = scores.broadcast_add(&mask)?;
+        let scores = scores.broadcast_add(&self.causal_mask)?;
 
         let attn_weights = nn::ops::softmax(&scores, candle_core::D::Minus1)?;
 
@@ -108,29 +131,8 @@ impl AttentionBlock {
         Ok(result)
     }
 
-    pub fn position_encoding(&self, input: &Tensor) -> Result<Tensor, candle_core::Error> {
-        let mut position: Vec<f32> = Vec::new();
-
-        for i in 0..self.config.context_window {
-            for j in 0..self.config.embedding_size {
-                let val = (i as f32)
-                    / (10000_f32).powf(2.0 * (j as f32) / self.config.embedding_size as f32);
-                if j % 2 == 0 {
-                    position.push(val.sin());
-                } else {
-                    position.push(val.cos());
-                }
-            }
-        }
-
-        // [1, context_window, embedding_size] for broadcasting over batch
-        let position = Tensor::from_slice(
-            &position,
-            (1, self.config.context_window, self.config.embedding_size),
-            input.device(),
-        )?;
-
-        Ok(position)
+    pub fn position_encoding(&self) -> &Tensor {
+        &self.pos_enc
     }
 
     pub fn forward(
@@ -148,9 +150,6 @@ impl AttentionBlock {
             self.config.embedding_size,
         ))?;
 
-        // Add position encoding [1, context_window, embedding_size] (broadcasts over batch)
-        let pos_enc = self.position_encoding(&input)?;
-        let input = input.broadcast_add(&pos_enc)?;
         let input = if train {
             nn::ops::dropout(&input, 0.1)?
         } else {
@@ -175,8 +174,6 @@ impl AttentionBlock {
             // Causal attention: [batch, seq_len, d_head]
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
 
-            let result = (((result * 0.4)? + portions)? * 0.5)?;
-
             let subset_size: i8 = self.config.num_attention_heads as i8 / TRAINING_SUBSETS;
             let current_subset_index = i as i8 / subset_size;
 
@@ -193,6 +190,15 @@ impl AttentionBlock {
 
         // Output projection per token: [batch, seq_len, embedding_size]
         let result = self.out_linear.forward(&result)?;
+
+        // Residual connection (still in [batch, seq, emb])
+        let result = (result + input.reshape((batch_size, self.config.context_window, self.config.embedding_size))?)?;
+
+        // Per-token FFN sublayer with residual
+        let ffn_residual = result.clone();
+        let result = self.ffn_in.forward(&result)?.gelu()?;
+        let result = self.ffn_out.forward(&result)?;
+        let result = (result + ffn_residual)?;
 
         // Flatten back: [batch, context_window * embedding_size]
         let result = result.reshape((batch_size, self.config.input_size))?;
