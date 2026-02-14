@@ -32,7 +32,7 @@ const WARMUP_BATCHES: usize = 200;
 const EPOCHS: u32 = 4;
 const TOKEN_BATCH_SIZE: usize = 256;
 pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
-const MICRO_BATCH_SIZE: usize = 256;
+const MICRO_BATCH_SIZE: usize = 128;
 
 const NOT_FOUND: &str = "<notfound>";
 
