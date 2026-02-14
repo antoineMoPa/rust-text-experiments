@@ -155,8 +155,7 @@ impl Model {
         // Embedding lookup: [batch, CONTEXT_WINDOW] -> [batch, CONTEXT_WINDOW, EMBEDDING_SIZE]
         let embedded = self.embedding.forward(input_ids)?;
         // Add positional encoding once before the attention blocks
-        let pos_enc = self.blocks[0].position_encoding(&embedded)?;
-        let embedded = embedded.broadcast_add(&pos_enc)?;
+        let embedded = embedded.broadcast_add(self.blocks[0].position_encoding())?;
         // Flatten: [batch, CONTEXT_WINDOW * EMBEDDING_SIZE] = [batch, INPUT_SIZE]
         let batch_size = embedded.dim(0)?;
         let input = embedded.reshape((batch_size, INPUT_SIZE))?;
