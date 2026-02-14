@@ -1,6 +1,7 @@
-use rand::distributions::WeightedIndex;
+use rand::distributions::{Alphanumeric, WeightedIndex};
 use rand::prelude::Distribution;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use std::{fs, io::Error, io::Read as IoRead};
 
 use crate::grad_accum::AccumAdamW;
@@ -22,6 +23,7 @@ const EMBEDDING_SIZE: usize = 108;
 const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
+const FFN_HIDDEN: usize = 432; // EMBEDDING_SIZE * 4 — bump when retraining
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
@@ -44,6 +46,7 @@ pub struct Model {
     pub index_to_token: Vec<String>,
     pub device: Device,
     pub train_subset_index: i8,
+    pub model_id: String,
 }
 
 fn is_oom_error(e: &CandleError) -> bool {
@@ -99,6 +102,7 @@ impl Model {
                 num_attention_heads: NUM_ATTENTION_HEADS,
                 context_window: CONTEXT_WINDOW,
                 embedding_size: EMBEDDING_SIZE,
+                ffn_hidden: FFN_HIDDEN,
             };
 
             let block = AttentionBlock::new(config, vb.push_prefix(&format!("block_{}", b)))?;
@@ -117,13 +121,19 @@ impl Model {
             EMBEDDING_SIZE,
             CONTEXT_WINDOW,
             EPOCHS,
-            EMBEDDING_SIZE * 4,
+            FFN_HIDDEN,
             NUM_BLOCKS,
             NUM_ATTENTION_HEADS,
             LR,
             TOKEN_BATCH_SIZE
         );
         println!("{}", output.on_white().black());
+
+        let model_id: String = rand::thread_rng()
+            .sample_iter(Alphanumeric)
+            .take(12)
+            .map(char::from)
+            .collect();
 
         Ok(Self {
             norm,
@@ -135,6 +145,7 @@ impl Model {
             index_to_token,
             device: device.clone(),
             train_subset_index: 0,
+            model_id,
         })
     }
 
@@ -345,7 +356,7 @@ impl Model {
         println!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             corpus_level_pre, self.dict.len(), EMBEDDING_SIZE, CONTEXT_WINDOW,
-            EPOCHS, EMBEDDING_SIZE * 4, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR, TOKEN_BATCH_SIZE
+            EPOCHS, FFN_HIDDEN, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR, TOKEN_BATCH_SIZE
         );
 
         let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), LR)?;
@@ -513,12 +524,13 @@ impl Model {
             .unwrap_or(0);
 
         let entry = serde_json::json!({
+            "Model_ID": self.model_id,
             "Corpus_Level": corpus_level,
             "Dict_Size": self.dict.len(),
             "Embedding_Size": EMBEDDING_SIZE,
             "Context_Window": CONTEXT_WINDOW,
             "Epochs": EPOCHS,
-            "Hidden_Size": EMBEDDING_SIZE * 4,
+            "Hidden_Size": FFN_HIDDEN,
             "Num_blocks": NUM_BLOCKS,
             "Num_att_heads": NUM_ATTENTION_HEADS,
             "LR": LR,
@@ -572,6 +584,9 @@ impl Model {
         let dict_path = format!("{}.dict", path);
         let file = fs::File::create(dict_path).unwrap();
         serde_json::to_writer(file, &dict_words).unwrap();
+
+        let id_path = format!("{}.id", path);
+        fs::write(id_path, &self.model_id).unwrap();
     }
 
     pub fn load_from_path(path: &str, device: &Device) -> Result<Self, Error> {
@@ -584,6 +599,11 @@ impl Model {
 
         let var_map_path = format!("{}.safetensors", path);
         model.var_map.load(var_map_path.as_str()).unwrap();
+
+        let id_path = format!("{}.id", path);
+        if let Ok(id) = fs::read_to_string(&id_path) {
+            model.model_id = id.trim().to_string();
+        }
 
         Ok(model)
     }

@@ -7,7 +7,7 @@ use crate::{
 };
 
 const RESULT_COLS: &[&str] = &[
-    "Corpus_Level", "Dict_Size", "Embedding_Size", "Context_Window",
+    "Model_ID", "Corpus_Level", "Dict_Size", "Embedding_Size", "Context_Window",
     "Epochs", "Hidden_Size", "Num_blocks", "Num_att_heads", "LR", "Batch_Size",
     "State_of_the_code", "Time_to_train",
     "Self_Test_Score_L2", "Self_Test_Score_L3", "QA_Test_Score", "Date",
@@ -29,10 +29,11 @@ pub fn print_results() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", RESULT_COLS.join(","));
 
     let empty = serde_json::Value::Object(Default::default());
-    for i in 0..train.len() {
-        let t = &train[i];
-        // Pair with same-index test result, fall back to last available
-        let r = tests.get(i).or_else(|| tests.last()).unwrap_or(&empty);
+    for t in &train {
+        // Match test result by Model_ID, fall back to empty if not found
+        let r = t.get("Model_ID")
+            .and_then(|id| tests.iter().rev().find(|r| r.get("Model_ID") == Some(id)))
+            .unwrap_or(&empty);
         let row: Vec<String> = RESULT_COLS.iter().map(|col| {
             t.get(*col).or_else(|| r.get(*col))
                 .map(|v| match v {
@@ -69,7 +70,12 @@ pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default();
 
+    let model_id = std::fs::read_to_string("data/model.id")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
     let entry = serde_json::json!({
+        "Model_ID": model_id,
         "Self_Test_Score_L2": score_l2,
         "Self_Test_Score_L3": score_l3,
         "QA_Test_Score": score_qa,

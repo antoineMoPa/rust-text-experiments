@@ -20,6 +20,7 @@ pub struct AttentionBlockConfig {
     pub num_attention_heads: usize,
     pub context_window: usize,
     pub embedding_size: usize,
+    pub ffn_hidden: usize,
 }
 
 impl AttentionBlock {
@@ -65,9 +66,8 @@ impl AttentionBlock {
             vb.pp("out_linear"),
         )?;
 
-        let ffn_hidden = config.embedding_size * 4;
-        let ffn_in = nn::linear_b(config.embedding_size, ffn_hidden, true, vb.pp("ffn_in"))?;
-        let ffn_out = nn::linear_b(ffn_hidden, config.embedding_size, true, vb.pp("ffn_out"))?;
+        let ffn_in = nn::linear_b(config.embedding_size, config.ffn_hidden, true, vb.pp("ffn_in"))?;
+        let ffn_out = nn::linear_b(config.ffn_hidden, config.embedding_size, true, vb.pp("ffn_out"))?;
 
         Ok(Self {
             linear,
