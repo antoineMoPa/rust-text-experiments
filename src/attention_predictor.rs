@@ -19,7 +19,7 @@ use nn::{VarBuilder, VarMap};
 use crate::layer_norm::LayerNorm;
 
 // smoll
-const EMBEDDING_SIZE: usize = 108;
+const EMBEDDING_SIZE: usize = 156;
 const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
@@ -27,11 +27,11 @@ const FFN_HIDDEN: usize = 1024;
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
-const LR: f64 = 3.0e-4;
+const LR: f64 = 1.0e-3;
 const WARMUP_BATCHES: usize = 200;
 const EPOCHS: u32 = 4;
 const TOKEN_BATCH_SIZE: usize = 256;
-pub const TRAINING_SUBSETS: i8 = 3; // we have 12 attention heads - training 4 at a time
+pub const TRAINING_SUBSETS: i8 = 12; // we have 12 attention heads - training TRAINING_SUBSETS at a time
 const MICRO_BATCH_SIZE: usize = 128;
 
 const NOT_FOUND: &str = "<notfound>";
