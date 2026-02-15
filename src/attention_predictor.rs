@@ -29,7 +29,7 @@ pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
 const LR: f64 = 1.0e-3;
 const WARMUP_BATCHES: usize = 200;
-const EPOCHS: u32 = 4;
+const EPOCHS: u32 = 12;
 const TOKEN_BATCH_SIZE: usize = 256;
 pub const TRAINING_SUBSETS: i8 = 12; // we have 12 attention heads - training TRAINING_SUBSETS at a time
 const MICRO_BATCH_SIZE: usize = 128;
@@ -451,8 +451,8 @@ impl Model {
 
                 if j % 200 == 0 {
                     println!(
-                        "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6}",
-                        epoch, epochs, j, batch_count, loss_stat
+                        "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6} LR = {:.2e}",
+                        epoch, epochs, j, batch_count, loss_stat, lr
                     );
                     let prediction = self.run_str("Two birds", 15)?;
                     let prediction = prediction.replace("\n", "_");
@@ -482,9 +482,8 @@ impl Model {
                 epoch, epochs, loss_stat
             );
 
-            if epoch % 40 == 0 {
-                self.save_to_path("data/model");
-            }
+            self.save_to_path("data/model");
+            println!("Saved model checkpoint.");
         }
 
         let elapsed = start_time.elapsed();
