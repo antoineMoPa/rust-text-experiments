@@ -387,7 +387,7 @@ impl Model {
 
                 // Linear warmup then cosine decay
                 let lr = if global_step < WARMUP_BATCHES {
-                    LR * (global_step as f64 / WARMUP_BATCHES as f64)
+                    LR * ((global_step + 1) as f64 / WARMUP_BATCHES as f64)
                 } else {
                     let decay_steps = (total_steps - WARMUP_BATCHES).max(1);
                     let progress = (global_step - WARMUP_BATCHES) as f64 / decay_steps as f64;
