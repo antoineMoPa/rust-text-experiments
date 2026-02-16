@@ -19,19 +19,18 @@ use nn::{VarBuilder, VarMap};
 use crate::layer_norm::LayerNorm;
 
 // smoll
-const EMBEDDING_SIZE: usize = 156;
+const EMBEDDING_SIZE: usize = 108;
 const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
-const FFN_HIDDEN: usize = 1024;
-const NUM_BLOCKS: usize = 3;
+const FFN_HIDDEN: usize = 512;
+const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
 const LR: f64 = 1.0e-3;
 const WARMUP_BATCHES: usize = 600;
-const EPOCHS: u32 = 12;
+const EPOCHS: u32 = 24;
 const TOKEN_BATCH_SIZE: usize = 256;
-pub const TRAINING_SUBSETS: i8 = 12; // we have 12 attention heads - training TRAINING_SUBSETS at a time
 const MICRO_BATCH_SIZE: usize = 128;
 
 const NOT_FOUND: &str = "<notfound>";
@@ -45,7 +44,6 @@ pub struct Model {
     pub token_index: DictIndex,
     pub index_to_token: Vec<String>,
     pub device: Device,
-    pub train_subset_index: i8,
     pub model_id: String,
 }
 
@@ -144,7 +142,6 @@ impl Model {
             token_index,
             index_to_token,
             device: device.clone(),
-            train_subset_index: 0,
             model_id,
         })
     }
@@ -163,7 +160,7 @@ impl Model {
         let mut result = input.clone();
 
         for block in self.blocks.iter() {
-            result = block.forward(&result, self.train_subset_index, train)?;
+            result = block.forward(&result, train)?;
         }
 
         // Normalize per-token: [batch, seq, embedding]
@@ -395,9 +392,6 @@ impl Model {
                 };
                 optimizer.set_learning_rate(lr);
                 global_step += 1;
-
-                // Rotate train subset once per batch
-                self.train_subset_index = (self.train_subset_index + 1) % TRAINING_SUBSETS;
 
                 loop {
                     let result: Result<(), CandleError> = (|| {
