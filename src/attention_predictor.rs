@@ -20,18 +20,18 @@ use crate::layer_norm::LayerNorm;
 
 // smoll
 const EMBEDDING_SIZE: usize = 108;
-const CONTEXT_WINDOW: usize = 32;
+const CONTEXT_WINDOW: usize = 64;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
-const FFN_HIDDEN: usize = 512;
+const FFN_HIDDEN: usize = 256;
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
 const LR: f64 = 1.0e-3;
 const WARMUP_BATCHES: usize = 600;
-const EPOCHS: u32 = 24;
+const EPOCHS: u32 = 12;
 const TOKEN_BATCH_SIZE: usize = 256;
-const MICRO_BATCH_SIZE: usize = 128;
+const MICRO_BATCH_SIZE: usize = 256;
 
 const NOT_FOUND: &str = "<notfound>";
 
@@ -376,7 +376,7 @@ impl Model {
         // Pre-generate all (input, target) pairs from the full corpus. Each sample is a
         // self-contained context window, so shuffling them across epochs is safe — it doesn't
         // break ordering within any article.
-        let (all_inputs, all_targets) = self.gen_training_data(tokens_chain, device)?;
+        let (all_inputs, all_targets) = self.gen_training_data(tokens_chain, &Device::Cpu)?;
         let num_samples = all_inputs.dim(0)?;
         let _num_batches = (num_samples + MICRO_BATCH_SIZE - 1) / MICRO_BATCH_SIZE;
 
@@ -411,11 +411,11 @@ impl Model {
 
                 loop {
                     let result: Result<(), CandleError> = (|| {
-                        // Gather batch in one GPU index_select instead of per-sample narrow/copy
+                        // Gather batch on CPU then move to GPU to avoid storing the full dataset on GPU
                         let idx: Vec<u32> = batch_indices.iter().map(|&i| i as u32).collect();
-                        let idx = Tensor::new(idx.as_slice(), device)?;
-                        let inputs = all_inputs.index_select(&idx, 0)?;
-                        let targets = all_targets.index_select(&idx, 0)?;
+                        let idx_cpu = Tensor::new(idx.as_slice(), &Device::Cpu)?;
+                        let inputs = all_inputs.index_select(&idx_cpu, 0)?.to_device(device)?;
+                        let targets = all_targets.index_select(&idx_cpu, 0)?.to_device(device)?;
 
                         // Split into micro-batches for gradient accumulation
                         let num_samples = inputs.dim(0)?;
