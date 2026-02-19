@@ -1,11 +1,14 @@
-use std::{fs, io::Error};
+use rand::distributions::{Alphanumeric, WeightedIndex};
+use rand::prelude::Distribution;
+use rand::seq::SliceRandom;
+use rand::Rng;
+use std::{fs, io::Error, io::Read as IoRead};
 
 use crate::grad_accum::AccumAdamW;
 use crate::models::RunStr;
 use crate::token_utils::STOP_TOKEN;
 use crate::{
     attention_block::{AttentionBlock, AttentionBlockConfig},
-    read_n_chars,
     token_utils::{tokenize, tokens_to_dict, Dict, DictIndex, GetTokenEmbedding},
 };
 use candle_core::{DType, Device, Error as CandleError, Tensor, D};
@@ -13,38 +16,35 @@ use candle_nn::{self as nn, Module};
 use colored::Colorize;
 use nn::{VarBuilder, VarMap};
 
+use crate::layer_norm::LayerNorm;
+
 // smoll
-const EMBEDDING_SIZE: usize = 252;
-const DOWNSCALE_FACTOR: usize = 3;
+const EMBEDDING_SIZE: usize = 108;
 const CONTEXT_WINDOW: usize = 32;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 21;
-const HIDDEN_SIZE: usize = 2048;
+const NUM_ATTENTION_HEADS: usize = 12;
+const FFN_HIDDEN: usize = 512;
 const NUM_BLOCKS: usize = 2;
-pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 17) as usize;
-pub const FILE_PATH: &str = "common-corpus/level_3/corpus.corpus";
-const LR: f64 = 3.0e-4;
-const EPOCHS: u32 = 12;
-const TOKEN_BATCH_SIZE: usize = 128;
-pub const TRAINING_SUBSETS: i8 = 3; // we have 21 attention head - training 7 at the time
-const MICRO_BATCH_SIZE: usize = 16;
+pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
+pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
+const LR: f64 = 1.0e-3;
+const WARMUP_BATCHES: usize = 600;
+const EPOCHS: u32 = 24;
+const TOKEN_BATCH_SIZE: usize = 256;
+const MICRO_BATCH_SIZE: usize = 128;
 
 const NOT_FOUND: &str = "<notfound>";
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
-    pub downscaler: nn::Linear,
-    pub fc1: nn::Linear,
-    pub fc2: nn::Linear,
-    pub fc3: nn::Linear,
-    pub output_proj: nn::Linear,
+    norm: LayerNorm,
     pub embedding: nn::Embedding,
     pub var_map: VarMap,
     pub dict: Dict,
     pub token_index: DictIndex,
     pub index_to_token: Vec<String>,
     pub device: Device,
-    pub train_subset_index: i8,
+    pub model_id: String,
 }
 
 fn is_oom_error(e: &CandleError) -> bool {
@@ -96,10 +96,11 @@ impl Model {
 
         for b in 0..NUM_BLOCKS {
             let config: AttentionBlockConfig = AttentionBlockConfig {
-                input_size: INPUT_SIZE / DOWNSCALE_FACTOR,
+                input_size: INPUT_SIZE,
                 num_attention_heads: NUM_ATTENTION_HEADS,
                 context_window: CONTEXT_WINDOW,
-                embedding_size: EMBEDDING_SIZE / DOWNSCALE_FACTOR,
+                embedding_size: EMBEDDING_SIZE,
+                ffn_hidden: FFN_HIDDEN,
             };
 
             let block = AttentionBlock::new(config, vb.push_prefix(&format!("block_{}", b)))?;
@@ -107,21 +108,7 @@ impl Model {
         }
 
         let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
-        let downscaler = nn::linear_b(
-            INPUT_SIZE,
-            INPUT_SIZE / DOWNSCALE_FACTOR,
-            true,
-            vb.pp("downscaler"),
-        )?;
-        let fc1 = nn::linear_b(
-            INPUT_SIZE / DOWNSCALE_FACTOR,
-            HIDDEN_SIZE,
-            true,
-            vb.pp("fc1"),
-        )?;
-        let fc2 = nn::linear_b(HIDDEN_SIZE, HIDDEN_SIZE, true, vb.pp("fc2"))?;
-        let fc3 = nn::linear_b(HIDDEN_SIZE, EMBEDDING_SIZE, true, vb.pp("fc3"))?;
-        let output_proj = nn::linear_b(EMBEDDING_SIZE, vocab_size, true, vb.pp("output_proj"))?;
+        let norm = LayerNorm::new(EMBEDDING_SIZE, 1e-5, vb.pp("norm"))?;
 
         println!(
             "Vocab, Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR, Batch Size"
@@ -132,7 +119,7 @@ impl Model {
             EMBEDDING_SIZE,
             CONTEXT_WINDOW,
             EPOCHS,
-            HIDDEN_SIZE,
+            FFN_HIDDEN,
             NUM_BLOCKS,
             NUM_ATTENTION_HEADS,
             LR,
@@ -140,12 +127,14 @@ impl Model {
         );
         println!("{}", output.on_white().black());
 
+        let model_id: String = rand::thread_rng()
+            .sample_iter(Alphanumeric)
+            .take(12)
+            .map(char::from)
+            .collect();
+
         Ok(Self {
-            downscaler,
-            fc1,
-            fc2,
-            fc3,
-            output_proj,
+            norm,
             embedding,
             blocks,
             var_map,
@@ -153,7 +142,7 @@ impl Model {
             token_index,
             index_to_token,
             device: device.clone(),
-            train_subset_index: 0,
+            model_id,
         })
     }
 
@@ -162,26 +151,30 @@ impl Model {
     fn forward(&self, input_ids: &Tensor, train: bool) -> Result<Tensor, candle_core::Error> {
         // Embedding lookup: [batch, CONTEXT_WINDOW] -> [batch, CONTEXT_WINDOW, EMBEDDING_SIZE]
         let embedded = self.embedding.forward(input_ids)?;
+        // Add positional encoding once before the attention blocks
+        let embedded = embedded.broadcast_add(self.blocks[0].position_encoding())?;
         // Flatten: [batch, CONTEXT_WINDOW * EMBEDDING_SIZE] = [batch, INPUT_SIZE]
         let batch_size = embedded.dim(0)?;
         let input = embedded.reshape((batch_size, INPUT_SIZE))?;
 
-        let mut result = self.downscaler.forward(&input)?;
-        let downscaled_input = result.clone();
+        let mut result = input.clone();
 
         for block in self.blocks.iter() {
-            result = block
-                .forward(&result, self.train_subset_index, train)?
-                .tanh()?;
+            result = block.forward(&result, train)?;
         }
 
-        let result = (result + (downscaled_input * 0.2)?)?;
-        let result = (result * 0.2)?;
+        // Normalize per-token: [batch, seq, embedding]
+        let result = result.reshape((batch_size, CONTEXT_WINDOW, EMBEDDING_SIZE))?;
+        let result = self.norm.forward(&result)?;
 
-        let result = self.fc1.forward(&result)?;
-        let result = self.fc2.forward(&result)?;
-        let result = self.fc3.forward(&result)?;
-        let result = self.output_proj.forward(&result)?;
+        // Take last token's representation: [batch, emb]
+        let result = result
+            .narrow(1, CONTEXT_WINDOW - 1, 1)?
+            .squeeze(1)?
+            .contiguous()?;
+
+        // Weight-tied output projection: [batch, emb] @ [emb, vocab] -> [batch, vocab]
+        let result = result.matmul(&self.embedding.embeddings().t()?)?;
 
         return Ok(result);
     }
@@ -210,7 +203,31 @@ impl Model {
 
         let input = Tensor::new(ids.as_slice(), device)?.unsqueeze(0)?;
         let logits = self.forward(&input, false)?;
-        let token_id = logits.argmax(D::Minus1)?.to_vec1::<u32>()?[0];
+
+        // Mask <notfound> so it can never be predicted during inference
+        let not_found_id = self.token_to_id(NOT_FOUND) as usize;
+        let mut logits_vec = logits.to_vec2::<f32>()?[0].clone();
+        logits_vec[not_found_id] = f32::NEG_INFINITY;
+
+        // Top-k sampling
+        const TOP_K: usize = 5;
+        let mut indexed: Vec<(f32, usize)> = logits_vec
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(i, v)| (v, i))
+            .collect();
+        indexed.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        let top_k = &indexed[..TOP_K.min(indexed.len())];
+
+        // Softmax over top-k
+        let max_logit = top_k[0].0;
+        let exps: Vec<f32> = top_k.iter().map(|(v, _)| (v - max_logit).exp()).collect();
+        let sum: f32 = exps.iter().sum();
+        let probs: Vec<f32> = exps.iter().map(|e| e / sum).collect();
+
+        let dist = WeightedIndex::new(&probs).unwrap();
+        let token_id = top_k[dist.sample(&mut rand::thread_rng())].1 as u32;
 
         return Ok(self.id_to_token(token_id).to_string());
     }
@@ -223,6 +240,41 @@ impl Model {
         let tokens = tokenize(&input);
         let input_ids: Vec<u32> = tokens.iter().map(|t| self.token_to_id(t)).collect();
         self.run(&input_ids, device)
+    }
+
+    pub fn predict_next_token_greedy(
+        &self,
+        input: &str,
+        device: &Device,
+    ) -> Result<String, candle_core::Error> {
+        let tokens = tokenize(input);
+        let input_ids: Vec<u32> = tokens.iter().map(|t| self.token_to_id(t)).collect();
+
+        let ids: Vec<u32> = if input_ids.len() > CONTEXT_WINDOW {
+            let start = input_ids.len() - CONTEXT_WINDOW;
+            input_ids[start..].to_vec()
+        } else {
+            let pad_id = self.token_to_id(" ");
+            let mut padded = vec![pad_id; CONTEXT_WINDOW - input_ids.len()];
+            padded.extend_from_slice(&input_ids);
+            padded
+        };
+
+        let input_tensor = Tensor::new(ids.as_slice(), device)?.unsqueeze(0)?;
+        let logits = self.forward(&input_tensor, false)?;
+
+        let not_found_id = self.token_to_id(NOT_FOUND) as usize;
+        let mut logits_vec = logits.to_vec2::<f32>()?[0].clone();
+        logits_vec[not_found_id] = f32::NEG_INFINITY;
+
+        let token_id = logits_vec
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(i, _)| i)
+            .unwrap() as u32;
+
+        Ok(self.id_to_token(token_id).to_string())
     }
 
     pub fn gen_training_data(
@@ -295,35 +347,75 @@ impl Model {
         tokens_chain: Vec<String>,
         device: &Device,
     ) -> Result<(), candle_core::Error> {
-        let token_batch_size = TOKEN_BATCH_SIZE;
+        let start_time = std::time::Instant::now();
         let epochs: u32 = EPOCHS;
-        let num_batches = tokens_chain.len() / token_batch_size + 1;
-        let lr = LR;
-        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), lr)?;
+
+        let corpus_level_pre = FILE_PATH
+            .split('/')
+            .find_map(|s| s.strip_prefix("level_").and_then(|n| n.parse::<u32>().ok()))
+            .unwrap_or(0);
+        println!(
+            "Corpus_Level\tDict_Size\tEmbedding_Size\tContext_Window\tEpochs\tHidden_Size\tNum_blocks\tNum_att_heads\tLR\tBatch_Size"
+        );
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            corpus_level_pre,
+            self.dict.len(),
+            EMBEDDING_SIZE,
+            CONTEXT_WINDOW,
+            EPOCHS,
+            FFN_HIDDEN,
+            NUM_BLOCKS,
+            NUM_ATTENTION_HEADS,
+            LR,
+            TOKEN_BATCH_SIZE
+        );
+
+        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), LR)?;
+
+        // Pre-generate all (input, target) pairs from the full corpus. Each sample is a
+        // self-contained context window, so shuffling them across epochs is safe — it doesn't
+        // break ordering within any article.
+        let (all_inputs, all_targets) = self.gen_training_data(tokens_chain, device)?;
+        let num_samples = all_inputs.dim(0)?;
+        let _num_batches = (num_samples + MICRO_BATCH_SIZE - 1) / MICRO_BATCH_SIZE;
+
+        let mut rng = rand::thread_rng();
+        let mut global_step: usize = 0;
+        let batch_count = (num_samples + TOKEN_BATCH_SIZE - 1) / TOKEN_BATCH_SIZE;
+        let total_steps = epochs as usize * batch_count;
+        let lr_min = LR * 0.1;
 
         for epoch in 0..epochs {
             let mut loss_stat: f32 = 1.0;
 
-            for j in 0..(num_batches + 1) {
-                let start = j * token_batch_size;
-                let overlap = 0;
-                let end = start + token_batch_size + 1 + overlap;
-                let end = end.min(tokens_chain.len());
-                if end <= start {
-                    continue;
-                }
+            // Shuffle sample indices each epoch so batches draw from across the corpus
+            let mut indices: Vec<usize> = (0..num_samples).collect();
+            indices.shuffle(&mut rng);
 
-                let batch_size = end - start;
-                let factor = 20.0 / batch_size as f64;
-                optimizer.set_learning_rate(LR * factor);
+            for j in 0..batch_count {
+                let batch_start = j * TOKEN_BATCH_SIZE;
+                let batch_end = (batch_start + TOKEN_BATCH_SIZE).min(num_samples);
+                let batch_indices = &indices[batch_start..batch_end];
 
-                // Rotate train subset once per batch
-                self.train_subset_index = (self.train_subset_index + 1) % TRAINING_SUBSETS;
+                // Linear warmup then cosine decay
+                let lr = if global_step < WARMUP_BATCHES {
+                    LR * ((global_step + 1) as f64 / WARMUP_BATCHES as f64)
+                } else {
+                    let decay_steps = (total_steps - WARMUP_BATCHES).max(1);
+                    let progress = (global_step - WARMUP_BATCHES) as f64 / decay_steps as f64;
+                    lr_min + 0.5 * (LR - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
+                };
+                optimizer.set_learning_rate(lr);
+                global_step += 1;
 
                 loop {
                     let result: Result<(), CandleError> = (|| {
-                        let tokens = tokens_chain[start..end].to_vec();
-                        let (inputs, targets) = self.gen_training_data(tokens, device)?;
+                        // Gather batch in one GPU index_select instead of per-sample narrow/copy
+                        let idx: Vec<u32> = batch_indices.iter().map(|&i| i as u32).collect();
+                        let idx = Tensor::new(idx.as_slice(), device)?;
+                        let inputs = all_inputs.index_select(&idx, 0)?;
+                        let targets = all_targets.index_select(&idx, 0)?;
 
                         // Split into micro-batches for gradient accumulation
                         let num_samples = inputs.dim(0)?;
@@ -341,7 +433,7 @@ impl Model {
                             loss_stat = loss.to_vec0::<f32>()?;
 
                             if loss_stat.is_nan() {
-                                self.crash_dump(inputs, targets)?;
+                                self.crash_dump(inputs.clone(), targets.clone())?;
                                 panic!("Loss is nan, gradient probably exploded or vanished.");
                             }
 
@@ -367,11 +459,29 @@ impl Model {
                     }
                 }
 
-                if j % 50 == 0 {
-                    print!(
-                        "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6}",
-                        epoch, epochs, j, num_batches, loss_stat
+                if j % 200 == 0 {
+                    println!(
+                        "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6} LR = {:.2e}",
+                        epoch, epochs, j, batch_count, loss_stat, lr
                     );
+                    let prediction = self.run_str("Two birds", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!("The birds|>{:.40}", prediction);
+                    let prediction = self.run_str("The cat", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!(" The cat|>{:.40}", prediction);
+                    let prediction = self.run_str("The dog", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    println!(" The dog|>{:.40}", prediction);
+                    let prediction = self.run_str("The fish", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!("The fish|>{:.40}", prediction);
+                    let prediction = self.run_str("A sailboat", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    print!(" A sailboat|>{:.40}", prediction);
+                    let prediction = self.run_str("A carrot", 15)?;
+                    let prediction = prediction.replace("\n", "_");
+                    println!(" A carrot|>{:.40}", prediction);
                     use std::io::Write;
                     std::io::stdout().flush().ok();
                 }
@@ -381,31 +491,59 @@ impl Model {
                 "\rEpoch {:6}/{:6} : Loss = {:.6}              ",
                 epoch, epochs, loss_stat
             );
-            let prediction = self.run_str("Two birds", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            print!("The birds|>{:.40}", prediction);
-            let prediction = self.run_str("The cat", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            print!(" The cat|>{:.40}", prediction);
-            let prediction = self.run_str("The dog", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            println!(" The dog|>{:.40}", prediction);
-            let prediction = self.run_str("The fish", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            print!("The fish|>{:.40}", prediction);
-            let prediction = self.run_str("A sailboat", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            print!(" A sailboat|>{:.40}", prediction);
-            let prediction = self.run_str("A carrot", 15)?;
-            let prediction = prediction.replace("\n", "_");
-            println!(" A carrot|>{:.40}", prediction);
 
-            if epoch % 40 == 0 {
-                self.save_to_path("data/model");
-            }
+            self.save_to_path("data/model");
+            println!("Saved model checkpoint.");
         }
 
-        self.print_stats()?;
+        let elapsed = start_time.elapsed();
+        let h = elapsed.as_secs() / 3600;
+        let m = (elapsed.as_secs() % 3600) / 60;
+        let s = elapsed.as_secs() % 60;
+        let time_str = format!("{}:{:02}:{:02}", h, m, s);
+
+        let date = std::process::Command::new("date")
+            .arg("+%d/%m/%Y")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+
+        let git_hash = std::process::Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+
+        let corpus_level = FILE_PATH
+            .split('/')
+            .find_map(|s| s.strip_prefix("level_").and_then(|n| n.parse::<u32>().ok()))
+            .unwrap_or(0);
+
+        let entry = serde_json::json!({
+            "Model_ID": self.model_id,
+            "Corpus_Level": corpus_level,
+            "Dict_Size": self.dict.len(),
+            "Embedding_Size": EMBEDDING_SIZE,
+            "Context_Window": CONTEXT_WINDOW,
+            "Epochs": EPOCHS,
+            "Hidden_Size": FFN_HIDDEN,
+            "Num_blocks": NUM_BLOCKS,
+            "Num_att_heads": NUM_ATTENTION_HEADS,
+            "LR": LR,
+            "Batch_Size": TOKEN_BATCH_SIZE,
+            "State_of_the_code": git_hash,
+            "Time_to_train": time_str,
+            "Date": date,
+        });
+
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("training_log.json")
+        {
+            use std::io::Write as IoWrite2;
+            let _ = writeln!(file, "{}", serde_json::to_string(&entry).unwrap());
+        }
 
         Ok(())
     }
@@ -442,6 +580,9 @@ impl Model {
         let dict_path = format!("{}.dict", path);
         let file = fs::File::create(dict_path).unwrap();
         serde_json::to_writer(file, &dict_words).unwrap();
+
+        let id_path = format!("{}.id", path);
+        fs::write(id_path, &self.model_id).unwrap();
     }
 
     pub fn load_from_path(path: &str, device: &Device) -> Result<Self, Error> {
@@ -454,6 +595,11 @@ impl Model {
 
         let var_map_path = format!("{}.safetensors", path);
         model.var_map.load(var_map_path.as_str()).unwrap();
+
+        let id_path = format!("{}.id", path);
+        if let Ok(id) = fs::read_to_string(&id_path) {
+            model.model_id = id.trim().to_string();
+        }
 
         Ok(model)
     }
@@ -503,10 +649,15 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
     }
 }
 
+fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
+    let file = fs::File::open(file_path)?;
+    let mut content = String::new();
+    let mut handle = file.take(n);
+    handle.read_to_string(&mut content)?;
+    Ok(content)
+}
+
 pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candle_core::Error> {
-    // Experiments with char count
-    // exponent 15+ makes no sense, no spaces, etc.
-    // exponent 14+ has some spaces after 8 iterations
     let char_count = CHARS_TO_TRAIN_ON as u64;
 
     println!("Reading {} chars from file: {}", char_count, file_path);
@@ -518,7 +669,7 @@ pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candl
 
     let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = tokenize("hello world");
-    let sys_tokens = vec![String::from(NOT_FOUND)];
+    let sys_tokens = vec![String::from(NOT_FOUND), String::from(STOP_TOKEN)];
 
     let tokens = [tokens, lorem_tokens, hello_world_tokens, sys_tokens].concat();
 
