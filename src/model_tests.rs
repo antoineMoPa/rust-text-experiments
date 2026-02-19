@@ -7,10 +7,23 @@ use crate::{
 };
 
 const RESULT_COLS: &[&str] = &[
-    "Model_ID", "Corpus_Level", "Dict_Size", "Embedding_Size", "Context_Window",
-    "Epochs", "Hidden_Size", "Num_blocks", "Num_att_heads", "LR", "Batch_Size",
-    "State_of_the_code", "Time_to_train",
-    "Self_Test_Score_L2", "Self_Test_Score_L3", "QA_Test_Score", "Date",
+    "Model_ID",
+    "Corpus_Level",
+    "Dict_Size",
+    "Embedding_Size",
+    "Context_Window",
+    "Epochs",
+    "Hidden_Size",
+    "Num_blocks",
+    "Num_att_heads",
+    "LR",
+    "Batch_Size",
+    "State_of_the_code",
+    "Time_to_train",
+    "Self_Test_Score_L2",
+    "Self_Test_Score_L3",
+    "QA_Test_Score",
+    "Date",
 ];
 
 fn read_ndjson(path: &str) -> Vec<serde_json::Value> {
@@ -31,17 +44,22 @@ pub fn print_results() -> Result<(), Box<dyn std::error::Error>> {
     let empty = serde_json::Value::Object(Default::default());
     for t in &train {
         // Match test result by Model_ID, fall back to empty if not found
-        let r = t.get("Model_ID")
+        let r = t
+            .get("Model_ID")
             .and_then(|id| tests.iter().rev().find(|r| r.get("Model_ID") == Some(id)))
             .unwrap_or(&empty);
-        let row: Vec<String> = RESULT_COLS.iter().map(|col| {
-            t.get(*col).or_else(|| r.get(*col))
-                .map(|v| match v {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                })
-                .unwrap_or_default()
-        }).collect();
+        let row: Vec<String> = RESULT_COLS
+            .iter()
+            .map(|col| {
+                t.get(*col)
+                    .or_else(|| r.get(*col))
+                    .map(|v| match v {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_default()
+            })
+            .collect();
         println!("{}", row.join(","));
     }
 
@@ -90,16 +108,18 @@ pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
         writeln!(file, "{}", serde_json::to_string(&entry).unwrap())?;
     }
 
-    println!(
-        "Self_Test_Score_L2\tSelf_Test_Score_L3\tQA_Test_Score\tDate"
-    );
+    println!("Self_Test_Score_L2\tSelf_Test_Score_L3\tQA_Test_Score\tDate");
     println!("{}\t{}\t{}\t{}", score_l2, score_l3, score_qa, date);
 
     Ok(())
 }
 
 fn first_n_words_contain(output: &str, expected: &str, n: usize) -> bool {
-    let prefix = output.split_whitespace().take(n).collect::<Vec<_>>().join(" ");
+    let prefix = output
+        .split_whitespace()
+        .take(n)
+        .collect::<Vec<_>>()
+        .join(" ");
     prefix.contains(expected)
 }
 

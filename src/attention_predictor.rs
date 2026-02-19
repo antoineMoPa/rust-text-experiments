@@ -168,7 +168,10 @@ impl Model {
         let result = self.norm.forward(&result)?;
 
         // Take last token's representation: [batch, emb]
-        let result = result.narrow(1, CONTEXT_WINDOW - 1, 1)?.squeeze(1)?.contiguous()?;
+        let result = result
+            .narrow(1, CONTEXT_WINDOW - 1, 1)?
+            .squeeze(1)?
+            .contiguous()?;
 
         // Weight-tied output projection: [batch, emb] @ [emb, vocab] -> [batch, vocab]
         let result = result.matmul(&self.embedding.embeddings().t()?)?;
@@ -208,7 +211,12 @@ impl Model {
 
         // Top-k sampling
         const TOP_K: usize = 5;
-        let mut indexed: Vec<(f32, usize)> = logits_vec.iter().copied().enumerate().map(|(i, v)| (v, i)).collect();
+        let mut indexed: Vec<(f32, usize)> = logits_vec
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(i, v)| (v, i))
+            .collect();
         indexed.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
         let top_k = &indexed[..TOP_K.min(indexed.len())];
 
@@ -351,8 +359,16 @@ impl Model {
         );
         println!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            corpus_level_pre, self.dict.len(), EMBEDDING_SIZE, CONTEXT_WINDOW,
-            EPOCHS, FFN_HIDDEN, NUM_BLOCKS, NUM_ATTENTION_HEADS, LR, TOKEN_BATCH_SIZE
+            corpus_level_pre,
+            self.dict.len(),
+            EMBEDDING_SIZE,
+            CONTEXT_WINDOW,
+            EPOCHS,
+            FFN_HIDDEN,
+            NUM_BLOCKS,
+            NUM_ATTENTION_HEADS,
+            LR,
+            TOKEN_BATCH_SIZE
         );
 
         let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), LR)?;

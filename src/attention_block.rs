@@ -58,8 +58,18 @@ impl AttentionBlock {
             vb.pp("out_linear"),
         )?;
 
-        let ffn_in = nn::linear_b(config.embedding_size, config.ffn_hidden, true, vb.pp("ffn_in"))?;
-        let ffn_out = nn::linear_b(config.ffn_hidden, config.embedding_size, true, vb.pp("ffn_out"))?;
+        let ffn_in = nn::linear_b(
+            config.embedding_size,
+            config.ffn_hidden,
+            true,
+            vb.pp("ffn_in"),
+        )?;
+        let ffn_out = nn::linear_b(
+            config.ffn_hidden,
+            config.embedding_size,
+            true,
+            vb.pp("ffn_out"),
+        )?;
 
         let device = vb.device();
         let seq_len = config.context_window;
@@ -72,8 +82,8 @@ impl AttentionBlock {
         let mut pe_data: Vec<f32> = Vec::with_capacity(seq_len * config.embedding_size);
         for i in 0..seq_len {
             for j in 0..config.embedding_size {
-                let val = (i as f32)
-                    / (10000_f32).powf(2.0 * (j as f32) / config.embedding_size as f32);
+                let val =
+                    (i as f32) / (10000_f32).powf(2.0 * (j as f32) / config.embedding_size as f32);
                 pe_data.push(if j % 2 == 0 { val.sin() } else { val.cos() });
             }
         }
@@ -124,11 +134,7 @@ impl AttentionBlock {
         &self.pos_enc
     }
 
-    pub fn forward(
-        &self,
-        input: &Tensor,
-        train: bool,
-    ) -> Result<Tensor, candle_core::Error> {
+    pub fn forward(&self, input: &Tensor, train: bool) -> Result<Tensor, candle_core::Error> {
         let batch_size = input.dim(0)?;
 
         // Reshape [batch, context_window * embedding_size] -> [batch, context_window, embedding_size]
@@ -169,7 +175,12 @@ impl AttentionBlock {
         let result = self.out_linear.forward(&result)?;
 
         // Residual connection (still in [batch, seq, emb])
-        let result = (result + input.reshape((batch_size, self.config.context_window, self.config.embedding_size))?)?;
+        let result = (result
+            + input.reshape((
+                batch_size,
+                self.config.context_window,
+                self.config.embedding_size,
+            ))?)?;
 
         // Per-token FFN sublayer with residual
         let ffn_residual = result.clone();
