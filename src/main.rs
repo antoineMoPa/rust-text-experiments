@@ -97,24 +97,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut input = args.join(" ") + " ";
         println!("Completing: '{:?}'", input);
 
-        let mut buf = String::new();
         loop {
             let pred = model.predict_next_token(input.as_str(), &device)?;
 
             if pred == STOP_TOKEN {
-                println!("{} - ", buf);
-                buf.clear();
+                println!();
                 break;
             }
 
             input = input + pred.as_str();
-
-            buf.push_str(pred.as_str());
-
-            if buf.len() > 40 {
-                println!("{} - ", buf);
-                buf.clear()
-            }
+            print!("{}", pred);
         }
 
         return Ok(());
