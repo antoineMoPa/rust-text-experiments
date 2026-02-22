@@ -36,6 +36,8 @@ const NOT_FOUND: &str = "<notfound>";
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
     pub embedding: nn::Embedding,
+    pre_proj_in: nn::Linear,
+    pre_proj_out: nn::Linear,
     pub var_map: VarMap,
     pub dict: Dict,
     pub token_index: DictIndex,
@@ -105,6 +107,8 @@ impl Model {
         }
 
         let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
+        let pre_proj_in = nn::linear_b(EMBEDDING_SIZE, FFN_HIDDEN, true, vb.pp("pre_proj_in"))?;
+        let pre_proj_out = nn::linear_b(FFN_HIDDEN, EMBEDDING_SIZE, true, vb.pp("pre_proj_out"))?;
 
         println!(
             "Vocab, Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR, Batch Size"
@@ -131,6 +135,8 @@ impl Model {
 
         Ok(Self {
             embedding,
+            pre_proj_in,
+            pre_proj_out,
             blocks,
             var_map,
             dict,
@@ -164,6 +170,10 @@ impl Model {
             .narrow(1, CONTEXT_WINDOW - 1, 1)?
             .squeeze(1)?
             .contiguous()?;
+
+        // Intermediate projection to decouple reasoning space from embedding space
+        let result = self.pre_proj_in.forward(&result)?.gelu()?;
+        let result = self.pre_proj_out.forward(&result)?;
 
         // Weight-tied output projection: [batch, emb] @ [emb, vocab] -> [batch, vocab]
         let result = result.matmul(&self.embedding.embeddings().t()?)?;
