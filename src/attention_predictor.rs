@@ -16,8 +16,6 @@ use candle_nn::{self as nn, Module};
 use colored::Colorize;
 use nn::{VarBuilder, VarMap};
 
-use crate::layer_norm::LayerNorm;
-
 // smoll
 const EMBEDDING_SIZE: usize = 108;
 const CONTEXT_WINDOW: usize = 64;
@@ -37,7 +35,6 @@ const NOT_FOUND: &str = "<notfound>";
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
-    norm: LayerNorm,
     pub embedding: nn::Embedding,
     pub var_map: VarMap,
     pub dict: Dict,
@@ -108,7 +105,6 @@ impl Model {
         }
 
         let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
-        let norm = LayerNorm::new(EMBEDDING_SIZE, 1e-5, vb.pp("norm"))?;
 
         println!(
             "Vocab, Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR, Batch Size"
@@ -134,7 +130,6 @@ impl Model {
             .collect();
 
         Ok(Self {
-            norm,
             embedding,
             blocks,
             var_map,
@@ -163,11 +158,8 @@ impl Model {
             result = block.forward(&result, train)?;
         }
 
-        // Normalize per-token: [batch, seq, embedding]
-        let result = result.reshape((batch_size, CONTEXT_WINDOW, EMBEDDING_SIZE))?;
-        let result = self.norm.forward(&result)?;
-
         // Take last token's representation: [batch, emb]
+        let result = result.reshape((batch_size, CONTEXT_WINDOW, EMBEDDING_SIZE))?;
         let result = result
             .narrow(1, CONTEXT_WINDOW - 1, 1)?
             .squeeze(1)?
