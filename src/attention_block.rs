@@ -36,19 +36,19 @@ impl AttentionBlock {
 
         for i in 0..config.num_attention_heads {
             qs.push(nn::linear_b(
-                d_head,
+                config.embedding_size,
                 d_head,
                 true,
                 vb.pp(&format!("q{}", i)),
             )?);
             ks.push(nn::linear_b(
-                d_head,
+                config.embedding_size,
                 d_head,
                 true,
                 vb.pp(&format!("k{}", i)),
             )?);
             vs.push(nn::linear_b(
-                d_head,
+                config.embedding_size,
                 d_head,
                 true,
                 vb.pp(&format!("v{}", i)),
@@ -159,22 +159,16 @@ impl AttentionBlock {
             input
         };
 
-        let d_head = self.config.embedding_size / self.config.num_attention_heads;
-
         // Pre-norm before attention
         let normed = self.norm1.forward(&input)?;
 
         let mut results: Vec<Tensor> = Vec::new();
 
         for i in 0..self.config.num_attention_heads {
-            // Extract this head's slice: [batch, seq_len, d_head]
-            let start = i * d_head;
-            let portions = normed.narrow(2, start, d_head)?.contiguous()?;
-
-            // Q/K/V projections: [batch, seq_len, d_head]
-            let q = portions.apply(&self.qs[i])?;
-            let k = portions.apply(&self.ks[i])?;
-            let v = portions.apply(&self.vs[i])?;
+            // Q/K/V projections from full embedding: [batch, seq_len, d_head]
+            let q = self.qs[i].forward(&normed)?;
+            let k = self.ks[i].forward(&normed)?;
+            let v = self.vs[i].forward(&normed)?;
 
             // Causal attention: [batch, seq_len, d_head]
             let result = self.scaled_dot_product_attention(&q, &k, &v)?;
