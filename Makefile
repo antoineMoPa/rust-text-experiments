@@ -3,6 +3,7 @@ args = RUST_BACKTRACE=1
 run:
 	$(args) cargo run --release run
 train:
+	mkdir -p data
 	$(args) nohup time cargo run --release train 2>&1 | tee train_log.log
 merge:
 	$(time cargo run --release merge 2>&1

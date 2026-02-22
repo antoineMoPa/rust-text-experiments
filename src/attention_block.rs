@@ -2,6 +2,8 @@ use candle_core::Tensor;
 use candle_nn::{self as nn, Module};
 use nn::VarBuilder;
 
+use crate::layer_norm::LayerNorm;
+
 pub struct AttentionBlock {
     pub qs: Vec<nn::Linear>,
     pub ks: Vec<nn::Linear>,
@@ -12,6 +14,8 @@ pub struct AttentionBlock {
     pub config: AttentionBlockConfig,
     causal_mask: Tensor,
     pos_enc: Tensor,
+    norm1: LayerNorm,
+    norm2: LayerNorm,
 }
 
 pub struct AttentionBlockConfig {
@@ -89,6 +93,9 @@ impl AttentionBlock {
         }
         let pos_enc = Tensor::from_slice(&pe_data, (1, seq_len, config.embedding_size), device)?;
 
+        let norm1 = LayerNorm::new(config.embedding_size, 1e-5, vb.pp("norm1"))?;
+        let norm2 = LayerNorm::new(config.embedding_size, 1e-5, vb.pp("norm2"))?;
+
         Ok(Self {
             qs,
             ks,
@@ -99,6 +106,8 @@ impl AttentionBlock {
             config,
             causal_mask,
             pos_enc,
+            norm1,
+            norm2,
         })
     }
 
@@ -151,12 +160,16 @@ impl AttentionBlock {
         };
 
         let d_head = self.config.embedding_size / self.config.num_attention_heads;
+
+        // Pre-norm before attention
+        let normed = self.norm1.forward(&input)?;
+
         let mut results: Vec<Tensor> = Vec::new();
 
         for i in 0..self.config.num_attention_heads {
             // Extract this head's slice: [batch, seq_len, d_head]
             let start = i * d_head;
-            let portions = input.narrow(2, start, d_head)?.contiguous()?;
+            let portions = normed.narrow(2, start, d_head)?.contiguous()?;
 
             // Q/K/V projections: [batch, seq_len, d_head]
             let q = portions.apply(&self.qs[i])?;
@@ -174,17 +187,13 @@ impl AttentionBlock {
         // Output projection per token: [batch, seq_len, embedding_size]
         let result = self.out_linear.forward(&result)?;
 
-        // Residual connection (still in [batch, seq, emb])
-        let result = (result
-            + input.reshape((
-                batch_size,
-                self.config.context_window,
-                self.config.embedding_size,
-            ))?)?;
+        // Residual connection: add to original (un-normed) input
+        let result = (result + &input)?;
 
-        // Per-token FFN sublayer with residual
+        // Pre-norm before FFN
         let ffn_residual = result.clone();
-        let result = self.ffn_in.forward(&result)?.gelu()?;
+        let normed2 = self.norm2.forward(&result)?;
+        let result = self.ffn_in.forward(&normed2)?.gelu()?;
         let result = self.ffn_out.forward(&result)?;
         let result = (result + ffn_residual)?;
 
