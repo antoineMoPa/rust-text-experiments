@@ -172,8 +172,9 @@ impl Model {
             .contiguous()?;
 
         // Intermediate projection to decouple reasoning space from embedding space
+        let pre_proj_residual = result.clone();
         let result = self.pre_proj_in.forward(&result)?.gelu()?;
-        let result = self.pre_proj_out.forward(&result)?;
+        let result = (self.pre_proj_out.forward(&result)? + pre_proj_residual)?;
 
         // Weight-tied output projection: [batch, emb] @ [emb, vocab] -> [batch, vocab]
         let result = result.matmul(&self.embedding.embeddings().t()?)?;
