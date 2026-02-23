@@ -5,6 +5,7 @@ use rand::Rng;
 use std::{fs, io::Error, io::Read as IoRead};
 
 use crate::grad_accum::AccumAdamW;
+use crate::layer_norm::LayerNorm;
 use crate::models::RunStr;
 use crate::token_utils::STOP_TOKEN;
 use crate::{
@@ -36,6 +37,7 @@ const NOT_FOUND: &str = "<notfound>";
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
     pub embedding: nn::Embedding,
+    pre_proj_norm: LayerNorm,
     pre_proj_in: nn::Linear,
     pre_proj_out: nn::Linear,
     pub var_map: VarMap,
@@ -107,6 +109,7 @@ impl Model {
         }
 
         let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
+        let pre_proj_norm = LayerNorm::new(EMBEDDING_SIZE, 1e-5, vb.pp("pre_proj_norm"))?;
         let pre_proj_in = nn::linear_b(EMBEDDING_SIZE, FFN_HIDDEN, true, vb.pp("pre_proj_in"))?;
         let pre_proj_out = nn::linear_b(FFN_HIDDEN, EMBEDDING_SIZE, true, vb.pp("pre_proj_out"))?;
 
@@ -135,6 +138,7 @@ impl Model {
 
         Ok(Self {
             embedding,
+            pre_proj_norm,
             pre_proj_in,
             pre_proj_out,
             blocks,
@@ -173,6 +177,7 @@ impl Model {
 
         // Intermediate projection to decouple reasoning space from embedding space
         let pre_proj_residual = result.clone();
+        let result = self.pre_proj_norm.forward(&result)?;
         let result = self.pre_proj_in.forward(&result)?.gelu()?;
         let result = (self.pre_proj_out.forward(&result)? + pre_proj_residual)?;
 
