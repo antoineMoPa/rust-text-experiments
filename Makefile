@@ -19,3 +19,5 @@ test_model:
 	$(args) cargo run --release test_all
 results:
 	$(args) cargo run --release print_results
+epoch_stats:
+	@(printf '%s\t%s\t%s\t%s\t%s\n' Epoch LR L2 L3 QA; tail -n +2 per_epoch_stats.log | jq -r '[.Epoch, .LR, .Self_Test_Score_L2, .Self_Test_Score_L3, .QA_Test_Score] | @tsv')
