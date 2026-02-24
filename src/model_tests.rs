@@ -26,6 +26,27 @@ const RESULT_COLS: &[&str] = &[
     "Date",
 ];
 
+const EPOCH_COLS: &[&str] = &[
+    "Epoch",
+    "Model_ID",
+    "Corpus_Level",
+    "Dict_Size",
+    "Embedding_Size",
+    "Context_Window",
+    "Epochs",
+    "Hidden_Size",
+    "Num_blocks",
+    "Num_att_heads",
+    "LR",
+    "Batch_Size",
+    "State_of_the_code",
+    "Time_to_train",
+    "Self_Test_Score_L2",
+    "Self_Test_Score_L3",
+    "QA_Test_Score",
+    "Date",
+];
+
 fn read_ndjson(path: &str) -> Vec<serde_json::Value> {
     fs::read_to_string(path)
         .unwrap_or_default()
@@ -114,6 +135,32 @@ pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Run all three scores on an already-loaded model (used during training).
+pub fn per_epoch_scores(
+    model: &Model,
+    device: &candle_core::Device,
+) -> Result<(f32, f32, f32), Box<dyn std::error::Error>> {
+    let (l2, l3) = compute_self_test_scores(model, device)?;
+    let qa = compute_qa_test_score(model, device)?;
+    Ok((l2, l3, qa))
+}
+
+/// Print the header for per_epoch_stats.log (call once before training).
+pub fn print_epoch_stats_header() {
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("per_epoch_stats.log")
+    {
+        // Only write header if file is empty
+        if let Ok(meta) = file.metadata() {
+            if meta.len() == 0 {
+                let _ = writeln!(file, "{}", EPOCH_COLS.join(","));
+            }
+        }
+    }
+}
+
 fn first_n_words_contain(output: &str, expected: &str, n: usize) -> bool {
     let prefix = output
         .split_whitespace()
@@ -123,11 +170,10 @@ fn first_n_words_contain(output: &str, expected: &str, n: usize) -> bool {
     prefix.contains(expected)
 }
 
-fn self_test_scores() -> Result<(f32, f32), Box<dyn std::error::Error>> {
-    let device = get_device()?;
-    println!("Loading test model");
-    let model = Model::load_from_path("data/model", &device)?;
-
+fn compute_self_test_scores(
+    model: &Model,
+    device: &candle_core::Device,
+) -> Result<(f32, f32), Box<dyn std::error::Error>> {
     let level_file_paths = vec![
         "common-corpus/level_2/corpus.txt",
         "common-corpus/level_3/corpus.txt",
@@ -151,7 +197,7 @@ fn self_test_scores() -> Result<(f32, f32), Box<dyn std::error::Error>> {
 
             let mut buf = String::new();
             loop {
-                let pred = model.predict_next_token_greedy(input.as_str(), &device)?;
+                let pred = model.predict_next_token_greedy(input.as_str(), device)?;
                 input = input + pred.as_str();
 
                 if buf.len() > 50 || pred == "." {
@@ -196,11 +242,10 @@ fn self_test_scores() -> Result<(f32, f32), Box<dyn std::error::Error>> {
     Ok((scores[0], scores[1]))
 }
 
-fn qa_test_score() -> Result<f32, Box<dyn std::error::Error>> {
-    let device = get_device()?;
-    println!("Loading test model");
-    let model = Model::load_from_path("data/model", &device)?;
-
+fn compute_qa_test_score(
+    model: &Model,
+    device: &candle_core::Device,
+) -> Result<f32, Box<dyn std::error::Error>> {
     let file_path = "common-corpus/level_3/qa.txt";
     let mut file = fs::File::open(file_path)?;
     let mut content: String = String::new();
@@ -219,7 +264,7 @@ fn qa_test_score() -> Result<f32, Box<dyn std::error::Error>> {
         let mut input = question.clone() + "A: ";
 
         loop {
-            let pred = model.predict_next_token_greedy(&input, &device)?;
+            let pred = model.predict_next_token_greedy(&input, device)?;
             input = input + pred.as_str();
 
             if buf.len() > 50 || pred == "." {
@@ -254,4 +299,18 @@ fn qa_test_score() -> Result<f32, Box<dyn std::error::Error>> {
     );
 
     Ok(success_rate)
+}
+
+fn self_test_scores() -> Result<(f32, f32), Box<dyn std::error::Error>> {
+    let device = get_device()?;
+    println!("Loading test model");
+    let model = Model::load_from_path("data/model", &device)?;
+    compute_self_test_scores(&model, &device)
+}
+
+fn qa_test_score() -> Result<f32, Box<dyn std::error::Error>> {
+    let device = get_device()?;
+    println!("Loading test model");
+    let model = Model::load_from_path("data/model", &device)?;
+    compute_qa_test_score(&model, &device)
 }

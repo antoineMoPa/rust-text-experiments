@@ -6,6 +6,7 @@ use std::{fs, io::Error, io::Read as IoRead};
 
 use crate::grad_accum::AccumAdamW;
 use crate::layer_norm::LayerNorm;
+use crate::model_tests::{per_epoch_scores, print_epoch_stats_header};
 use crate::models::RunStr;
 use crate::token_utils::STOP_TOKEN;
 use crate::{
@@ -28,7 +29,7 @@ pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
 const LR: f64 = 6.0e-4;
 const WARMUP_BATCHES: usize = 600;
-const EPOCHS: u32 = 4;
+const EPOCHS: u32 = 12;
 const TOKEN_BATCH_SIZE: usize = 256;
 const MICRO_BATCH_SIZE: usize = 256;
 
@@ -358,16 +359,25 @@ impl Model {
         let start_time = std::time::Instant::now();
         let epochs: u32 = EPOCHS;
 
-        let corpus_level_pre = FILE_PATH
+        let corpus_level = FILE_PATH
             .split('/')
             .find_map(|s| s.strip_prefix("level_").and_then(|n| n.parse::<u32>().ok()))
             .unwrap_or(0);
+
+        let git_hash = std::process::Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+
+        print_epoch_stats_header();
+
         println!(
             "Corpus_Level\tDict_Size\tEmbedding_Size\tContext_Window\tEpochs\tHidden_Size\tNum_blocks\tNum_att_heads\tLR\tBatch_Size"
         );
         println!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            corpus_level_pre,
+            corpus_level,
             self.dict.len(),
             EMBEDDING_SIZE,
             CONTEXT_WINDOW,
@@ -396,6 +406,7 @@ impl Model {
 
         for epoch in 0..epochs {
             let mut loss_stat: f32 = 1.0;
+            let mut last_lr = LR;
 
             // Shuffle sample indices each epoch so batches draw from across the corpus
             let mut indices: Vec<usize> = (0..num_samples).collect();
@@ -415,6 +426,7 @@ impl Model {
                     lr_min + 0.5 * (LR - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
                 };
                 optimizer.set_learning_rate(lr);
+                last_lr = lr;
                 global_step += 1;
 
                 loop {
@@ -502,6 +514,56 @@ impl Model {
 
             self.save_to_path("data/model");
             println!("Saved model checkpoint.");
+
+            let elapsed = start_time.elapsed();
+            let h = elapsed.as_secs() / 3600;
+            let m = (elapsed.as_secs() % 3600) / 60;
+            let s = elapsed.as_secs() % 60;
+            let time_str = format!("{}:{:02}:{:02}", h, m, s);
+
+            let date = std::process::Command::new("date")
+                .arg("+%d/%m/%Y")
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default();
+
+            match per_epoch_scores(self, device) {
+                Ok((score_l2, score_l3, score_qa)) => {
+                    let entry = serde_json::json!({
+                        "Epoch": epoch,
+                        "Model_ID": self.model_id,
+                        "Corpus_Level": corpus_level,
+                        "Dict_Size": self.dict.len(),
+                        "Embedding_Size": EMBEDDING_SIZE,
+                        "Context_Window": CONTEXT_WINDOW,
+                        "Epochs": epochs,
+                        "Hidden_Size": FFN_HIDDEN,
+                        "Num_blocks": NUM_BLOCKS,
+                        "Num_att_heads": NUM_ATTENTION_HEADS,
+                        "LR": last_lr,
+                        "Batch_Size": TOKEN_BATCH_SIZE,
+                        "State_of_the_code": git_hash,
+                        "Time_to_train": time_str,
+                        "Self_Test_Score_L2": score_l2,
+                        "Self_Test_Score_L3": score_l3,
+                        "QA_Test_Score": score_qa,
+                        "Date": date,
+                    });
+                    if let Ok(mut file) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("per_epoch_stats.log")
+                    {
+                        use std::io::Write as IoWrite3;
+                        let _ = writeln!(file, "{}", serde_json::to_string(&entry).unwrap());
+                    }
+                    println!(
+                        "Epoch {} scores: L2={:.3} L3={:.3} QA={:.3} LR={:.2e}",
+                        epoch, score_l2, score_l3, score_qa, last_lr
+                    );
+                }
+                Err(e) => eprintln!("Epoch {} test failed: {}", epoch, e),
+            }
         }
 
         let elapsed = start_time.elapsed();
@@ -515,17 +577,6 @@ impl Model {
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_default();
-
-        let git_hash = std::process::Command::new("git")
-            .args(["rev-parse", "--short", "HEAD"])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_default();
-
-        let corpus_level = FILE_PATH
-            .split('/')
-            .find_map(|s| s.strip_prefix("level_").and_then(|n| n.parse::<u32>().ok()))
-            .unwrap_or(0);
 
         let entry = serde_json::json!({
             "Model_ID": self.model_id,
