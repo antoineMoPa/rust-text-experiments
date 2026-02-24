@@ -5,8 +5,8 @@ use attention_predictor::{create_model, get_pretrained_dict};
 use candle_core::Var;
 
 use crate::{
-    attention_predictor::{get_device, Model, FILE_PATH},
-    model_tests::{print_results, qa_test, self_test, test_all},
+    attention_predictor::{get_device, Model, FILE_PATH, LR},
+    model_tests::{per_epoch_scores, print_results, qa_test, self_test, test_all},
     token_utils::{tokenize, STOP_TOKEN},
 };
 
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("Training on {} tokens", tokens.len());
 
-        model.simple_train(tokens, &device)?;
+        model.simple_train(tokens, &device, LR)?;
         model.save_to_path("data/model");
 
         return Ok(());
@@ -132,6 +132,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, self_test, qa_test, test_all, print_results");
+    if command == "sweep-lr" {
+        let (dict, _) = get_pretrained_dict(FILE_PATH)?;
+
+        let mut file = fs::File::open(FILE_PATH)?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        let tokens = tokenize(&content);
+
+        // 12 log-spaced LRs from 3e-4 to 1e-2
+        let n = 12usize;
+        let lr_lo = 3e-4f64;
+        let lr_hi = 1e-2f64;
+        let lrs: Vec<f64> = (0..n)
+            .map(|i| (lr_lo.ln() + i as f64 / (n - 1) as f64 * (lr_hi.ln() - lr_lo.ln())).exp())
+            .collect();
+
+        for lr in lrs {
+            println!("=== sweep-lr: LR = {:.2e} ===", lr);
+            let mut model = create_model(&dict, &device)?;
+            model.simple_train(tokens.clone(), &device, lr)?;
+
+            match per_epoch_scores(&model, &device) {
+                Ok((l2, l3, qa)) => {
+                    let entry = serde_json::json!({
+                        "LR": lr,
+                        "Self_Test_Score_L2": l2,
+                        "Self_Test_Score_L3": l3,
+                        "QA_Test_Score": qa,
+                    });
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("lr_sweep.log")
+                    {
+                        use std::io::Write as W;
+                        let _ = writeln!(f, "{}", serde_json::to_string(&entry).unwrap());
+                    }
+                    println!("sweep result: LR={:.2e} L2={:.3} L3={:.3} QA={:.3}", lr, l2, l3, qa);
+                }
+                Err(e) => eprintln!("sweep score failed for LR={:.2e}: {}", lr, e),
+            }
+        }
+
+        return Ok(());
+    }
+
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, self_test, qa_test, test_all, print_results, sweep-lr");
     Ok(())
 }

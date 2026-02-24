@@ -27,7 +27,7 @@ const FFN_HIDDEN: usize = 256;
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
-const LR: f64 = 6.0e-4;
+pub const LR: f64 = 6.0e-4;
 const WARMUP_BATCHES: usize = 600;
 const EPOCHS: u32 = 6;
 const TOKEN_BATCH_SIZE: usize = 256;
@@ -355,6 +355,7 @@ impl Model {
         &mut self,
         tokens_chain: Vec<String>,
         device: &Device,
+        base_lr: f64,
     ) -> Result<(), candle_core::Error> {
         let start_time = std::time::Instant::now();
         let epochs: u32 = EPOCHS;
@@ -385,11 +386,11 @@ impl Model {
             FFN_HIDDEN,
             NUM_BLOCKS,
             NUM_ATTENTION_HEADS,
-            LR,
+            base_lr,
             TOKEN_BATCH_SIZE
         );
 
-        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), LR)?;
+        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), base_lr)?;
 
         // Pre-generate all (input, target) pairs from the full corpus. Each sample is a
         // self-contained context window, so shuffling them across epochs is safe — it doesn't
@@ -402,11 +403,11 @@ impl Model {
         let mut global_step: usize = 0;
         let batch_count = (num_samples + TOKEN_BATCH_SIZE - 1) / TOKEN_BATCH_SIZE;
         let total_steps = epochs as usize * batch_count;
-        let lr_min = LR * 0.1;
+        let lr_min = base_lr * 0.1;
 
         for epoch in 0..epochs {
             let mut loss_stat: f32 = 1.0;
-            let mut last_lr = LR;
+            let mut last_lr = base_lr;
 
             // Shuffle sample indices each epoch so batches draw from across the corpus
             let mut indices: Vec<usize> = (0..num_samples).collect();
@@ -419,11 +420,11 @@ impl Model {
 
                 // Linear warmup then cosine decay
                 let lr = if global_step < WARMUP_BATCHES {
-                    LR * ((global_step + 1) as f64 / WARMUP_BATCHES as f64)
+                    base_lr * ((global_step + 1) as f64 / WARMUP_BATCHES as f64)
                 } else {
                     let decay_steps = (total_steps - WARMUP_BATCHES).max(1);
                     let progress = (global_step - WARMUP_BATCHES) as f64 / decay_steps as f64;
-                    lr_min + 0.5 * (LR - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
+                    lr_min + 0.5 * (base_lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
                 };
                 optimizer.set_learning_rate(lr);
                 last_lr = lr;
@@ -588,7 +589,7 @@ impl Model {
             "Hidden_Size": FFN_HIDDEN,
             "Num_blocks": NUM_BLOCKS,
             "Num_att_heads": NUM_ATTENTION_HEADS,
-            "LR": LR,
+            "LR": base_lr,
             "Batch_Size": TOKEN_BATCH_SIZE,
             "State_of_the_code": git_hash,
             "Time_to_train": time_str,
