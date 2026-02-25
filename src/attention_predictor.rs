@@ -424,7 +424,8 @@ impl Model {
                 } else {
                     let decay_steps = (total_steps - WARMUP_BATCHES).max(1);
                     let progress = (global_step - WARMUP_BATCHES) as f64 / decay_steps as f64;
-                    lr_min + 0.5 * (base_lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
+                    lr_min
+                        + 0.5 * (base_lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
                 };
                 optimizer.set_learning_rate(lr);
                 last_lr = lr;

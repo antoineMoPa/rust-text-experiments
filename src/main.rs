@@ -169,7 +169,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         use std::io::Write as W;
                         let _ = writeln!(f, "{}", serde_json::to_string(&entry).unwrap());
                     }
-                    println!("sweep result: LR={:.2e} L2={:.3} L3={:.3} QA={:.3}", lr, l2, l3, qa);
+                    println!(
+                        "sweep result: LR={:.2e} L2={:.3} L3={:.3} QA={:.3}",
+                        lr, l2, l3, qa
+                    );
                 }
                 Err(e) => eprintln!("sweep score failed for LR={:.2e}: {}", lr, e),
             }

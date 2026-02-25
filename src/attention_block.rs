@@ -121,9 +121,18 @@ impl AttentionBlock {
         let v = qkv.narrow(2, emb * 2, emb)?;
 
         // Reshape and transpose to [batch, num_heads, seq, d_head]
-        let q = q.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
-        let k = k.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
-        let v = v.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
+        let q = q
+            .reshape((batch_size, seq, num_heads, d_head))?
+            .transpose(1, 2)?
+            .contiguous()?;
+        let k = k
+            .reshape((batch_size, seq, num_heads, d_head))?
+            .transpose(1, 2)?
+            .contiguous()?;
+        let v = v
+            .reshape((batch_size, seq, num_heads, d_head))?
+            .transpose(1, 2)?
+            .contiguous()?;
 
         // Batched attention scores: [batch, num_heads, seq, seq]
         let scores = (q.matmul(&k.transpose(2, 3)?.contiguous()?)? * scale)?;
@@ -134,7 +143,10 @@ impl AttentionBlock {
         let result = attn_weights.matmul(&v)?;
 
         // Transpose and merge heads: [batch, seq, emb]
-        let result = result.transpose(1, 2)?.contiguous()?.reshape((batch_size, seq, emb))?;
+        let result = result
+            .transpose(1, 2)?
+            .contiguous()?
+            .reshape((batch_size, seq, emb))?;
 
         // Output projection: [batch, seq, emb]
         let result = self.out_linear.forward(&result)?;
