@@ -2,7 +2,7 @@ use rand::distributions::{Alphanumeric, WeightedIndex};
 use rand::prelude::Distribution;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::{fs, io::Error, io::Read as IoRead};
+use std::{fs, io::Error};
 
 use crate::grad_accum::AccumAdamW;
 use crate::layer_norm::LayerNorm;
@@ -25,7 +25,6 @@ const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
 const FFN_HIDDEN: usize = 256;
 const NUM_BLOCKS: usize = 2;
-pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "smoll-generated-corpus/level_4/corpus.corpus";
 pub const LR: f64 = 0.01;
 const WARMUP_BATCHES: usize = 600;
@@ -286,45 +285,6 @@ impl Model {
         Ok(self.id_to_token(token_id).to_string())
     }
 
-    pub fn gen_training_data(
-        &self,
-        tokens_chain: Vec<String>,
-        device: &Device,
-    ) -> Result<(Tensor, Tensor), candle_core::Error> {
-        let mut inputs: Vec<Vec<u32>> = Vec::new();
-        let mut targets: Vec<u32> = Vec::new();
-        let pad_id = self.token_to_id(" ");
-
-        for index in 1..tokens_chain.len() {
-            let target_id = self.token_to_id(&tokens_chain[index]);
-
-            let input_ids: Vec<u32> = if index < CONTEXT_WINDOW {
-                let mut padded = vec![pad_id; CONTEXT_WINDOW - index];
-                for t in &tokens_chain[0..index] {
-                    padded.push(self.token_to_id(t));
-                }
-                padded
-            } else {
-                tokens_chain[index - CONTEXT_WINDOW..index]
-                    .iter()
-                    .map(|t| self.token_to_id(t))
-                    .collect()
-            };
-
-            inputs.push(input_ids);
-            targets.push(target_id);
-        }
-
-        let inputs: Vec<Tensor> = inputs
-            .iter()
-            .map(|ids| Tensor::new(ids.as_slice(), device).unwrap())
-            .collect();
-        let inputs = Tensor::stack(&inputs, 0)?;
-        let targets = Tensor::new(targets.as_slice(), device)?;
-
-        return Ok((inputs, targets));
-    }
-
     pub fn crash_dump(&self, inputs: Tensor, targets: Tensor) -> Result<(), candle_core::Error> {
         self.save_to_path("data/model");
         self.print_stats()?;
@@ -392,12 +352,11 @@ impl Model {
 
         let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), base_lr)?;
 
-        // Pre-generate all (input, target) pairs from the full corpus. Each sample is a
-        // self-contained context window, so shuffling them across epochs is safe — it doesn't
-        // break ordering within any article.
-        let (all_inputs, all_targets) = self.gen_training_data(tokens_chain, &Device::Cpu)?;
-        let num_samples = all_inputs.dim(0)?;
-        let _num_batches = (num_samples + MICRO_BATCH_SIZE - 1) / MICRO_BATCH_SIZE;
+        // Convert tokens to IDs once; generate batches on-the-fly to avoid storing
+        // the full [num_samples, CONTEXT_WINDOW] tensor in RAM.
+        let pad_id = self.token_to_id(" ");
+        let token_ids: Vec<u32> = tokens_chain.iter().map(|t| self.token_to_id(t)).collect();
+        let num_samples = token_ids.len().saturating_sub(1);
 
         let mut rng = rand::thread_rng();
         let mut global_step: usize = 0;
@@ -418,6 +377,24 @@ impl Model {
                 let batch_end = (batch_start + TOKEN_BATCH_SIZE).min(num_samples);
                 let batch_indices = &indices[batch_start..batch_end];
 
+                // Build inputs/targets on-the-fly from token_ids
+                let mut flat_inputs: Vec<u32> =
+                    Vec::with_capacity(batch_indices.len() * CONTEXT_WINDOW);
+                let mut flat_targets: Vec<u32> = Vec::with_capacity(batch_indices.len());
+                for &idx in batch_indices {
+                    let target = token_ids[idx + 1];
+                    let start = idx.saturating_sub(CONTEXT_WINDOW - 1);
+                    let window = &token_ids[start..=idx];
+                    let pad_len = CONTEXT_WINDOW - window.len();
+                    flat_inputs.extend(std::iter::repeat(pad_id).take(pad_len));
+                    flat_inputs.extend_from_slice(window);
+                    flat_targets.push(target);
+                }
+                let batch_size = batch_indices.len();
+                let all_inputs =
+                    Tensor::from_vec(flat_inputs, (batch_size, CONTEXT_WINDOW), &Device::Cpu)?;
+                let all_targets = Tensor::from_vec(flat_targets, batch_size, &Device::Cpu)?;
+
                 // Linear warmup then cosine decay
                 let lr = if global_step < WARMUP_BATCHES {
                     base_lr * ((global_step + 1) as f64 / WARMUP_BATCHES as f64)
@@ -433,11 +410,8 @@ impl Model {
 
                 loop {
                     let result: Result<(), CandleError> = (|| {
-                        // Gather batch on CPU then move to GPU to avoid storing the full dataset on GPU
-                        let idx: Vec<u32> = batch_indices.iter().map(|&i| i as u32).collect();
-                        let idx_cpu = Tensor::new(idx.as_slice(), &Device::Cpu)?;
-                        let inputs = all_inputs.index_select(&idx_cpu, 0)?.to_device(device)?;
-                        let targets = all_targets.index_select(&idx_cpu, 0)?.to_device(device)?;
+                        let inputs = all_inputs.to_device(device)?;
+                        let targets = all_targets.to_device(device)?;
 
                         // Split into micro-batches for gradient accumulation
                         let num_samples = inputs.dim(0)?;
@@ -710,19 +684,9 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
     }
 }
 
-fn read_n_chars(file_path: &str, n: u64) -> Result<String, std::io::Error> {
-    let file = fs::File::open(file_path)?;
-    let mut content = String::new();
-    let mut handle = file.take(n);
-    handle.read_to_string(&mut content)?;
-    Ok(content)
-}
-
 pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candle_core::Error> {
-    let char_count = CHARS_TO_TRAIN_ON as u64;
-
-    println!("Reading {} chars from file: {}", char_count, file_path);
-    let content = read_n_chars(file_path, char_count)?;
+    println!("Reading file: {}", file_path);
+    let content = fs::read_to_string(file_path)?;
     println!("Read {} chars", content.len());
     let tokens: Vec<String> = tokenize(&content).to_vec();
     let dict = tokens_to_dict(tokens.clone());
