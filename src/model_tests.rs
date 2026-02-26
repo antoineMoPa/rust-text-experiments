@@ -175,8 +175,8 @@ fn compute_self_test_scores(
     device: &candle_core::Device,
 ) -> Result<(f32, f32), Box<dyn std::error::Error>> {
     let level_file_paths = vec![
-        "common-corpus/level_2/corpus.txt",
-        "common-corpus/level_3/corpus.txt",
+        "smoll-generated-corpus/level_2/corpus.txt",
+        "smoll-generated-corpus/level_3/corpus.txt",
     ];
 
     let mut scores: Vec<f32> = Vec::new();
@@ -246,7 +246,7 @@ fn compute_qa_test_score(
     model: &Model,
     device: &candle_core::Device,
 ) -> Result<f32, Box<dyn std::error::Error>> {
-    let file_path = "common-corpus/level_3/qa.txt";
+    let file_path = "smoll-generated-corpus/level_3/qa.txt";
     let mut file = fs::File::open(file_path)?;
     let mut content: String = String::new();
     file.read_to_string(&mut content)?;

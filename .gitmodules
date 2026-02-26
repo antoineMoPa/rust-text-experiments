@@ -1,3 +1,3 @@
-[submodule "common-corpus"]
-	path = common-corpus
-	url = git@github.com:antoineMoPa/common-corpus.git
+[submodule "smoll-generated-corpus"]
+	path = smoll-generated-corpus
+	url = git@github.com:antoineMoPa/smoll-generated-corpus.git
