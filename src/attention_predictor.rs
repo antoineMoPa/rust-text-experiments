@@ -29,7 +29,7 @@ pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
 pub const LR: f64 = 0.01;
 const WARMUP_BATCHES: usize = 600;
-const EPOCHS: u32 = 20;
+const EPOCHS: u32 = 6;
 const TOKEN_BATCH_SIZE: usize = 256;
 const MICRO_BATCH_SIZE: usize = 256;
 
