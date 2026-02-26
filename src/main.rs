@@ -181,6 +181,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, self_test, qa_test, test_all, print_results, sweep-lr");
+    if command == "sweep-corpus" {
+        let (dict, _) = get_pretrained_dict(FILE_PATH)?;
+
+        let mut file = fs::File::open(FILE_PATH)?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        let tokens = tokenize(&content);
+
+        // 10 evenly-spaced rates: 100%, 90%, ..., 10%
+        let rates: Vec<f64> = (1..=10).rev().map(|i| i as f64 * 0.1).collect();
+
+        for rate in rates {
+            let n = ((tokens.len() as f64) * rate).round() as usize;
+            let subset = tokens[..n].to_vec();
+            println!("=== sweep-corpus: rate={:.0}% tokens={} ===", rate * 100.0, n);
+            let mut model = create_model(&dict, &device)?;
+            model.simple_train(subset, &device, LR)?;
+
+            match per_epoch_scores(&model, &device) {
+                Ok((l2, l3, qa)) => {
+                    let entry = serde_json::json!({
+                        "Corpus_Rate": rate,
+                        "Num_Tokens": n,
+                        "Self_Test_Score_L2": l2,
+                        "Self_Test_Score_L3": l3,
+                        "QA_Test_Score": qa,
+                    });
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("corpus_sweep.log")
+                    {
+                        use std::io::Write as W;
+                        let _ = writeln!(f, "{}", serde_json::to_string(&entry).unwrap());
+                    }
+                    println!(
+                        "sweep result: rate={:.0}% tokens={} L2={:.3} L3={:.3} QA={:.3}",
+                        rate * 100.0, n, l2, l3, qa
+                    );
+                }
+                Err(e) => eprintln!("sweep score failed for rate={:.0}%: {}", rate * 100.0, e),
+            }
+        }
+
+        return Ok(());
+    }
+
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, self_test, qa_test, test_all, print_results, sweep-lr, sweep-corpus");
     Ok(())
 }
