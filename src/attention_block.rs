@@ -2,16 +2,18 @@ use candle_core::Tensor;
 use candle_nn::{self as nn, Module};
 use nn::VarBuilder;
 
+use crate::layer_norm::LayerNorm;
+
 pub struct AttentionBlock {
-    pub qs: Vec<nn::Linear>,
-    pub ks: Vec<nn::Linear>,
-    pub vs: Vec<nn::Linear>,
+    pub qkv_proj: nn::Linear,
     pub out_linear: nn::Linear,
     pub ffn_in: nn::Linear,
     pub ffn_out: nn::Linear,
     pub config: AttentionBlockConfig,
     causal_mask: Tensor,
     pos_enc: Tensor,
+    norm1: LayerNorm,
+    norm2: LayerNorm,
 }
 
 pub struct AttentionBlockConfig {
@@ -24,32 +26,13 @@ pub struct AttentionBlockConfig {
 
 impl AttentionBlock {
     pub fn new(config: AttentionBlockConfig, vb: VarBuilder) -> Result<Self, candle_core::Error> {
-        let mut qs: Vec<nn::Linear> = Vec::new();
-        let mut ks: Vec<nn::Linear> = Vec::new();
-        let mut vs: Vec<nn::Linear> = Vec::new();
-
-        let d_head = config.embedding_size / config.num_attention_heads;
-
-        for i in 0..config.num_attention_heads {
-            qs.push(nn::linear_b(
-                d_head,
-                d_head,
-                true,
-                vb.pp(&format!("q{}", i)),
-            )?);
-            ks.push(nn::linear_b(
-                d_head,
-                d_head,
-                true,
-                vb.pp(&format!("k{}", i)),
-            )?);
-            vs.push(nn::linear_b(
-                d_head,
-                d_head,
-                true,
-                vb.pp(&format!("v{}", i)),
-            )?);
-        }
+        // Fused QKV: one projection embedding_size -> 3 * embedding_size
+        let qkv_proj = nn::linear_b(
+            config.embedding_size,
+            3 * config.embedding_size,
+            true,
+            vb.pp("qkv_proj"),
+        )?;
 
         let out_linear = nn::linear_b(
             config.embedding_size,
@@ -89,45 +72,20 @@ impl AttentionBlock {
         }
         let pos_enc = Tensor::from_slice(&pe_data, (1, seq_len, config.embedding_size), device)?;
 
+        let norm1 = LayerNorm::new(config.embedding_size, 1e-5, vb.pp("norm1"))?;
+        let norm2 = LayerNorm::new(config.embedding_size, 1e-5, vb.pp("norm2"))?;
+
         Ok(Self {
-            qs,
-            ks,
-            vs,
+            qkv_proj,
             out_linear,
             ffn_in,
             ffn_out,
             config,
             causal_mask,
             pos_enc,
+            norm1,
+            norm2,
         })
-    }
-
-    fn scaled_dot_product_attention(
-        &self,
-        q: &Tensor,
-        k: &Tensor,
-        v: &Tensor,
-    ) -> Result<Tensor, candle_core::Error> {
-        // q, k, v: [batch, seq_len, d_head]
-        let d_head = self.config.embedding_size / self.config.num_attention_heads;
-        let scale = 1.0 / (d_head as f64).sqrt();
-
-        // K^T: [batch, seq_len, d_head] -> [batch, d_head, seq_len]
-        let k_t = k.transpose(1, 2)?.contiguous()?;
-
-        // Q @ K^T: [batch, seq_len, seq_len]
-        let scores = q.matmul(&k_t)?;
-        let scores = (scores * scale)?;
-
-        // [batch, seq_len, seq_len] + [seq_len, seq_len] (broadcast over batch)
-        let scores = scores.broadcast_add(&self.causal_mask)?;
-
-        let attn_weights = nn::ops::softmax(&scores, candle_core::D::Minus1)?;
-
-        // [batch, seq_len, seq_len] @ [batch, seq_len, d_head] = [batch, seq_len, d_head]
-        let result = attn_weights.matmul(&v)?;
-
-        Ok(result)
     }
 
     pub fn position_encoding(&self) -> &Tensor {
@@ -136,13 +94,14 @@ impl AttentionBlock {
 
     pub fn forward(&self, input: &Tensor, train: bool) -> Result<Tensor, candle_core::Error> {
         let batch_size = input.dim(0)?;
+        let num_heads = self.config.num_attention_heads;
+        let emb = self.config.embedding_size;
+        let seq = self.config.context_window;
+        let d_head = emb / num_heads;
+        let scale = 1.0 / (d_head as f64).sqrt();
 
-        // Reshape [batch, context_window * embedding_size] -> [batch, context_window, embedding_size]
-        let input = input.reshape((
-            batch_size,
-            self.config.context_window,
-            self.config.embedding_size,
-        ))?;
+        // Reshape [batch, seq*emb] -> [batch, seq, emb]
+        let input = input.reshape((batch_size, seq, emb))?;
 
         let input = if train {
             nn::ops::dropout(&input, 0.1)?
@@ -150,45 +109,59 @@ impl AttentionBlock {
             input
         };
 
-        let d_head = self.config.embedding_size / self.config.num_attention_heads;
-        let mut results: Vec<Tensor> = Vec::new();
+        // Pre-norm before attention
+        let normed = self.norm1.forward(&input)?;
 
-        for i in 0..self.config.num_attention_heads {
-            // Extract this head's slice: [batch, seq_len, d_head]
-            let start = i * d_head;
-            let portions = input.narrow(2, start, d_head)?.contiguous()?;
+        // Fused QKV projection: [batch, seq, 3*emb]
+        let qkv = self.qkv_proj.forward(&normed)?;
 
-            // Q/K/V projections: [batch, seq_len, d_head]
-            let q = portions.apply(&self.qs[i])?;
-            let k = portions.apply(&self.ks[i])?;
-            let v = portions.apply(&self.vs[i])?;
+        // Split into Q, K, V: each [batch, seq, emb]
+        let q = qkv.narrow(2, 0, emb)?;
+        let k = qkv.narrow(2, emb, emb)?;
+        let v = qkv.narrow(2, emb * 2, emb)?;
 
-            // Causal attention: [batch, seq_len, d_head]
-            let result = self.scaled_dot_product_attention(&q, &k, &v)?;
-            results.push(result);
-        }
+        // Reshape and transpose to [batch, num_heads, seq, d_head]
+        let q = q
+            .reshape((batch_size, seq, num_heads, d_head))?
+            .transpose(1, 2)?
+            .contiguous()?;
+        let k = k
+            .reshape((batch_size, seq, num_heads, d_head))?
+            .transpose(1, 2)?
+            .contiguous()?;
+        let v = v
+            .reshape((batch_size, seq, num_heads, d_head))?
+            .transpose(1, 2)?
+            .contiguous()?;
 
-        // Concat heads: [batch, seq_len, embedding_size]
-        let result = Tensor::cat(&results, 2)?;
+        // Batched attention scores: [batch, num_heads, seq, seq]
+        let scores = (q.matmul(&k.transpose(2, 3)?.contiguous()?)? * scale)?;
+        let scores = scores.broadcast_add(&self.causal_mask)?;
+        let attn_weights = nn::ops::softmax(&scores, candle_core::D::Minus1)?;
 
-        // Output projection per token: [batch, seq_len, embedding_size]
+        // Weighted sum: [batch, num_heads, seq, d_head]
+        let result = attn_weights.matmul(&v)?;
+
+        // Transpose and merge heads: [batch, seq, emb]
+        let result = result
+            .transpose(1, 2)?
+            .contiguous()?
+            .reshape((batch_size, seq, emb))?;
+
+        // Output projection: [batch, seq, emb]
         let result = self.out_linear.forward(&result)?;
 
-        // Residual connection (still in [batch, seq, emb])
-        let result = (result
-            + input.reshape((
-                batch_size,
-                self.config.context_window,
-                self.config.embedding_size,
-            ))?)?;
+        // Residual connection
+        let result = (result + &input)?;
 
-        // Per-token FFN sublayer with residual
+        // Pre-norm before FFN
         let ffn_residual = result.clone();
-        let result = self.ffn_in.forward(&result)?.gelu()?;
+        let normed2 = self.norm2.forward(&result)?;
+        let result = self.ffn_in.forward(&normed2)?.gelu()?;
         let result = self.ffn_out.forward(&result)?;
         let result = (result + ffn_residual)?;
 
-        // Flatten back: [batch, context_window * embedding_size]
+        // Flatten back: [batch, seq*emb]
         let result = result.reshape((batch_size, self.config.input_size))?;
 
         Ok(result)

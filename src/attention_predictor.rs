@@ -5,6 +5,8 @@ use rand::Rng;
 use std::{fs, io::Error, io::Read as IoRead};
 
 use crate::grad_accum::AccumAdamW;
+use crate::layer_norm::LayerNorm;
+use crate::model_tests::{per_epoch_scores, print_epoch_stats_header};
 use crate::models::RunStr;
 use crate::token_utils::STOP_TOKEN;
 use crate::{
@@ -16,8 +18,6 @@ use candle_nn::{self as nn, Module};
 use colored::Colorize;
 use nn::{VarBuilder, VarMap};
 
-use crate::layer_norm::LayerNorm;
-
 // smoll
 const EMBEDDING_SIZE: usize = 108;
 const CONTEXT_WINDOW: usize = 64;
@@ -27,9 +27,9 @@ const FFN_HIDDEN: usize = 256;
 const NUM_BLOCKS: usize = 2;
 pub const CHARS_TO_TRAIN_ON: usize = u64::pow(2, 22) as usize;
 pub const FILE_PATH: &str = "common-corpus/level_4/corpus.corpus";
-const LR: f64 = 1.0e-3;
+pub const LR: f64 = 0.01;
 const WARMUP_BATCHES: usize = 600;
-const EPOCHS: u32 = 12;
+const EPOCHS: u32 = 20;
 const TOKEN_BATCH_SIZE: usize = 256;
 const MICRO_BATCH_SIZE: usize = 256;
 
@@ -37,8 +37,10 @@ const NOT_FOUND: &str = "<notfound>";
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
-    norm: LayerNorm,
     pub embedding: nn::Embedding,
+    pre_proj_norm: LayerNorm,
+    pre_proj_in: nn::Linear,
+    pre_proj_out: nn::Linear,
     pub var_map: VarMap,
     pub dict: Dict,
     pub token_index: DictIndex,
@@ -108,7 +110,9 @@ impl Model {
         }
 
         let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
-        let norm = LayerNorm::new(EMBEDDING_SIZE, 1e-5, vb.pp("norm"))?;
+        let pre_proj_norm = LayerNorm::new(EMBEDDING_SIZE, 1e-5, vb.pp("pre_proj_norm"))?;
+        let pre_proj_in = nn::linear_b(EMBEDDING_SIZE, FFN_HIDDEN, true, vb.pp("pre_proj_in"))?;
+        let pre_proj_out = nn::linear_b(FFN_HIDDEN, EMBEDDING_SIZE, true, vb.pp("pre_proj_out"))?;
 
         println!(
             "Vocab, Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR, Batch Size"
@@ -134,8 +138,10 @@ impl Model {
             .collect();
 
         Ok(Self {
-            norm,
             embedding,
+            pre_proj_norm,
+            pre_proj_in,
+            pre_proj_out,
             blocks,
             var_map,
             dict,
@@ -163,15 +169,18 @@ impl Model {
             result = block.forward(&result, train)?;
         }
 
-        // Normalize per-token: [batch, seq, embedding]
-        let result = result.reshape((batch_size, CONTEXT_WINDOW, EMBEDDING_SIZE))?;
-        let result = self.norm.forward(&result)?;
-
         // Take last token's representation: [batch, emb]
+        let result = result.reshape((batch_size, CONTEXT_WINDOW, EMBEDDING_SIZE))?;
         let result = result
             .narrow(1, CONTEXT_WINDOW - 1, 1)?
             .squeeze(1)?
             .contiguous()?;
+
+        // Intermediate projection to decouple reasoning space from embedding space
+        let pre_proj_residual = result.clone();
+        let result = self.pre_proj_norm.forward(&result)?;
+        let result = self.pre_proj_in.forward(&result)?.gelu()?;
+        let result = (self.pre_proj_out.forward(&result)? + pre_proj_residual)?;
 
         // Weight-tied output projection: [batch, emb] @ [emb, vocab] -> [batch, vocab]
         let result = result.matmul(&self.embedding.embeddings().t()?)?;
@@ -346,20 +355,30 @@ impl Model {
         &mut self,
         tokens_chain: Vec<String>,
         device: &Device,
+        base_lr: f64,
     ) -> Result<(), candle_core::Error> {
         let start_time = std::time::Instant::now();
         let epochs: u32 = EPOCHS;
 
-        let corpus_level_pre = FILE_PATH
+        let corpus_level = FILE_PATH
             .split('/')
             .find_map(|s| s.strip_prefix("level_").and_then(|n| n.parse::<u32>().ok()))
             .unwrap_or(0);
+
+        let git_hash = std::process::Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+
+        print_epoch_stats_header();
+
         println!(
             "Corpus_Level\tDict_Size\tEmbedding_Size\tContext_Window\tEpochs\tHidden_Size\tNum_blocks\tNum_att_heads\tLR\tBatch_Size"
         );
         println!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            corpus_level_pre,
+            corpus_level,
             self.dict.len(),
             EMBEDDING_SIZE,
             CONTEXT_WINDOW,
@@ -367,11 +386,11 @@ impl Model {
             FFN_HIDDEN,
             NUM_BLOCKS,
             NUM_ATTENTION_HEADS,
-            LR,
+            base_lr,
             TOKEN_BATCH_SIZE
         );
 
-        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), LR)?;
+        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), base_lr)?;
 
         // Pre-generate all (input, target) pairs from the full corpus. Each sample is a
         // self-contained context window, so shuffling them across epochs is safe — it doesn't
@@ -384,10 +403,11 @@ impl Model {
         let mut global_step: usize = 0;
         let batch_count = (num_samples + TOKEN_BATCH_SIZE - 1) / TOKEN_BATCH_SIZE;
         let total_steps = epochs as usize * batch_count;
-        let lr_min = LR * 0.1;
+        let lr_min = base_lr * 0.1;
 
         for epoch in 0..epochs {
             let mut loss_stat: f32 = 1.0;
+            let mut last_lr = base_lr;
 
             // Shuffle sample indices each epoch so batches draw from across the corpus
             let mut indices: Vec<usize> = (0..num_samples).collect();
@@ -400,13 +420,15 @@ impl Model {
 
                 // Linear warmup then cosine decay
                 let lr = if global_step < WARMUP_BATCHES {
-                    LR * ((global_step + 1) as f64 / WARMUP_BATCHES as f64)
+                    base_lr * ((global_step + 1) as f64 / WARMUP_BATCHES as f64)
                 } else {
                     let decay_steps = (total_steps - WARMUP_BATCHES).max(1);
                     let progress = (global_step - WARMUP_BATCHES) as f64 / decay_steps as f64;
-                    lr_min + 0.5 * (LR - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
+                    lr_min
+                        + 0.5 * (base_lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
                 };
                 optimizer.set_learning_rate(lr);
+                last_lr = lr;
                 global_step += 1;
 
                 loop {
@@ -494,6 +516,56 @@ impl Model {
 
             self.save_to_path("data/model");
             println!("Saved model checkpoint.");
+
+            let elapsed = start_time.elapsed();
+            let h = elapsed.as_secs() / 3600;
+            let m = (elapsed.as_secs() % 3600) / 60;
+            let s = elapsed.as_secs() % 60;
+            let time_str = format!("{}:{:02}:{:02}", h, m, s);
+
+            let date = std::process::Command::new("date")
+                .arg("+%d/%m/%Y")
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default();
+
+            match per_epoch_scores(self, device) {
+                Ok((score_l2, score_l3, score_qa)) => {
+                    let entry = serde_json::json!({
+                        "Epoch": epoch,
+                        "Model_ID": self.model_id,
+                        "Corpus_Level": corpus_level,
+                        "Dict_Size": self.dict.len(),
+                        "Embedding_Size": EMBEDDING_SIZE,
+                        "Context_Window": CONTEXT_WINDOW,
+                        "Epochs": epochs,
+                        "Hidden_Size": FFN_HIDDEN,
+                        "Num_blocks": NUM_BLOCKS,
+                        "Num_att_heads": NUM_ATTENTION_HEADS,
+                        "LR": last_lr,
+                        "Batch_Size": TOKEN_BATCH_SIZE,
+                        "State_of_the_code": git_hash,
+                        "Time_to_train": time_str,
+                        "Self_Test_Score_L2": score_l2,
+                        "Self_Test_Score_L3": score_l3,
+                        "QA_Test_Score": score_qa,
+                        "Date": date,
+                    });
+                    if let Ok(mut file) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("per_epoch_stats.log")
+                    {
+                        use std::io::Write as IoWrite3;
+                        let _ = writeln!(file, "{}", serde_json::to_string(&entry).unwrap());
+                    }
+                    println!(
+                        "Epoch {} scores: L2={:.3} L3={:.3} QA={:.3} LR={:.2e}",
+                        epoch, score_l2, score_l3, score_qa, last_lr
+                    );
+                }
+                Err(e) => eprintln!("Epoch {} test failed: {}", epoch, e),
+            }
         }
 
         let elapsed = start_time.elapsed();
@@ -508,17 +580,6 @@ impl Model {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_default();
 
-        let git_hash = std::process::Command::new("git")
-            .args(["rev-parse", "--short", "HEAD"])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_default();
-
-        let corpus_level = FILE_PATH
-            .split('/')
-            .find_map(|s| s.strip_prefix("level_").and_then(|n| n.parse::<u32>().ok()))
-            .unwrap_or(0);
-
         let entry = serde_json::json!({
             "Model_ID": self.model_id,
             "Corpus_Level": corpus_level,
@@ -529,7 +590,7 @@ impl Model {
             "Hidden_Size": FFN_HIDDEN,
             "Num_blocks": NUM_BLOCKS,
             "Num_att_heads": NUM_ATTENTION_HEADS,
-            "LR": LR,
+            "LR": base_lr,
             "Batch_Size": TOKEN_BATCH_SIZE,
             "State_of_the_code": git_hash,
             "Time_to_train": time_str,

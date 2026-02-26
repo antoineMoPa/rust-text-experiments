@@ -34,38 +34,28 @@ cargo run --release run The cat sat on
 ## Sample output
 
 ```
-cargo run --release run "Last year, "
+cargo run --release run "Last year, " | head -n 20
     Finished `release` profile [optimized] target(s) in 0.08s
      Running `target/release/rust-text-experiments run 'Last year, '`
 Loading model
 Vocab, Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR, Batch Size
-18652, 108, 64, 32, 512, 2, 12, 0.001, 256
+18508, 108, 64, 20, 256, 2, 12, 0.01, 256
 Completing: '"Last year,  "'
-a story of animals where the smallest life had to warn us.
+she heard one of the world was a part of the way she had never been written to the words. "This was not a kind of something that had been a stranger. It had a choice, not just a place that he had never been, but to be a memory that had never been before. But he had been a memory of the people, who had been the first time, not a relic of a one, as he had been a memory that been a part of the memory of the town.
 
-The story begins around 265 million, the next time. Think of it as a single, small, and the ocean has a few one of the first one of a time, the plant is the way the world in one evening. The air was thick with the soil of the air, the air changed with the scent of water from the water below. It was a single body, like a tiny propeller, and its babies in a fish, and it’s not just much like the food web of wood or a car.
+He thought about the way he’s own life, he noticed the way he had been waiting, the way he had never never seen.
 
-The next few fruit grows down far away, and then it might be a new way to help look back to the same time as it contributes. It is the kind of more "food" because they need to find new things, even if it might be a little one in a day. The trees are the best way, but they can’t see them as they come. It’s like how it doesn’t eat, or even stay in a forest in a desert.
+The memory of him, a place he had been a memory of it was a memory. And he had been a memory of his own—it felt like a memory—he told a memory of the town—he had never been a stranger.”
 
----
+He stood up, his mind racing with the possibilities of his own own memory—it was a part of him. The way he had been his own idea that he could be a stranger.
 
-**Step 6: The Ocean Blocks of 1910s. The Big Picture a flower of the same creature on the flower, and the flower of a bee’s garden with one one. The first year, a creature with a flower, and it’s not all living things that have to visit the male flowers that are the male part of the ocean’s most fascinating group of animals on Earth.
+He thought about the people to understand the world in the memory. It was a good man named Elias, who noticed a memory—he had been written. His breath like his breath, waiting for him. He was here in his life.”
 
-6. **Food Chains**: Many animals grow on the ocean. They’re not just the energy they’re not just about the energy—the process they make a difference.
+Elias, his mind racing. *"They have said, his voice steady with a mix of pain and determination. “I love,” she said, his voice a mix of pain and hope. “I love you know.”*
 
----
+Elias smiled as she walked to her phone. “I love. They can’t keep this. The weight of her own friends and the world in her hands, and the way to be a little weight of it.
 
-**The Sun’s Energy fixation**
-
-To understand flowers, let’s make a simple part of the Earth’s surface. The Calvin cycle is the process by which the Calvin cycle (the Calvin cycle) is the primary consumers, which can be engineered to be eaten by plants.
-
-4. **Climate change**: A temperate plant is the growth and nutrients that can thrive in the ocean. For instance, the Arctic tundra’s magnetic field for the "salmon" and deer" (the anemone century) is another layer of photosynthesis is transferred to the next generation. Think of it like the tiny whales or the original photosynthesis—it is called the ) of the largest animal world in the world. The clownfish convert a byproduct of the first major reactions into three main molecules. The energy is released with the Calvin cycle (around 255 ago), a process that split energy in the atmosphere and eventually split into the Calvin cycle. Without photosynthesis, the energy flows through food chains, and the energy would be more energy would eventually would become more efficiently, though the energy would be impossible.
-
-The next time, the energy, emerged with the rise of the tree. Some, like the **tree spider (the algae) might form the tree in the water teeming with an ecosystem.
-2. **Carbon Sequestration:** These are the light "food, though it’s not all species can survive. For example can be damp or wide, the "salmon" (which means-stop) to stay safe, which can be eaten by a species or an ecosystem could not produce water or an organism. But in the forest is that of it can be a single species called the **forest (the fungus might), it can survive in the soil or water can survive in the wild.
-
-2. **Biodiversity**: These are small and small animals that help species get energy in the water. They’re like tiny, gilled (like a caterpillar), a fish farm with a gas that starts leaves!) can be eaten by other fish, while a small tree’s head eating the tree’s surface.
-[...]
+The summer morning of her own life on a small bench, his mind racing. He had tried to be a small memory. It was a single accident—one of the first time. But he knew, it was not as he was holding its own, his mind racing and the memory.
 ```
 
 
