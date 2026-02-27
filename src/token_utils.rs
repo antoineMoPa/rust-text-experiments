@@ -83,7 +83,7 @@ pub fn tokenize(input: &str) -> Vec<String> {
             for sys_token in SYSTEM_TOKENS.iter() {
                 if potential_sys_token.starts_with(sys_token) {
                     if token.len() > 0 {
-                        tokens.push(token.clone());
+                        push_word_tokens(&mut tokens, &token);
                         token.clear();
                     }
 
@@ -101,7 +101,7 @@ pub fn tokenize(input: &str) -> Vec<String> {
         // Split on any non-alphabetic character (punctuation, digits, spaces, dashes, quotes, etc.)
         if !c.is_alphabetic() {
             if token.len() > 0 {
-                tokens.push(token.clone());
+                push_word_tokens(&mut tokens, &token);
                 token.clear();
             }
             tokens.push(c.to_string());
@@ -111,7 +111,7 @@ pub fn tokenize(input: &str) -> Vec<String> {
     }
 
     if token.len() > 0 {
-        tokens.push(token.clone());
+        push_word_tokens(&mut tokens, &token);
     }
 
     return tokens;
@@ -131,6 +131,20 @@ pub fn tokens_to_dict(vocabulary: Vec<String>) -> Dict {
 pub const MAX_SYS_TOKEN_LEN: usize = 10;
 pub const STOP_TOKEN: &str = "<stop>";
 pub const SYSTEM_TOKENS: [&str; 1] = [STOP_TOKEN];
+
+/// Maximum length of a single alphabetic token. Words longer than this are
+/// split into fixed-size chunks, capping vocabulary growth from rare long words.
+pub const MAX_WORD_TOKEN_LEN: usize = 5;
+
+fn push_word_tokens(tokens: &mut Vec<String>, word: &str) {
+    let chars: Vec<char> = word.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let end = (i + MAX_WORD_TOKEN_LEN).min(chars.len());
+        tokens.push(chars[i..end].iter().collect());
+        i += MAX_WORD_TOKEN_LEN;
+    }
+}
 
 #[cfg(test)]
 mod tests {

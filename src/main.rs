@@ -32,6 +32,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if command == "param_count" {
+        let (dict, _) = get_pretrained_dict(FILE_PATH)?;
+        let model = create_model(&dict, &device)?;
+        println!("\nParameter count (vocab_size={}):", dict.len());
+        model.count_params();
+        return Ok(());
+    }
+
     if command == "train" {
         println!("Training new model");
 
@@ -228,6 +236,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, self_test, qa_test, test_all, print_results, sweep-lr, sweep-corpus");
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, self_test, qa_test, test_all, print_results, sweep-lr, sweep-corpus");
     Ok(())
 }

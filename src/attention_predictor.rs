@@ -23,7 +23,7 @@ const EMBEDDING_SIZE: usize = 108;
 const CONTEXT_WINDOW: usize = 64;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 12;
-const FFN_HIDDEN: usize = 256;
+const FFN_HIDDEN: usize = 512;
 const NUM_BLOCKS: usize = 2;
 pub const FILE_PATH: &str = "smoll-generated-corpus/level_4/corpus.corpus";
 pub const LR: f64 = 0.01;
@@ -581,6 +581,25 @@ impl Model {
         }
 
         Ok(())
+    }
+
+    pub fn count_params(&self) -> usize {
+        let data = self.var_map.data().lock().unwrap();
+        let mut total = 0usize;
+        let mut entries: Vec<(&String, usize)> = data
+            .iter()
+            .map(|(name, var)| (name, var.elem_count()))
+            .collect();
+        entries.sort_by_key(|(name, _)| name.as_str());
+        for (name, count) in &entries {
+            println!("  {:60} {:>10} params", name, count);
+            total += count;
+        }
+        let embedding_params = self.dict.len() * EMBEDDING_SIZE;
+        println!("  {:60} {:>10} params  (weight-tied, counted above)", "embedding (output projection)", embedding_params);
+        println!("  {:60} {:>10}", "TOTAL", total);
+        println!("  {:60} {:>10}  (excl. embedding)", "TOTAL non-embedding", total - embedding_params);
+        total
     }
 
     pub fn print_stats(&self) -> Result<(), candle_core::Error> {
