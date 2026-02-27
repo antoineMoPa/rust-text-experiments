@@ -718,6 +718,7 @@ pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>, Bpe), 
     println!("Read {} chars", content.len());
 
     let bpe = Bpe::learn(&content, NUM_BPE_MERGES);
+    bpe.save("data/model.bpe").unwrap_or_else(|e| eprintln!("Warning: could not save BPE: {}", e));
 
     let tokens: Vec<String> = bpe.tokenize(&content);
     println!("Dict size (before extras): {}", tokens_to_dict(tokens.clone()).len());

@@ -78,11 +78,15 @@ pub const NUM_BPE_MERGES: usize = 4000;
 #[derive(Clone)]
 pub struct Bpe {
     pub merges: Vec<(String, String)>,
+    /// Cache of word → BPE tokens built during learn(). Populated from the
+    /// final vocab state so tokenizing the training corpus is a hash lookup
+    /// instead of re-applying all 4000 merges per word.
+    word_cache: HashMap<String, Vec<String>>,
 }
 
 impl Bpe {
     pub fn new_empty() -> Self {
-        Self { merges: vec![] }
+        Self { merges: vec![], word_cache: HashMap::new() }
     }
 
     /// Learn BPE merge rules from a corpus string.
@@ -97,10 +101,13 @@ impl Bpe {
             }
         }
 
-        // Represent each word as a sequence of single chars.
-        let mut vocab: Vec<(Vec<String>, usize)> = word_freq
+        // Represent each word as (original_word, current_segmentation, freq).
+        let mut vocab: Vec<(String, Vec<String>, usize)> = word_freq
             .into_iter()
-            .map(|(word, freq)| (word.chars().map(|c| c.to_string()).collect(), freq))
+            .map(|(word, freq)| {
+                let chars = word.chars().map(|c| c.to_string()).collect();
+                (word, chars, freq)
+            })
             .collect();
 
         let mut merges: Vec<(String, String)> = Vec::with_capacity(num_merges);
@@ -108,8 +115,8 @@ impl Bpe {
         for i in 0..num_merges {
             // Count adjacent pair frequencies across all word types.
             let mut pair_freq: HashMap<(&str, &str), usize> = HashMap::new();
-            for (word, freq) in &vocab {
-                for w in word.windows(2) {
+            for (_, seg, freq) in &vocab {
+                for w in seg.windows(2) {
                     *pair_freq.entry((w[0].as_str(), w[1].as_str())).or_insert(0) += freq;
                 }
             }
@@ -125,12 +132,12 @@ impl Bpe {
 
             // Apply merge in-place across the whole vocabulary.
             let merged = best_a.clone() + &best_b;
-            for (word, _) in &mut vocab {
+            for (_, seg, _) in &mut vocab {
                 let mut j = 0;
-                while j + 1 < word.len() {
-                    if word[j] == best_a && word[j + 1] == best_b {
-                        word[j] = merged.clone();
-                        word.remove(j + 1);
+                while j + 1 < seg.len() {
+                    if seg[j] == best_a && seg[j + 1] == best_b {
+                        seg[j] = merged.clone();
+                        seg.remove(j + 1);
                     } else {
                         j += 1;
                     }
@@ -140,11 +147,22 @@ impl Bpe {
             merges.push((best_a, best_b));
         }
 
-        println!("BPE done: {} merges learned.", merges.len());
-        Self { merges }
+        // Build cache from final segmentations — O(vocab_size), avoids
+        // re-applying all merges when tokenizing the corpus.
+        let word_cache: HashMap<String, Vec<String>> = vocab
+            .into_iter()
+            .map(|(word, seg, _)| (word, seg))
+            .collect();
+
+        println!("BPE done: {} merges learned, {} words cached.", merges.len(), word_cache.len());
+        Self { merges, word_cache }
     }
 
     fn apply_to_word(&self, word: &str) -> Vec<String> {
+        if let Some(cached) = self.word_cache.get(word) {
+            return cached.clone();
+        }
+        // Fallback for words not seen during training (OOV).
         let mut parts: Vec<String> = word.chars().map(|c| c.to_string()).collect();
         for (a, b) in &self.merges {
             let merged = a.clone() + b;
@@ -219,24 +237,39 @@ impl Bpe {
     pub fn save(&self, path: &str) -> io::Result<()> {
         let mut file = fs::File::create(path)?;
         for (a, b) in &self.merges {
-            writeln!(file, "{} {}", a, b)?;
+            writeln!(file, "M {} {}", a, b)?;
+        }
+        writeln!(file, "---")?;
+        for (word, tokens) in &self.word_cache {
+            writeln!(file, "V {} {}", word, tokens.join(" "))?;
         }
         Ok(())
     }
 
     pub fn load(path: &str) -> io::Result<Self> {
         let content = fs::read_to_string(path)?;
-        let merges = content
-            .lines()
-            .filter(|l| !l.is_empty())
-            .filter_map(|l| {
-                let mut parts = l.splitn(2, ' ');
-                let a = parts.next()?.to_string();
-                let b = parts.next()?.to_string();
-                Some((a, b))
-            })
-            .collect();
-        Ok(Self { merges })
+        let mut merges = Vec::new();
+        let mut word_cache = HashMap::new();
+
+        for line in content.lines() {
+            if line == "---" || line.is_empty() {
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix("M ") {
+                let mut parts = rest.splitn(2, ' ');
+                if let (Some(a), Some(b)) = (parts.next(), parts.next()) {
+                    merges.push((a.to_string(), b.to_string()));
+                }
+            } else if let Some(rest) = line.strip_prefix("V ") {
+                let mut parts = rest.splitn(2, ' ');
+                if let (Some(word), Some(tokens_str)) = (parts.next(), parts.next()) {
+                    let tokens = tokens_str.split(' ').map(|s| s.to_string()).collect();
+                    word_cache.insert(word.to_string(), tokens);
+                }
+            }
+        }
+
+        Ok(Self { merges, word_cache })
     }
 }
 
@@ -407,6 +440,7 @@ mod tests {
                 ("h".to_string(), "e".to_string()),   // "he"
                 ("he".to_string(), "y".to_string()),   // "hey"
             ],
+            word_cache: HashMap::new(),
         };
         assert_eq!(bpe.tokenize("hey"), vec!["hey"]);
     }
