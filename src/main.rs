@@ -1,13 +1,10 @@
-use std::fs;
-use std::io::prelude::*;
-
 use attention_predictor::{create_model, get_pretrained_dict};
 use candle_core::Var;
 
 use crate::{
     attention_predictor::{get_device, Model, FILE_PATH, LR},
     model_tests::{per_epoch_scores, print_results, qa_test, self_test, test_all},
-    token_utils::{tokenize, STOP_TOKEN},
+    token_utils::STOP_TOKEN,
 };
 
 mod attention_block;
@@ -33,8 +30,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if command == "param_count" {
-        let (dict, _) = get_pretrained_dict(FILE_PATH)?;
-        let model = create_model(&dict, &device)?;
+        let (dict, _, bpe) = get_pretrained_dict(FILE_PATH)?;
+        let model = create_model(&dict, bpe, &device)?;
         println!("\nParameter count (vocab_size={}):", dict.len());
         model.count_params();
         return Ok(());
@@ -44,14 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Training new model");
 
         let device = get_device()?;
-        let (dict, _tokens) = get_pretrained_dict(FILE_PATH)?;
-        let mut model = create_model(&dict, &device)?;
-
-        let level_file_path = FILE_PATH;
-        let mut file = fs::File::open(level_file_path)?;
-        let mut content: String = String::new();
-        file.read_to_string(&mut content)?;
-        let tokens = tokenize(content.as_str());
+        let (dict, tokens, bpe) = get_pretrained_dict(FILE_PATH)?;
+        let mut model = create_model(&dict, bpe, &device)?;
 
         println!("Training on {} tokens", tokens.len());
 
@@ -141,12 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if command == "sweep-lr" {
-        let (dict, _) = get_pretrained_dict(FILE_PATH)?;
-
-        let mut file = fs::File::open(FILE_PATH)?;
-        let mut content = String::new();
-        file.read_to_string(&mut content)?;
-        let tokens = tokenize(&content);
+        let (dict, tokens, bpe) = get_pretrained_dict(FILE_PATH)?;
 
         // 12 log-spaced LRs from 3e-4 to 1e-2
         let n = 12usize;
@@ -158,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         for lr in lrs {
             println!("=== sweep-lr: LR = {:.2e} ===", lr);
-            let mut model = create_model(&dict, &device)?;
+            let mut model = create_model(&dict, bpe.clone(), &device)?;
             model.simple_train(tokens.clone(), &device, lr)?;
 
             match per_epoch_scores(&model, &device) {
@@ -190,12 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if command == "sweep-corpus" {
-        let (dict, _) = get_pretrained_dict(FILE_PATH)?;
-
-        let mut file = fs::File::open(FILE_PATH)?;
-        let mut content = String::new();
-        file.read_to_string(&mut content)?;
-        let tokens = tokenize(&content);
+        let (dict, tokens, bpe) = get_pretrained_dict(FILE_PATH)?;
 
         // 10 evenly-spaced rates: 100%, 90%, ..., 10%
         let rates: Vec<f64> = (1..=10).rev().map(|i| i as f64 * 0.1).collect();
@@ -204,7 +185,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let n = ((tokens.len() as f64) * rate).round() as usize;
             let subset = tokens[..n].to_vec();
             println!("=== sweep-corpus: rate={:.0}% tokens={} ===", rate * 100.0, n);
-            let mut model = create_model(&dict, &device)?;
+            let mut model = create_model(&dict, bpe.clone(), &device)?;
             model.simple_train(subset, &device, LR)?;
 
             match per_epoch_scores(&model, &device) {

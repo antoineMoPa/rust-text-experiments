@@ -11,7 +11,7 @@ use crate::models::RunStr;
 use crate::token_utils::STOP_TOKEN;
 use crate::{
     attention_block::{AttentionBlock, AttentionBlockConfig},
-    token_utils::{tokenize, tokens_to_dict, Dict, DictIndex, GetTokenEmbedding},
+    token_utils::{tokens_to_dict, Bpe, Dict, DictIndex, GetTokenEmbedding, NUM_BPE_MERGES},
 };
 use candle_core::{DType, Device, Error as CandleError, Tensor, D};
 use candle_nn::{self as nn, Module};
@@ -46,6 +46,7 @@ pub struct Model {
     pub index_to_token: Vec<String>,
     pub device: Device,
     pub model_id: String,
+    pub bpe: Bpe,
 }
 
 fn is_oom_error(e: &CandleError) -> bool {
@@ -60,6 +61,7 @@ const OOM_RETRY_DELAY_SECS: u64 = 30;
 impl Model {
     pub fn new(
         dict: Dict,
+        bpe: Bpe,
         var_map: VarMap,
         vb: VarBuilder,
         device: &Device,
@@ -148,6 +150,7 @@ impl Model {
             index_to_token,
             device: device.clone(),
             model_id,
+            bpe,
         })
     }
 
@@ -245,7 +248,7 @@ impl Model {
         input: &str,
         device: &Device,
     ) -> Result<String, candle_core::Error> {
-        let tokens = tokenize(&input);
+        let tokens = self.bpe.tokenize(input);
         let input_ids: Vec<u32> = tokens.iter().map(|t| self.token_to_id(t)).collect();
         self.run(&input_ids, device)
     }
@@ -255,7 +258,7 @@ impl Model {
         input: &str,
         device: &Device,
     ) -> Result<String, candle_core::Error> {
-        let tokens = tokenize(input);
+        let tokens = self.bpe.tokenize(input);
         let input_ids: Vec<u32> = tokens.iter().map(|t| self.token_to_id(t)).collect();
 
         let ids: Vec<u32> = if input_ids.len() > CONTEXT_WINDOW {
@@ -637,6 +640,9 @@ impl Model {
 
         let id_path = format!("{}.id", path);
         fs::write(id_path, &self.model_id).unwrap();
+
+        let bpe_path = format!("{}.bpe", path);
+        self.bpe.save(&bpe_path).unwrap();
     }
 
     pub fn load_from_path(path: &str, device: &Device) -> Result<Self, Error> {
@@ -645,7 +651,10 @@ impl Model {
         let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
         let dict = tokens_to_dict(dict_words);
 
-        let mut model = create_model(&dict, device).unwrap();
+        let bpe_path = format!("{}.bpe", path);
+        let bpe = Bpe::load(&bpe_path).unwrap_or_else(|_| Bpe::new_empty());
+
+        let mut model = create_model(&dict, bpe, device).unwrap();
 
         let var_map_path = format!("{}.safetensors", path);
         model.var_map.load(var_map_path.as_str()).unwrap();
@@ -662,7 +671,7 @@ impl Model {
 impl RunStr for Model {
     fn run_str(&self, input: &str, len: usize) -> Result<String, candle_core::Error> {
         let mut output = String::new();
-        let tokens = tokenize(input);
+        let tokens = self.bpe.tokenize(input);
         let mut input_ids: Vec<u32> = tokens.iter().map(|t| self.token_to_id(t)).collect();
 
         for _ in 0..len {
@@ -681,11 +690,11 @@ impl RunStr for Model {
     }
 }
 
-pub fn create_model(dict: &Dict, device: &Device) -> Result<Model, candle_core::Error> {
+pub fn create_model(dict: &Dict, bpe: Bpe, device: &Device) -> Result<Model, candle_core::Error> {
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    let model = Model::new(dict.clone(), varmap, vb, device)?;
+    let model = Model::new(dict.clone(), bpe, varmap, vb, device)?;
 
     Ok(model)
 }
@@ -703,21 +712,24 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
     }
 }
 
-pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>), candle_core::Error> {
+pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>, Bpe), candle_core::Error> {
     println!("Reading file: {}", file_path);
     let content = fs::read_to_string(file_path)?;
     println!("Read {} chars", content.len());
-    let tokens: Vec<String> = tokenize(&content).to_vec();
-    let dict = tokens_to_dict(tokens.clone());
-    println!("Dict size: {}", dict.len());
 
-    let lorem_tokens = tokenize("lorem ipsum et dolor sit amet");
-    let hello_world_tokens = tokenize("hello world");
+    let bpe = Bpe::learn(&content, NUM_BPE_MERGES);
+
+    let tokens: Vec<String> = bpe.tokenize(&content);
+    println!("Dict size (before extras): {}", tokens_to_dict(tokens.clone()).len());
+
+    let lorem_tokens = bpe.tokenize("lorem ipsum et dolor sit amet");
+    let hello_world_tokens = bpe.tokenize("hello world");
     let sys_tokens = vec![String::from(NOT_FOUND), String::from(STOP_TOKEN)];
 
     let tokens = [tokens, lorem_tokens, hello_world_tokens, sys_tokens].concat();
 
     let dict = tokens_to_dict(tokens.clone());
+    println!("Dict size: {}", dict.len());
 
-    return Ok((dict, tokens));
+    return Ok((dict, tokens, bpe));
 }
