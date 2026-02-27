@@ -234,6 +234,10 @@ impl Bpe {
         result
     }
 
+    pub fn vocab_size(&self) -> usize {
+        self.word_cache.len()
+    }
+
     pub fn save(&self, path: &str) -> io::Result<()> {
         let mut file = fs::File::create(path)?;
         for (a, b) in &self.merges {

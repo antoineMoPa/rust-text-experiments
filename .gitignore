@@ -2,6 +2,7 @@
 *.safetensors
 *.dict
 *.corpus
+*.bpe
 flamegraph.svg
 tracing*.svg
 *.folded

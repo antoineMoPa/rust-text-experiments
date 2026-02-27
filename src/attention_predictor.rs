@@ -699,6 +699,21 @@ pub fn create_model(dict: &Dict, bpe: Bpe, device: &Device) -> Result<Model, can
     Ok(model)
 }
 
+/// Load only the vocabulary and BPE rules from a saved model path,
+/// without touching the weight file. Useful when constants have changed
+/// and loading weights would cause a shape mismatch.
+pub fn load_vocab(path: &str, device: &Device) -> Result<Model, std::io::Error> {
+    let dict_path = format!("{}.dict", path);
+    let file = fs::File::open(&dict_path)?;
+    let dict_words: Vec<String> = serde_json::from_reader(file)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let dict = tokens_to_dict(dict_words);
+    let bpe_path = format!("{}.bpe", path);
+    let bpe = Bpe::load(&bpe_path).unwrap_or_else(|_| Bpe::new_empty());
+    create_model(&dict, bpe, device)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+}
+
 pub fn get_device() -> Result<Device, candle_core::Error> {
     if cfg!(target_os = "macos") {
         let device = Device::new_metal(0)?;
@@ -717,8 +732,17 @@ pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>, Bpe), 
     let content = fs::read_to_string(file_path)?;
     println!("Read {} chars", content.len());
 
-    let bpe = Bpe::learn(&content, NUM_BPE_MERGES);
-    bpe.save("data/model.bpe").unwrap_or_else(|e| eprintln!("Warning: could not save BPE: {}", e));
+    let bpe = match Bpe::load("data/model.bpe") {
+        Ok(bpe) => {
+            println!("Loaded BPE from data/model.bpe ({} merges, {} words cached)", bpe.merges.len(), bpe.vocab_size());
+            bpe
+        }
+        Err(_) => {
+            let bpe = Bpe::learn(&content, NUM_BPE_MERGES);
+            bpe.save("data/model.bpe").unwrap_or_else(|e| eprintln!("Warning: could not save BPE: {}", e));
+            bpe
+        }
+    };
 
     let tokens: Vec<String> = bpe.tokenize(&content);
     println!("Dict size (before extras): {}", tokens_to_dict(tokens.clone()).len());

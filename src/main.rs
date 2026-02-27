@@ -2,7 +2,7 @@ use attention_predictor::{create_model, get_pretrained_dict};
 use candle_core::Var;
 
 use crate::{
-    attention_predictor::{get_device, Model, FILE_PATH, LR},
+    attention_predictor::{get_device, load_vocab, Model, FILE_PATH, LR},
     model_tests::{per_epoch_scores, print_results, qa_test, self_test, test_all},
     token_utils::STOP_TOKEN,
 };
@@ -30,9 +30,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if command == "param_count" {
-        let (dict, _, bpe) = get_pretrained_dict(FILE_PATH)?;
-        let model = create_model(&dict, bpe, &device)?;
-        println!("\nParameter count (vocab_size={}):", dict.len());
+        let model = load_vocab("data/model", &device)?;
+        println!("\nParameter count (vocab_size={}):", model.dict.len());
         model.count_params();
         return Ok(());
     }
@@ -43,6 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let device = get_device()?;
         let (dict, tokens, bpe) = get_pretrained_dict(FILE_PATH)?;
         let mut model = create_model(&dict, bpe, &device)?;
+        model.save_to_path("data/model");
 
         println!("Training on {} tokens", tokens.len());
 
