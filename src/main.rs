@@ -150,6 +150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match per_epoch_scores(&model, &device) {
                 Ok((l2, l3, qa)) => {
                     let entry = serde_json::json!({
+                        "Model_ID": model.model_id,
                         "LR": lr,
                         "Self_Test_Score_L2": l2,
                         "Self_Test_Score_L3": l3,
@@ -191,6 +192,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match per_epoch_scores(&model, &device) {
                 Ok((l2, l3, qa)) => {
                     let entry = serde_json::json!({
+                        "Model_ID": model.model_id,
                         "Corpus_Rate": rate,
                         "Num_Tokens": n,
                         "Self_Test_Score_L2": l2,
