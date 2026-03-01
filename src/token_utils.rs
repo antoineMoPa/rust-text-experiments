@@ -133,15 +133,18 @@ impl Bpe {
             // Apply merge in-place across the whole vocabulary.
             let merged = best_a.clone() + &best_b;
             for (_, seg, _) in &mut vocab {
+                let mut out = Vec::with_capacity(seg.len());
                 let mut j = 0;
-                while j + 1 < seg.len() {
-                    if seg[j] == best_a && seg[j + 1] == best_b {
-                        seg[j] = merged.clone();
-                        seg.remove(j + 1);
+                while j < seg.len() {
+                    if j + 1 < seg.len() && seg[j] == best_a && seg[j + 1] == best_b {
+                        out.push(merged.clone());
+                        j += 2;
                     } else {
+                        out.push(seg[j].clone());
                         j += 1;
                     }
                 }
+                *seg = out;
             }
 
             merges.push((best_a, best_b));
@@ -166,15 +169,18 @@ impl Bpe {
         let mut parts: Vec<String> = word.chars().map(|c| c.to_string()).collect();
         for (a, b) in &self.merges {
             let merged = a.clone() + b;
+            let mut out = Vec::with_capacity(parts.len());
             let mut i = 0;
-            while i + 1 < parts.len() {
-                if parts[i] == *a && parts[i + 1] == *b {
-                    parts[i] = merged.clone();
-                    parts.remove(i + 1);
+            while i < parts.len() {
+                if i + 1 < parts.len() && parts[i] == *a && parts[i + 1] == *b {
+                    out.push(merged.clone());
+                    i += 2;
                 } else {
+                    out.push(parts[i].clone());
                     i += 1;
                 }
             }
+            parts = out;
         }
         parts
     }
@@ -184,29 +190,24 @@ impl Bpe {
     pub fn tokenize(&self, input: &str) -> Vec<String> {
         let mut result = Vec::new();
         let mut word = String::new();
-        let mut to_skip = 0;
+        let mut skip_until_byte = 0usize;
 
-        for (index, c) in input.chars().enumerate() {
-            if to_skip > 0 {
-                to_skip -= 1;
+        for (byte_pos, c) in input.char_indices() {
+            if byte_pos < skip_until_byte {
                 continue;
             }
 
             if c == '<' {
-                let potential = input
-                    .chars()
-                    .skip(index)
-                    .take(MAX_SYS_TOKEN_LEN)
-                    .collect::<String>();
+                let snippet: String = input[byte_pos..].chars().take(MAX_SYS_TOKEN_LEN).collect();
                 let mut found = false;
                 for sys_token in SYSTEM_TOKENS.iter() {
-                    if potential.starts_with(sys_token) {
+                    if snippet.starts_with(sys_token) {
                         if !word.is_empty() {
                             result.extend(self.apply_to_word(&word));
                             word.clear();
                         }
                         result.push(sys_token.to_string());
-                        to_skip += sys_token.len() - 1;
+                        skip_until_byte = byte_pos + sys_token.len();
                         found = true;
                         break;
                     }
@@ -282,35 +283,26 @@ impl Bpe {
 pub fn tokenize(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut token = String::new();
+    let mut skip_until_byte = 0usize;
 
-    let mut to_skip = 0;
-
-    for (index, c) in input.chars().enumerate() {
-        if to_skip > 0 {
-            to_skip -= 1;
+    for (byte_pos, c) in input.char_indices() {
+        if byte_pos < skip_until_byte {
             continue;
         }
 
         if c == '<' {
-            // Check for sys tokens
-            let potential_sys_token = input
-                .chars()
-                .skip(index)
-                .take(MAX_SYS_TOKEN_LEN)
-                .collect::<String>();
+            let snippet: String = input[byte_pos..].chars().take(MAX_SYS_TOKEN_LEN).collect();
             let mut found_token = false;
             for sys_token in SYSTEM_TOKENS.iter() {
-                if potential_sys_token.starts_with(sys_token) {
-                    if token.len() > 0 {
+                if snippet.starts_with(sys_token) {
+                    if !token.is_empty() {
                         tokens.push(token.clone());
                         token.clear();
                     }
-
                     tokens.push(sys_token.to_string());
-                    // skip the rest of the sys token
-                    to_skip += sys_token.len() - 1;
-
+                    skip_until_byte = byte_pos + sys_token.len();
                     found_token = true;
+                    break;
                 }
             }
             if found_token {
@@ -319,7 +311,7 @@ pub fn tokenize(input: &str) -> Vec<String> {
         }
         // Split on any non-alphabetic character (punctuation, digits, spaces, dashes, quotes, etc.)
         if !c.is_alphabetic() {
-            if token.len() > 0 {
+            if !token.is_empty() {
                 tokens.push(token.clone());
                 token.clear();
             }
@@ -329,11 +321,11 @@ pub fn tokenize(input: &str) -> Vec<String> {
         }
     }
 
-    if token.len() > 0 {
+    if !token.is_empty() {
         tokens.push(token.clone());
     }
 
-    return tokens;
+    tokens
 }
 
 pub fn tokens_to_dict(vocabulary: Vec<String>) -> Dict {
