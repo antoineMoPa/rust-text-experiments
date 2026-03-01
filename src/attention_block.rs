@@ -131,11 +131,14 @@ impl AttentionBlock {
         // Attention: [batch, seq, emb] -> [batch, seq, emb]
         #[cfg(not(target_os = "macos"))]
         let result = {
-            // Our homebrew flash_attn expects [batch, seq, num_heads, d_head] f32
-            let q = q.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
-            let k = k.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
-            let v = v.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
+            // Our homebrew flash_attn expects [batch, heads, seq, d_head] f32 (heads-first).
+            // transpose(1, 2) on [batch, seq, heads, d_head] -> [batch, heads, seq, d_head],
+            // giving stride_s = d_head (9 floats) in the inner K/V loop instead of heads*d_head.
+            let q = q.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
+            let k = k.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
+            let v = v.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
             flash_attn(&q, &k, &v, scale as f32, true)?
+                .transpose(1, 2)?.contiguous()?
                 .reshape((batch_size, seq, emb))?
         };
 

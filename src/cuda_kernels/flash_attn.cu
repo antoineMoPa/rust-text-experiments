@@ -1,11 +1,17 @@
 // Homebrew Flash Attention for sm_75 (GTX 1660 / Turing).
 // Uses standard CUDA — no Ampere-specific instructions.
 //
-// Layout: all tensors are [batch, seq, heads, d_head] row-major, f32.
-// lse (log-sum-exp) is [batch, heads, seq], saved in forward for backward.
+// Layout: all tensors are [batch, heads, seq, d_head] row-major, f32.
+//   stride_b = heads * seq * d_head
+//   stride_h =         seq * d_head
+//   stride_s =               d_head    <-- inner-loop stride is d_head (9 floats),
+//                                          giving ~3-4 kv rows per 128-byte cache line.
+//
+// lse [batch, heads, seq] is written in forward and read in backward (no recomputation).
 
 #include <cuda_runtime.h>
 #include <float.h>
+#include <stdio.h>
 
 // ---------------------------------------------------------------------------
 // Warp helpers  (d_head <= 32, so everything fits in one warp)
@@ -32,10 +38,10 @@ float warp_dot(float a, float b, unsigned int mask) {
 // Block: (d_head)             — one thread per head dimension
 // ---------------------------------------------------------------------------
 __global__ void flash_attn_fwd_kernel(
-    const float* __restrict__ Q,    // [batch, seq, heads, d_head]
+    const float* __restrict__ Q,    // [batch, heads, seq, d_head]
     const float* __restrict__ K,
     const float* __restrict__ V,
-    float* __restrict__       O,    // [batch, seq, heads, d_head]
+    float* __restrict__       O,    // [batch, heads, seq, d_head]
     float* __restrict__       lse,  // [batch, heads, seq]
     int seq, int heads, int d_head,
     float scale, bool causal)
@@ -45,14 +51,16 @@ __global__ void flash_attn_fwd_kernel(
     const int qi = blockIdx.z;
     const int d  = threadIdx.x;
 
-    // Active-lane mask for warp ops (safe for d_head <= 32)
+    // Active-lane mask for warp ops (d_head <= 32 enforced by caller).
+    // NOTE: (1u << 32) is UB; the ternary special-cases d_head == 32 to avoid it.
     const unsigned int mask = (d_head == 32) ? 0xffffffffu : (1u << d_head) - 1u;
 
-    const int stride_b = seq   * heads * d_head;
-    const int stride_s =         heads * d_head;
-    const int stride_h =                 d_head;
+    // [batch, heads, seq, d_head] strides — inner-loop step is d_head, not heads*d_head.
+    const int stride_b = heads * seq * d_head;
+    const int stride_h =         seq * d_head;
+    const int stride_s =               d_head;
 
-    const float q_d = Q[b * stride_b + qi * stride_s + h * stride_h + d];
+    const float q_d = __ldg(&Q[b * stride_b + h * stride_h + qi * stride_s + d]);
 
     // Online softmax state
     float m   = -FLT_MAX;  // running max
@@ -62,26 +70,25 @@ __global__ void flash_attn_fwd_kernel(
     const int kv_end = causal ? qi + 1 : seq;
 
     for (int kv = 0; kv < kv_end; kv++) {
-        const int   base  = b * stride_b + kv * stride_s + h * stride_h;
-        const float score = warp_dot(q_d, K[base + d], mask) * scale;
+        const int   base  = b * stride_b + h * stride_h + kv * stride_s;
+        const float score = warp_dot(q_d, __ldg(&K[base + d]), mask) * scale;
 
         const float m_new     = fmaxf(m, score);
-        const float exp_score = expf(score - m_new);
-        // When m == -FLT_MAX (first iter), expf(-FLT_MAX - m_new) underflows to 0 — correct.
-        const float rescale   = expf(m - m_new);
+        const float exp_score = __expf(score - m_new);
+        // When m == -FLT_MAX (first iter), __expf(-FLT_MAX - m_new) underflows to 0 — correct.
+        const float rescale   = __expf(m - m_new);
 
-        o_d = o_d * rescale + exp_score * V[base + d];
+        o_d = o_d * rescale + exp_score * __ldg(&V[base + d]);
         l   = l   * rescale + exp_score;
         m   = m_new;
     }
 
-    // Write output and save log-sum-exp for backward
-    const int out_base = b * stride_b + qi * stride_s + h * stride_h;
+    const int out_base = b * stride_b + h * stride_h + qi * stride_s;
     O[out_base + d] = o_d / fmaxf(l, 1e-38f);
 
-    if (d == 0) {
-        lse[b * heads * seq + h * seq + qi] = m + logf(fmaxf(l, 1e-38f));
-    }
+    // Save lse for backward (thread 0 only — lse is a scalar per query row).
+    if (d == 0)
+        lse[b * heads * seq + h * seq + qi] = m + __logf(fmaxf(l, 1e-38f));
 }
 
 // ---------------------------------------------------------------------------
@@ -90,11 +97,10 @@ __global__ void flash_attn_fwd_kernel(
 // Grid : (batch, heads, seq)  — one block per query row
 // Block: (d_head)
 //
-// dK and dV are accumulated across query rows via atomicAdd (initialized to
-// zero before launch). dQ has no conflicts and is written directly.
+// dK and dV are accumulated across query rows via atomicAdd (zeroed before launch).
+// dQ has no conflicts and is written directly.
 //
-// lse is not passed in — we recompute it to avoid storing an extra tensor.
-// This costs one extra O(seq) pass but keeps the interface simple.
+// lse is read from the value saved in the forward pass — no recomputation needed.
 // ---------------------------------------------------------------------------
 __global__ void flash_attn_bwd_kernel(
     const float* __restrict__ Q,
@@ -102,6 +108,7 @@ __global__ void flash_attn_bwd_kernel(
     const float* __restrict__ V,
     const float* __restrict__ O,
     const float* __restrict__ dO,
+    const float* __restrict__ lse,  // [batch, heads, seq] — saved from forward
     float* __restrict__       dQ,
     float* __restrict__       dK,   // zeroed before launch
     float* __restrict__       dV,   // zeroed before launch
@@ -113,42 +120,35 @@ __global__ void flash_attn_bwd_kernel(
     const int qi = blockIdx.z;
     const int d  = threadIdx.x;
 
+    // Active-lane mask for warp ops (d_head <= 32 enforced by caller).
+    // NOTE: (1u << 32) is UB; the ternary special-cases d_head == 32 to avoid it.
     const unsigned int mask = (d_head == 32) ? 0xffffffffu : (1u << d_head) - 1u;
 
-    const int stride_b = seq   * heads * d_head;
-    const int stride_s =         heads * d_head;
-    const int stride_h =                 d_head;
-    const int qi_base  = b * stride_b + qi * stride_s + h * stride_h;
+    const int stride_b = heads * seq * d_head;
+    const int stride_h =         seq * d_head;
+    const int stride_s =               d_head;
+    const int qi_base  = b * stride_b + h * stride_h + qi * stride_s;
 
-    const float q_d  = Q [qi_base + d];
-    const float o_d  = O [qi_base + d];
-    const float do_d = dO[qi_base + d];
+    const float q_d  = __ldg(&Q [qi_base + d]);
+    const float o_d  = __ldg(&O [qi_base + d]);
+    const float do_d = __ldg(&dO[qi_base + d]);
 
     // D_i = dot(O_i, dO_i) — scalar used in the softmax gradient formula
     const float D = warp_dot(o_d, do_d, mask);
 
+    // lse_i saved from forward — no need to re-scan K.
+    const float lse_i = __ldg(&lse[b * heads * seq + h * seq + qi]);
+
     const int kv_end = causal ? qi + 1 : seq;
 
-    // Pass 1: recompute lse_i (log-sum-exp of scores for query row qi)
-    float m = -FLT_MAX, l = 0.0f;
-    for (int kv = 0; kv < kv_end; kv++) {
-        const int   base  = b * stride_b + kv * stride_s + h * stride_h;
-        const float score = warp_dot(q_d, K[base + d], mask) * scale;
-        const float m_new = fmaxf(m, score);
-        l = l * expf(m - m_new) + expf(score - m_new);
-        m = m_new;
-    }
-    const float lse_i = m + logf(fmaxf(l, 1e-38f));
-
-    // Pass 2: compute dQ, and accumulate dK / dV
     float dq_d = 0.0f;
     for (int kv = 0; kv < kv_end; kv++) {
-        const int   base  = b * stride_b + kv * stride_s + h * stride_h;
-        const float k_d   = K[base + d];
-        const float v_d   = V[base + d];
+        const int   base  = b * stride_b + h * stride_h + kv * stride_s;
+        const float k_d   = __ldg(&K[base + d]);
+        const float v_d   = __ldg(&V[base + d]);
 
         const float score = warp_dot(q_d, k_d, mask) * scale;
-        const float p     = expf(score - lse_i);   // softmax weight p_ij
+        const float p     = __expf(score - lse_i);   // softmax weight p_ij
 
         // dV_kv += p_ij * dO_qi
         atomicAdd(&dV[base + d], p * do_d);
@@ -184,11 +184,15 @@ void flash_attn_fwd(
     dim3 block(d_head);
     flash_attn_fwd_kernel<<<grid, block>>>(
         q, k, v, o, lse, seq, heads, d_head, scale, causal);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)
+        fprintf(stderr, "flash_attn_fwd kernel error: %s\n", cudaGetErrorString(err));
 }
 
 void flash_attn_bwd(
     const float* q, const float* k, const float* v,
     const float* o, const float* do_,
+    const float* lse,
     float* dq, float* dk, float* dv,
     int batch, int seq, int heads, int d_head,
     float scale, bool causal)
@@ -200,7 +204,10 @@ void flash_attn_bwd(
     dim3 grid(batch, heads, seq);
     dim3 block(d_head);
     flash_attn_bwd_kernel<<<grid, block>>>(
-        q, k, v, o, do_, dq, dk, dv, seq, heads, d_head, scale, causal);
+        q, k, v, o, do_, lse, dq, dk, dv, seq, heads, d_head, scale, causal);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)
+        fprintf(stderr, "flash_attn_bwd kernel error: %s\n", cudaGetErrorString(err));
 }
 
 } // extern "C"
