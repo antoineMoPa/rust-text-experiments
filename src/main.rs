@@ -11,6 +11,8 @@ mod attention_block;
 mod attention_predictor;
 #[cfg(not(target_os = "macos"))]
 mod flash_attn_op;
+#[cfg(not(target_os = "macos"))]
+mod layer_norm_op;
 mod grad_accum;
 mod layer_norm;
 mod model_tests;
