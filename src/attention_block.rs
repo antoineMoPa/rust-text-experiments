@@ -2,6 +2,9 @@ use candle_core::Tensor;
 use candle_nn::{self as nn, Module};
 use nn::VarBuilder;
 
+#[cfg(not(target_os = "macos"))]
+use crate::flash_attn_op::flash_attn;
+
 use crate::layer_norm::LayerNorm;
 
 pub struct AttentionBlock {
@@ -10,6 +13,7 @@ pub struct AttentionBlock {
     pub ffn_in: nn::Linear,
     pub ffn_out: nn::Linear,
     pub config: AttentionBlockConfig,
+    #[cfg(target_os = "macos")]
     causal_mask: Tensor,
     pos_enc: Tensor,
     norm1: LayerNorm,
@@ -57,10 +61,13 @@ impl AttentionBlock {
         let device = vb.device();
         let seq_len = config.context_window;
 
-        let mask_data: Vec<f32> = (0..seq_len)
-            .flat_map(|i| (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 }))
-            .collect();
-        let causal_mask = Tensor::from_slice(&mask_data, (seq_len, seq_len), device)?;
+        #[cfg(target_os = "macos")]
+        let causal_mask = {
+            let mask_data: Vec<f32> = (0..seq_len)
+                .flat_map(|i| (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 }))
+                .collect();
+            Tensor::from_slice(&mask_data, (seq_len, seq_len), device)?
+        };
 
         let mut pe_data: Vec<f32> = Vec::with_capacity(seq_len * config.embedding_size);
         for i in 0..seq_len {
@@ -81,6 +88,7 @@ impl AttentionBlock {
             ffn_in,
             ffn_out,
             config,
+            #[cfg(target_os = "macos")]
             causal_mask,
             pos_enc,
             norm1,
@@ -120,33 +128,31 @@ impl AttentionBlock {
         let k = qkv.narrow(2, emb, emb)?;
         let v = qkv.narrow(2, emb * 2, emb)?;
 
-        // Reshape and transpose to [batch, num_heads, seq, d_head]
-        let q = q
-            .reshape((batch_size, seq, num_heads, d_head))?
-            .transpose(1, 2)?
-            .contiguous()?;
-        let k = k
-            .reshape((batch_size, seq, num_heads, d_head))?
-            .transpose(1, 2)?
-            .contiguous()?;
-        let v = v
-            .reshape((batch_size, seq, num_heads, d_head))?
-            .transpose(1, 2)?
-            .contiguous()?;
+        // Attention: [batch, seq, emb] -> [batch, seq, emb]
+        #[cfg(not(target_os = "macos"))]
+        let result = {
+            // Our homebrew flash_attn expects [batch, seq, num_heads, d_head] f32
+            let q = q.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
+            let k = k.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
+            let v = v.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
+            flash_attn(&q, &k, &v, scale as f32, true)?
+                .reshape((batch_size, seq, emb))?
+        };
 
-        // Batched attention scores: [batch, num_heads, seq, seq]
-        let scores = (q.matmul(&k.transpose(2, 3)?.contiguous()?)? * scale)?;
-        let scores = scores.broadcast_add(&self.causal_mask)?;
-        let attn_weights = nn::ops::softmax(&scores, candle_core::D::Minus1)?;
-
-        // Weighted sum: [batch, num_heads, seq, d_head]
-        let result = attn_weights.matmul(&v)?;
-
-        // Transpose and merge heads: [batch, seq, emb]
-        let result = result
-            .transpose(1, 2)?
-            .contiguous()?
-            .reshape((batch_size, seq, emb))?;
+        #[cfg(target_os = "macos")]
+        let result = {
+            // Standard attention: reshape to [batch, num_heads, seq, d_head]
+            let q = q.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
+            let k = k.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
+            let v = v.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
+            let scores = (q.matmul(&k.transpose(2, 3)?.contiguous()?)? * scale)?;
+            let scores = scores.broadcast_add(&self.causal_mask)?;
+            let attn_weights = nn::ops::softmax(&scores, candle_core::D::Minus1)?;
+            attn_weights.matmul(&v)?
+                .transpose(1, 2)?
+                .contiguous()?
+                .reshape((batch_size, seq, emb))?
+        };
 
         // Output projection: [batch, seq, emb]
         let result = self.out_linear.forward(&result)?;

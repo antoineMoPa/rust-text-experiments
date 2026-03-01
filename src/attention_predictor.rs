@@ -19,10 +19,10 @@ use colored::Colorize;
 use nn::{VarBuilder, VarMap};
 
 // smoll
-const EMBEDDING_SIZE: usize = 108;
+const EMBEDDING_SIZE: usize = 128;
 const CONTEXT_WINDOW: usize = 64;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
-const NUM_ATTENTION_HEADS: usize = 12;
+const NUM_ATTENTION_HEADS: usize = 8;
 const FFN_HIDDEN: usize = 256;
 const NUM_BLOCKS: usize = 2;
 pub const FILE_PATH: &str = "smoll-generated-corpus/level_4/corpus.corpus";
