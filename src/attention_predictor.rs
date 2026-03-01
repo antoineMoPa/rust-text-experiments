@@ -374,6 +374,7 @@ impl Model {
             // Shuffle sample indices each epoch so batches draw from across the corpus
             let mut indices: Vec<usize> = (0..num_samples).collect();
             indices.shuffle(&mut rng);
+            let mut batch_timer = std::time::Instant::now();
 
             for j in 0..batch_count {
                 let batch_start = j * TOKEN_BATCH_SIZE;
@@ -459,9 +460,12 @@ impl Model {
                 }
 
                 if j % 200 == 0 {
+                    let elapsed = batch_timer.elapsed();
+                    batch_timer = std::time::Instant::now();
+                    let ms_per_batch = if j > 0 { elapsed.as_secs_f64() * 1000.0 / 200.0 } else { 0.0 };
                     println!(
-                        "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6} LR = {:.2e}",
-                        epoch, epochs, j, batch_count, loss_stat, lr
+                        "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6} LR = {:.2e} ({:.0}ms/batch)",
+                        epoch, epochs, j, batch_count, loss_stat, lr, ms_per_batch
                     );
                     let prediction = self.run_str("Two birds", 15)?;
                     let prediction = prediction.replace("\n", "_");
