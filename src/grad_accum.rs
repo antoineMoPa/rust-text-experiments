@@ -87,9 +87,22 @@ impl AccumAdamW {
         let scale_v = 1.0 / (1.0 - beta2.powi(self.step_t as i32));
         let accum_count = self.accum_count as f64;
 
+        // Compute global gradient norm across all parameters for clipping.
+        const CLIP_NORM: f64 = 1.0;
+        let mut global_norm_sq = 0f64;
+        for (i, _) in self.vars.iter().enumerate() {
+            if let Some(grad) = self.accumulated_grads.get(&i) {
+                let g = (grad / accum_count)?;
+                let norm_sq = g.sqr()?.sum_all()?.to_vec0::<f32>()? as f64;
+                global_norm_sq += norm_sq;
+            }
+        }
+        let clip_scale = (CLIP_NORM / global_norm_sq.sqrt()).min(1.0);
+
         for (i, var) in self.vars.iter().enumerate() {
             if let Some(grad) = self.accumulated_grads.get(&i) {
                 let g = (grad / accum_count)?;
+                let g = (g * clip_scale)?;
 
                 let m = &self.first_moment[i];
                 let v = &self.second_moment[i];
