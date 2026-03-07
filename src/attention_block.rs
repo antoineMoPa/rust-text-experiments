@@ -64,7 +64,9 @@ impl AttentionBlock {
         #[cfg(target_os = "macos")]
         let causal_mask = {
             let mask_data: Vec<f32> = (0..seq_len)
-                .flat_map(|i| (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 }))
+                .flat_map(|i| {
+                    (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 })
+                })
                 .collect();
             Tensor::from_slice(&mask_data, (seq_len, seq_len), device)?
         };
@@ -134,24 +136,44 @@ impl AttentionBlock {
             // Our homebrew flash_attn expects [batch, heads, seq, d_head] f32 (heads-first).
             // transpose(1, 2) on [batch, seq, heads, d_head] -> [batch, heads, seq, d_head],
             // giving stride_s = d_head (9 floats) in the inner K/V loop instead of heads*d_head.
-            let q = q.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
-            let k = k.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
-            let v = v.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
+            let q = q
+                .reshape((batch_size, seq, num_heads, d_head))?
+                .transpose(1, 2)?
+                .contiguous()?;
+            let k = k
+                .reshape((batch_size, seq, num_heads, d_head))?
+                .transpose(1, 2)?
+                .contiguous()?;
+            let v = v
+                .reshape((batch_size, seq, num_heads, d_head))?
+                .transpose(1, 2)?
+                .contiguous()?;
             flash_attn(&q, &k, &v, scale as f32, true)?
-                .transpose(1, 2)?.contiguous()?
+                .transpose(1, 2)?
+                .contiguous()?
                 .reshape((batch_size, seq, emb))?
         };
 
         #[cfg(target_os = "macos")]
         let result = {
             // Standard attention: reshape to [batch, num_heads, seq, d_head]
-            let q = q.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
-            let k = k.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
-            let v = v.reshape((batch_size, seq, num_heads, d_head))?.transpose(1, 2)?.contiguous()?;
+            let q = q
+                .reshape((batch_size, seq, num_heads, d_head))?
+                .transpose(1, 2)?
+                .contiguous()?;
+            let k = k
+                .reshape((batch_size, seq, num_heads, d_head))?
+                .transpose(1, 2)?
+                .contiguous()?;
+            let v = v
+                .reshape((batch_size, seq, num_heads, d_head))?
+                .transpose(1, 2)?
+                .contiguous()?;
             let scores = (q.matmul(&k.transpose(2, 3)?.contiguous()?)? * scale)?;
             let scores = scores.broadcast_add(&self.causal_mask)?;
             let attn_weights = nn::ops::softmax(&scores, candle_core::D::Minus1)?;
-            attn_weights.matmul(&v)?
+            attn_weights
+                .matmul(&v)?
                 .transpose(1, 2)?
                 .contiguous()?
                 .reshape((batch_size, seq, emb))?

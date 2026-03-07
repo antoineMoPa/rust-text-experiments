@@ -19,7 +19,9 @@ fn detect_sm() -> String {
             }
         }
     }
-    println!("cargo:warning=Could not detect GPU compute capability via nvidia-smi, defaulting to sm_75");
+    println!(
+        "cargo:warning=Could not detect GPU compute capability via nvidia-smi, defaulting to sm_75"
+    );
     "sm_75".to_string()
 }
 
@@ -42,9 +44,12 @@ fn compile_cuda_kernels() {
         .args([
             &arch_flag,
             "-O3",
-            "--compiler-options", "-fPIC",
-            "-c", "src/cuda_kernels/flash_attn.cu",
-            "-o", &obj,
+            "--compiler-options",
+            "-fPIC",
+            "-c",
+            "src/cuda_kernels/flash_attn.cu",
+            "-o",
+            &obj,
         ])
         .status()
         .expect("nvcc not found");

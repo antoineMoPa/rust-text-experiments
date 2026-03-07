@@ -462,7 +462,11 @@ impl Model {
                 if j % 200 == 0 {
                     let elapsed = batch_timer.elapsed();
                     batch_timer = std::time::Instant::now();
-                    let ms_per_batch = if j > 0 { elapsed.as_secs_f64() * 1000.0 / 200.0 } else { 0.0 };
+                    let ms_per_batch = if j > 0 {
+                        elapsed.as_secs_f64() * 1000.0 / 200.0
+                    } else {
+                        0.0
+                    };
                     println!(
                         "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6} LR = {:.2e} ({:.0}ms/batch)",
                         epoch, epochs, j, batch_count, loss_stat, lr, ms_per_batch
@@ -511,7 +515,7 @@ impl Model {
                 .unwrap_or_default();
 
             match per_epoch_scores(self, device) {
-                Ok((score_l2, score_l3, score_qa)) => {
+                Ok((score_l2, score_l3, score_qa, score_json)) => {
                     let entry = serde_json::json!({
                         "Epoch": epoch,
                         "Model_ID": self.model_id,
@@ -530,6 +534,7 @@ impl Model {
                         "Self_Test_Score_L2": score_l2,
                         "Self_Test_Score_L3": score_l3,
                         "QA_Test_Score": score_qa,
+                        "JSON_Test_Score": score_json,
                         "Date": date,
                     });
                     if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -541,8 +546,8 @@ impl Model {
                         let _ = writeln!(file, "{}", serde_json::to_string(&entry).unwrap());
                     }
                     println!(
-                        "Epoch {} scores: L2={:.3} L3={:.3} QA={:.3} LR={:.2e}",
-                        epoch, score_l2, score_l3, score_qa, last_lr
+                        "Epoch {} scores: L2={:.3} L3={:.3} QA={:.3} JSON={:.3} LR={:.2e}",
+                        epoch, score_l2, score_l3, score_qa, score_json, last_lr
                     );
                 }
                 Err(e) => eprintln!("Epoch {} test failed: {}", epoch, e),
@@ -603,9 +608,16 @@ impl Model {
             total += count;
         }
         let embedding_params = self.dict.len() * EMBEDDING_SIZE;
-        println!("  {:60} {:>10} params  (weight-tied, counted above)", "embedding (output projection)", embedding_params);
+        println!(
+            "  {:60} {:>10} params  (weight-tied, counted above)",
+            "embedding (output projection)", embedding_params
+        );
         println!("  {:60} {:>10}", "TOTAL", total);
-        println!("  {:60} {:>10}  (excl. embedding)", "TOTAL non-embedding", total - embedding_params);
+        println!(
+            "  {:60} {:>10}  (excl. embedding)",
+            "TOTAL non-embedding",
+            total - embedding_params
+        );
         total
     }
 
@@ -714,8 +726,7 @@ pub fn load_vocab(path: &str, device: &Device) -> Result<Model, std::io::Error> 
     let dict = tokens_to_dict(dict_words);
     let bpe_path = format!("{}.bpe", path);
     let bpe = Bpe::load(&bpe_path).unwrap_or_else(|_| Bpe::new_empty());
-    create_model(&dict, bpe, device)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    create_model(&dict, bpe, device).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 }
 
 pub fn get_device() -> Result<Device, candle_core::Error> {
@@ -731,25 +742,35 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
     }
 }
 
-pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<String>, Bpe), candle_core::Error> {
+pub fn get_pretrained_dict(
+    file_path: &str,
+) -> Result<(Dict, Vec<String>, Bpe), candle_core::Error> {
     println!("Reading file: {}", file_path);
     let content = fs::read_to_string(file_path)?;
     println!("Read {} chars", content.len());
 
     let bpe = match Bpe::load("data/model.bpe") {
         Ok(bpe) => {
-            println!("Loaded BPE from data/model.bpe ({} merges, {} words cached)", bpe.merges.len(), bpe.vocab_size());
+            println!(
+                "Loaded BPE from data/model.bpe ({} merges, {} words cached)",
+                bpe.merges.len(),
+                bpe.vocab_size()
+            );
             bpe
         }
         Err(_) => {
             let bpe = Bpe::learn(&content, NUM_BPE_MERGES);
-            bpe.save("data/model.bpe").unwrap_or_else(|e| eprintln!("Warning: could not save BPE: {}", e));
+            bpe.save("data/model.bpe")
+                .unwrap_or_else(|e| eprintln!("Warning: could not save BPE: {}", e));
             bpe
         }
     };
 
     let tokens: Vec<String> = bpe.tokenize(&content);
-    println!("Dict size (before extras): {}", tokens_to_dict(tokens.clone()).len());
+    println!(
+        "Dict size (before extras): {}",
+        tokens_to_dict(tokens.clone()).len()
+    );
 
     let lorem_tokens = bpe.tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = bpe.tokenize("hello world");

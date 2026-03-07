@@ -23,6 +23,7 @@ const RESULT_COLS: &[&str] = &[
     "Self_Test_Score_L2",
     "Self_Test_Score_L3",
     "QA_Test_Score",
+    "JSON_Test_Score",
     "Date",
 ];
 
@@ -44,6 +45,7 @@ const EPOCH_COLS: &[&str] = &[
     "Self_Test_Score_L2",
     "Self_Test_Score_L3",
     "QA_Test_Score",
+    "JSON_Test_Score",
     "Date",
 ];
 
@@ -99,9 +101,16 @@ pub fn qa_test() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+pub fn json_test() -> Result<(), Box<dyn std::error::Error>> {
+    let score = json_test_score()?;
+    println!("JSON test score: {}", score);
+    Ok(())
+}
+
 pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
     let (score_l2, score_l3) = self_test_scores()?;
     let score_qa = qa_test_score()?;
+    let score_json = json_test_score()?;
 
     let date = std::process::Command::new("date")
         .arg("+%d/%m/%Y")
@@ -118,6 +127,7 @@ pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
         "Self_Test_Score_L2": score_l2,
         "Self_Test_Score_L3": score_l3,
         "QA_Test_Score": score_qa,
+        "JSON_Test_Score": score_json,
         "Date": date,
     });
 
@@ -129,20 +139,24 @@ pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
         writeln!(file, "{}", serde_json::to_string(&entry).unwrap())?;
     }
 
-    println!("Self_Test_Score_L2\tSelf_Test_Score_L3\tQA_Test_Score\tDate");
-    println!("{}\t{}\t{}\t{}", score_l2, score_l3, score_qa, date);
+    println!("Self_Test_Score_L2\tSelf_Test_Score_L3\tQA_Test_Score\tJSON_Test_Score\tDate");
+    println!(
+        "{}\t{}\t{}\t{}\t{}",
+        score_l2, score_l3, score_qa, score_json, date
+    );
 
     Ok(())
 }
 
-/// Run all three scores on an already-loaded model (used during training).
+/// Run all scores on an already-loaded model (used during training).
 pub fn per_epoch_scores(
     model: &Model,
     device: &candle_core::Device,
-) -> Result<(f32, f32, f32), Box<dyn std::error::Error>> {
+) -> Result<(f32, f32, f32, f32), Box<dyn std::error::Error>> {
     let (l2, l3) = compute_self_test_scores(model, device)?;
     let qa = compute_qa_test_score(model, device)?;
-    Ok((l2, l3, qa))
+    let json = compute_json_test_score(model, device)?;
+    Ok((l2, l3, qa, json))
 }
 
 /// Print the header for per_epoch_stats.log (call once before training).
@@ -313,4 +327,85 @@ fn qa_test_score() -> Result<f32, Box<dyn std::error::Error>> {
     println!("Loading test model");
     let model = Model::load_from_path("data/model", &device)?;
     compute_qa_test_score(&model, &device)
+}
+
+fn compute_json_test_score(
+    model: &Model,
+    device: &candle_core::Device,
+) -> Result<f32, Box<dyn std::error::Error>> {
+    let file_path = "smoll-generated-corpus/level_5/json_test.txt";
+    let content = fs::read_to_string(file_path)?;
+
+    // Parse line pairs: odd lines are prompts, even lines are expected JSON
+    let lines: Vec<&str> = content.lines().collect();
+    let pairs: Vec<(&str, &str)> = lines
+        .chunks(2)
+        .filter_map(|c| {
+            if c.len() == 2 {
+                Some((c[0], c[1]))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let mut match_count = 0;
+    let total = pairs.len();
+
+    for (prompt, expected) in &pairs {
+        let mut input = prompt.to_string() + "\n";
+        let mut buf = String::new();
+
+        loop {
+            let pred = model.predict_next_token_greedy(&input, device)?;
+            input = input.clone() + pred.as_str();
+            buf.push_str(pred.as_str());
+
+            if pred == "}" || pred == STOP_TOKEN || buf.len() > 120 {
+                break;
+            }
+        }
+
+        let normalize = |s: &str| -> String {
+            s.chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>()
+                .to_lowercase()
+        };
+
+        let expected_norm = normalize(expected);
+        let actual_norm = normalize(&buf);
+
+        if actual_norm.contains(&expected_norm) {
+            match_count += 1;
+            println!(
+                "prompt: '{}' |> '{}' ~ '{}' - match",
+                prompt,
+                buf.trim(),
+                expected
+            );
+        } else {
+            println!(
+                "prompt: '{}' |> '{}' ~ '{}' - no match",
+                prompt,
+                buf.trim(),
+                expected
+            );
+        }
+    }
+
+    let success_rate = match_count as f32 / total as f32;
+    println!(
+        "json test file: {} - matches - {}, total - {}, success rate - {}",
+        file_path, match_count, total, success_rate
+    );
+
+    Ok(success_rate)
+}
+
+fn json_test_score() -> Result<f32, Box<dyn std::error::Error>> {
+    let device = get_device()?;
+    println!("Loading test model");
+    let model = Model::load_from_path("data/model", &device)?;
+    compute_json_test_score(&model, &device)
 }

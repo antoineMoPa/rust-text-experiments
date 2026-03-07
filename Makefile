@@ -17,15 +17,19 @@ dump_loss:
 	cat train_log.log  | grep Loss | sed "s/Epoch    //g" | sed "s/\/.* Loss = /\t/g"
 test_model:
 	$(args) cargo run --release test_all
+qa_test:
+	$(args) cargo run --release qa_test
+json_test:
+	$(args) cargo run --release json_test
 results:
 	$(args) cargo run --release print_results
 sweep_lr:
 	mkdir -p data
 	$(args) nohup time cargo run --release sweep-lr 2>&1 | tee sweep_log.log
 sweep_results:
-	@(printf '%s\t%s\t%s\t%s\n' LR L2 L3 QA; cat lr_sweep.log | jq -r '[.LR, .Self_Test_Score_L2, .Self_Test_Score_L3, .QA_Test_Score] | @tsv')
+	@(printf '%s\t%s\t%s\t%s\t%s\n' LR L2 L3 QA JSON; cat lr_sweep.log | jq -r '[.LR, .Self_Test_Score_L2, .Self_Test_Score_L3, .QA_Test_Score, .JSON_Test_Score] | @tsv')
 epoch_stats:
-	@(printf '%s\t%s\t%s\t%s\t%s\n' Epoch LR L2 L3 QA; tail -n +2 per_epoch_stats.log | jq -r '[.Epoch, .LR, .Self_Test_Score_L2, .Self_Test_Score_L3, .QA_Test_Score] | @tsv')
+	@(printf '%s\t%s\t%s\t%s\t%s\t%s\n' Epoch LR L2 L3 QA JSON; cat per_epoch_stats.log | jq -r '[.Epoch, .LR, .Self_Test_Score_L2, .Self_Test_Score_L3, .QA_Test_Score, .JSON_Test_Score] | @tsv')
 param_count:
 	$(args) cargo run --release param_count
 clean:

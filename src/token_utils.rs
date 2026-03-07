@@ -86,7 +86,10 @@ pub struct Bpe {
 
 impl Bpe {
     pub fn new_empty() -> Self {
-        Self { merges: vec![], word_cache: HashMap::new() }
+        Self {
+            merges: vec![],
+            word_cache: HashMap::new(),
+        }
     }
 
     /// Learn BPE merge rules from a corpus string.
@@ -157,7 +160,11 @@ impl Bpe {
             .map(|(word, seg, _)| (word, seg))
             .collect();
 
-        println!("BPE done: {} merges learned, {} words cached.", merges.len(), word_cache.len());
+        println!(
+            "BPE done: {} merges learned, {} words cached.",
+            merges.len(),
+            word_cache.len()
+        );
         Self { merges, word_cache }
     }
 
@@ -423,18 +430,15 @@ mod tests {
     #[test]
     fn test_bpe_empty_merges_is_char_level() {
         let bpe = Bpe::new_empty();
-        assert_eq!(
-            bpe.tokenize("Hi!"),
-            vec!["H", "i", "!"]
-        );
+        assert_eq!(bpe.tokenize("Hi!"), vec!["H", "i", "!"]);
     }
 
     #[test]
     fn test_bpe_merges_apply_in_order() {
         let bpe = Bpe {
             merges: vec![
-                ("h".to_string(), "e".to_string()),   // "he"
-                ("he".to_string(), "y".to_string()),   // "hey"
+                ("h".to_string(), "e".to_string()),  // "he"
+                ("he".to_string(), "y".to_string()), // "hey"
             ],
             word_cache: HashMap::new(),
         };

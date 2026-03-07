@@ -3,7 +3,7 @@ use candle_core::Var;
 
 use crate::{
     attention_predictor::{get_device, load_vocab, Model, FILE_PATH, LR},
-    model_tests::{per_epoch_scores, print_results, qa_test, self_test, test_all},
+    model_tests::{json_test, per_epoch_scores, print_results, qa_test, self_test, test_all},
     token_utils::STOP_TOKEN,
 };
 
@@ -123,6 +123,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if command == "json_test" {
+        json_test()?;
+        return Ok(());
+    }
+
     if command == "test_all" {
         test_all()?;
         return Ok(());
@@ -150,13 +155,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             model.simple_train(tokens.clone(), &device, lr)?;
 
             match per_epoch_scores(&model, &device) {
-                Ok((l2, l3, qa)) => {
+                Ok((l2, l3, qa, json)) => {
                     let entry = serde_json::json!({
                         "Model_ID": model.model_id,
                         "LR": lr,
                         "Self_Test_Score_L2": l2,
                         "Self_Test_Score_L3": l3,
                         "QA_Test_Score": qa,
+                        "JSON_Test_Score": json,
                     });
                     if let Ok(mut f) = std::fs::OpenOptions::new()
                         .create(true)
@@ -167,8 +173,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = writeln!(f, "{}", serde_json::to_string(&entry).unwrap());
                     }
                     println!(
-                        "sweep result: LR={:.2e} L2={:.3} L3={:.3} QA={:.3}",
-                        lr, l2, l3, qa
+                        "sweep result: LR={:.2e} L2={:.3} L3={:.3} QA={:.3} JSON={:.3}",
+                        lr, l2, l3, qa, json
                     );
                 }
                 Err(e) => eprintln!("sweep score failed for LR={:.2e}: {}", lr, e),
@@ -187,12 +193,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for rate in rates {
             let n = ((tokens.len() as f64) * rate).round() as usize;
             let subset = tokens[..n].to_vec();
-            println!("=== sweep-corpus: rate={:.0}% tokens={} ===", rate * 100.0, n);
+            println!(
+                "=== sweep-corpus: rate={:.0}% tokens={} ===",
+                rate * 100.0,
+                n
+            );
             let mut model = create_model(&dict, bpe.clone(), &device)?;
             model.simple_train(subset, &device, LR)?;
 
             match per_epoch_scores(&model, &device) {
-                Ok((l2, l3, qa)) => {
+                Ok((l2, l3, qa, json)) => {
                     let entry = serde_json::json!({
                         "Model_ID": model.model_id,
                         "Corpus_Rate": rate,
@@ -200,6 +210,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "Self_Test_Score_L2": l2,
                         "Self_Test_Score_L3": l3,
                         "QA_Test_Score": qa,
+                        "JSON_Test_Score": json,
                     });
                     if let Ok(mut f) = std::fs::OpenOptions::new()
                         .create(true)
@@ -210,8 +221,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = writeln!(f, "{}", serde_json::to_string(&entry).unwrap());
                     }
                     println!(
-                        "sweep result: rate={:.0}% tokens={} L2={:.3} L3={:.3} QA={:.3}",
-                        rate * 100.0, n, l2, l3, qa
+                        "sweep result: rate={:.0}% tokens={} L2={:.3} L3={:.3} QA={:.3} JSON={:.3}",
+                        rate * 100.0,
+                        n,
+                        l2,
+                        l3,
+                        qa,
+                        json
                     );
                 }
                 Err(e) => eprintln!("sweep score failed for rate={:.0}%: {}", rate * 100.0, e),
@@ -221,6 +237,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, self_test, qa_test, test_all, print_results, sweep-lr, sweep-corpus");
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus");
     Ok(())
 }
