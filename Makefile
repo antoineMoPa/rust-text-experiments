@@ -28,3 +28,6 @@ epoch_stats:
 	@(printf '%s\t%s\t%s\t%s\t%s\n' Epoch LR L2 L3 QA; tail -n +2 per_epoch_stats.log | jq -r '[.Epoch, .LR, .Self_Test_Score_L2, .Self_Test_Score_L3, .QA_Test_Score] | @tsv')
 param_count:
 	$(args) cargo run --release param_count
+clean:
+	rm -f *.log
+	rm -f *.json
