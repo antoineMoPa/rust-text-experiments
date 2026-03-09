@@ -15,6 +15,7 @@ mod grad_accum;
 mod layer_norm;
 mod model_tests;
 mod models;
+mod runpod;
 mod token_utils;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -110,6 +111,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print!("{}", pred);
         }
 
+        return Ok(());
+    }
+
+    if command == "tokenize" {
+        let input = args[1..].join(" ");
+        let bpe = crate::token_utils::Bpe::load("data/model.bpe")
+            .unwrap_or_else(|_| crate::token_utils::Bpe::new_empty());
+        let tokens = bpe.tokenize(&input);
+        println!("{:?}", tokens);
         return Ok(());
     }
 
@@ -237,6 +247,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus");
+    if command == "send_to_runpod" {
+        let machine_type = args
+            .iter()
+            .position(|a| a == "--machine-type")
+            .and_then(|i| args.get(i + 1))
+            .expect("Usage: send_to_runpod --machine-type <GPU_TYPE>");
+        runpod::send_to_runpod(machine_type)?;
+        return Ok(());
+    }
+
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, send_to_runpod");
     Ok(())
 }

@@ -35,3 +35,4 @@ param_count:
 clean:
 	rm -f *.log
 	rm -f *.json
+	rm -f data/*.bpe
