@@ -8,10 +8,8 @@ use std::process::Command;
 // ---------------------------------------------------------------------------
 
 pub fn load_env() -> HashMap<String, String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let path = format!("{}/.env", home);
     let mut map = HashMap::new();
-    let Ok(content) = fs::read_to_string(&path) else {
+    let Ok(content) = fs::read_to_string(".env") else {
         return map;
     };
     for line in content.lines() {
@@ -26,10 +24,10 @@ pub fn load_env() -> HashMap<String, String> {
     map
 }
 
-fn require(env: &HashMap<String, String>, key: &str) -> Result<String, Box<dyn Error>> {
+pub fn require(env: &HashMap<String, String>, key: &str) -> Result<String, Box<dyn Error>> {
     env.get(key)
         .cloned()
-        .ok_or_else(|| format!("Missing required env var: {} (add to ~/.env)", key).into())
+        .ok_or_else(|| format!("Missing required env var: {} (add to .env)", key).into())
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +75,7 @@ Subcommands:
   upload    Upload data/ to HuggingFace
   download  Download data/ from HuggingFace
 
-Required env vars in ~/.env:
+Required env vars in .env:
   HF_TOKEN  HuggingFace token with write access
   HF_REPO   HuggingFace repo ID (e.g. you/rust-text-model)"
     );

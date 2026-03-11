@@ -9,34 +9,7 @@ use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
 
-// ---------------------------------------------------------------------------
-// Env loading
-// ---------------------------------------------------------------------------
-
-fn load_env() -> HashMap<String, String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let path = format!("{}/.env", home);
-    let mut map = HashMap::new();
-    let Ok(content) = fs::read_to_string(&path) else {
-        return map;
-    };
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some((k, v)) = line.split_once('=') {
-            map.insert(k.trim().to_string(), v.trim().to_string());
-        }
-    }
-    map
-}
-
-fn require(env: &HashMap<String, String>, key: &str) -> Result<String, Box<dyn Error>> {
-    env.get(key)
-        .cloned()
-        .ok_or_else(|| format!("Missing required env var: {} (add to ~/.env)", key).into())
-}
+use crate::hf::{load_env, require};
 
 // ---------------------------------------------------------------------------
 // Config
@@ -303,6 +276,9 @@ echo "=== Train ==="
 echo "=== Test ==="
 ./target/release/rust-text-experiments test_all 2>&1 | tee /tmp/test.log
 
+echo "=== Results ==="
+./target/release/rust-text-experiments print_results 2>&1 | tee data/results.txt
+
 echo "=== Upload to HuggingFace ==="
 pip install -q huggingface_hub
 hf upload "$HF_REPO" ./data/ . --repo-type model
@@ -328,7 +304,7 @@ Subcommands:
 
 If <job_id> is omitted, the most recent job in runpod_jobs/ is used.
 
-Required env vars in ~/.env:
+Required env vars in .env:
   RUNPOD_API_KEY      RunPod API key
   GIT_REPO_URL        Git repo URL (e.g. https://github.com/you/rust-text-experiments)
   HF_TOKEN            HuggingFace token with write access

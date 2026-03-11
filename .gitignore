@@ -11,3 +11,5 @@ tracing*.svg
 test_results.json
 training_log.json
 model.id
+.env
+runpod_jobs
