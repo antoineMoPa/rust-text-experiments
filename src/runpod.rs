@@ -251,8 +251,9 @@ echo "=== RunPod job starting ==="
 apt-get update -qq && apt-get install -y time 2>&1 | tail -1
 
 # Clone source at the exact branch + commit we were sent from
-git clone --branch "$GIT_BRANCH" "$GIT_REPO_URL" /workspace/project
-cd /workspace/project
+WORKDIR=$(mktemp -d)
+git clone --branch "$GIT_BRANCH" "$GIT_REPO_URL" "$WORKDIR"
+cd "$WORKDIR"
 git submodule update --init --recursive
 cd smoll-generated-corpus && bash make_corpus.sh && cd ..
 
