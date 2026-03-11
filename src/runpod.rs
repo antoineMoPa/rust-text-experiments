@@ -246,6 +246,12 @@ fn make_startup_script() -> &'static str {
     r#"#!/bin/bash
 set -euo pipefail
 
+on_error() {
+    echo "=== FATAL ERROR at line $1 — stopping ==="
+    exit 0  # exit 0 so RunPod doesn't restart the container
+}
+trap 'on_error $LINENO' ERR
+
 echo "=== RunPod job starting ==="
 
 apt-get update -qq && apt-get install -y time 2>&1 | tail -1
