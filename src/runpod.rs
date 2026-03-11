@@ -277,7 +277,6 @@ if ! command -v cargo &>/dev/null; then
     source "$HOME/.cargo/env"
 fi
 
-echo "=== Build ==="
 # candle-kernels doesn't support sm_120 (Blackwell) yet — compile for sm_89 (Ada),
 # CUDA will JIT the PTX to run on newer architectures.
 CUDA_COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.' | awk '{if ($1+0 > 90) print 89; else print $1}')
@@ -287,7 +286,6 @@ echo "Using CUDA_COMPUTE_CAP=$CUDA_COMPUTE_CAP"
 mkdir -p /workspace/.cargo /workspace/target
 export CARGO_HOME=/workspace/.cargo
 export CARGO_TARGET_DIR=/workspace/target
-RUSTFLAGS="-C linker=gcc" cargo build --release --features flash-attn 2>&1 | tee /tmp/build.log
 
 echo "=== Train ==="
 make clean train-flash 2>&1 | tee /tmp/train.log

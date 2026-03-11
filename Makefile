@@ -7,7 +7,7 @@ train:
 	$(args) nohup time cargo run --release train 2>&1 | tee train_log.log
 train-flash:
 	mkdir -p data
-	$(args) nohup time cargo run --release --features flash-attn train 2>&1 | tee train_log.log
+	$(args) nohup time RUSTFLAGS="-C linker=gcc" cargo run --release --features flash-attn train 2>&1 | tee train_log.log
 merge:
 	$(time cargo run --release merge 2>&1
 print_stats:
