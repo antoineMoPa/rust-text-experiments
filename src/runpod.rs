@@ -272,13 +272,13 @@ echo "=== Build ==="
 RUSTFLAGS="-C linker=gcc" cargo build --release 2>&1 | tee /tmp/build.log
 
 echo "=== Train ==="
-./target/release/rust-text-experiments train 2>&1 | tee /tmp/train.log
+make clean train 2>&1 | tee /tmp/train.log
 
 echo "=== Test ==="
-./target/release/rust-text-experiments test_all 2>&1 | tee /tmp/test.log
+make test_model 2>&1 | tee /tmp/test.log
 
 echo "=== Results ==="
-./target/release/rust-text-experiments print_results 2>&1 | tee data/results.txt
+make results 2>&1 | tee data/results.txt
 
 echo "=== Upload to HuggingFace ==="
 pip install -q huggingface_hub
