@@ -10,7 +10,17 @@ fn main() {
 
 #[cfg(not(target_os = "macos"))]
 fn detect_sm() -> String {
-    // Ask nvidia-smi for the compute capability of the first GPU (e.g. "7.5" -> "sm_75").
+    println!("cargo:rerun-if-env-changed=CUDA_COMPUTE_CAP");
+
+    // Respect CUDA_COMPUTE_CAP if set (e.g. capped by startup script for unsupported archs)
+    if let Ok(cap) = std::env::var("CUDA_COMPUTE_CAP") {
+        let cap = cap.trim().replace('.', "");
+        if !cap.is_empty() {
+            return format!("sm_{}", cap);
+        }
+    }
+
+    // Fall back to nvidia-smi detection
     let out = std::process::Command::new("nvidia-smi")
         .args(["--query-gpu=compute_cap", "--format=csv,noheader"])
         .output();

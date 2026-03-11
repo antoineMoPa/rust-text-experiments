@@ -291,10 +291,10 @@ echo "=== Train ==="
 make clean train-flash 2>&1 | tee /tmp/train.log
 
 echo "=== Test ==="
-make test_model 2>&1 | tee /tmp/test.log
+make test_model features=flash-attn 2>&1 | tee /tmp/test.log
 
 echo "=== Results ==="
-make results 2>&1 | tee data/results.txt
+make results features=flash-attn 2>&1 | tee data/results.txt
 
 echo "=== Upload to HuggingFace ==="
 pip install -q huggingface_hub

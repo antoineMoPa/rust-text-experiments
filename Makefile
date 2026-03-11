@@ -1,4 +1,5 @@
 args = RUST_BACKTRACE=1
+features ?=
 
 run:
 	$(args) cargo run --release run
@@ -19,13 +20,13 @@ profile:
 dump_loss:
 	cat train_log.log  | grep Loss | sed "s/Epoch    //g" | sed "s/\/.* Loss = /\t/g"
 test_model:
-	$(args) cargo run --release test_all
+	$(args) cargo run --release $(if $(features),--features $(features),) test_all
 qa_test:
-	$(args) cargo run --release qa_test
+	$(args) cargo run --release $(if $(features),--features $(features),) qa_test
 json_test:
-	$(args) cargo run --release json_test
+	$(args) cargo run --release $(if $(features),--features $(features),) json_test
 results:
-	$(args) cargo run --release print_results
+	$(args) cargo run --release $(if $(features),--features $(features),) print_results
 sweep_lr:
 	mkdir -p data
 	$(args) nohup time cargo run --release sweep-lr 2>&1 | tee sweep_log.log
