@@ -15,6 +15,7 @@ mod grad_accum;
 mod layer_norm;
 mod model_tests;
 mod models;
+mod hf;
 mod runpod;
 mod token_utils;
 
@@ -247,16 +248,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if command == "send_to_runpod" {
-        let machine_type = args
-            .iter()
-            .position(|a| a == "--machine-type")
-            .and_then(|i| args.get(i + 1))
-            .expect("Usage: send_to_runpod --machine-type <GPU_TYPE>");
-        runpod::send_to_runpod(machine_type)?;
+    if command == "hf" {
+        let sub = args.get(1).map(|s| s.as_str()).unwrap_or("help");
+        match sub {
+            "upload" => hf::cmd_upload()?,
+            "download" => hf::cmd_download()?,
+            _ => hf::print_help(),
+        }
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, send_to_runpod");
+    if command == "runpod" {
+        let sub = args.get(1).map(|s| s.as_str()).unwrap_or("help");
+        match sub {
+            "help" | "--help" => runpod::print_help(),
+            "send" => {
+                let machine_type = args
+                    .iter()
+                    .position(|a| a == "--machine-type")
+                    .and_then(|i| args.get(i + 1))
+                    .map(|s| s.as_str())
+                    .unwrap_or("NVIDIA GeForce RTX 4090");
+                runpod::send_job(machine_type)?;
+            }
+            "list" => runpod::list_pods()?,
+            "status" => runpod::status_job(args.get(2).map(|s| s.as_str()))?,
+            "stop" => {
+                let all = args.iter().any(|a| a == "--all");
+                let id = if all { None } else { args.get(2).map(|s| s.as_str()) };
+                runpod::stop_job(id, all)?;
+            }
+            "fetch" => runpod::fetch_job(args.get(2).map(|s| s.as_str()))?,
+            "test-hf" => runpod::test_hf_upload()?,
+            other => {
+                eprintln!("Unknown runpod subcommand: '{}'. Run 'runpod help' for usage.", other);
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
+
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, runpod");
     Ok(())
 }
