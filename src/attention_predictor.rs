@@ -20,13 +20,13 @@ use nn::{VarBuilder, VarMap};
 
 // smoll
 const EMBEDDING_SIZE: usize = 256;
-const CONTEXT_WINDOW: usize = 128;
+const CONTEXT_WINDOW: usize = 256;
 const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
-const FFN_HIDDEN: usize = 512;
+const FFN_HIDDEN: usize = 2048;
 const NUM_BLOCKS: usize = 2;
 pub const FILE_PATH: &str = "smoll-generated-corpus/level_5/corpus.corpus";
-pub const LR: f64 = 0.008;
+pub const LR: f64 = 0.01;
 const WARMUP_BATCHES: usize = 600;
 const EPOCHS: u32 = 6;
 const TOKEN_BATCH_SIZE: usize = 256;
