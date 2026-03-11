@@ -268,7 +268,7 @@ if ! command -v cargo &>/dev/null; then
 fi
 
 echo "=== Build ==="
-cargo build --release 2>&1 | tee /tmp/build.log
+RUSTFLAGS="-C linker=gcc" cargo build --release 2>&1 | tee /tmp/build.log
 
 echo "=== Train ==="
 ./target/release/rust-text-experiments train 2>&1 | tee /tmp/train.log
