@@ -1,6 +1,11 @@
 fn main() {
     #[cfg(not(target_os = "macos"))]
-    compile_cuda_kernels();
+    {
+        let has_flash_attn = std::env::var("CARGO_FEATURE_FLASH_ATTN").is_ok();
+        if !has_flash_attn {
+            compile_cuda_kernels();
+        }
+    }
 }
 
 #[cfg(not(target_os = "macos"))]

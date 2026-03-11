@@ -2,7 +2,7 @@ use candle_core::Tensor;
 use candle_nn::{self as nn, Module};
 use nn::VarBuilder;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), not(feature = "flash-attn")))]
 use crate::flash_attn_op::flash_attn;
 
 use crate::layer_norm::LayerNorm;
@@ -127,11 +127,19 @@ impl AttentionBlock {
         let v = qkv.narrow(2, emb * 2, emb)?;
 
         // Attention: [batch, seq, emb] -> [batch, seq, emb]
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(all(not(target_os = "macos"), feature = "flash-attn"))]
+        let result = {
+            // candle-flash-attn expects [batch, seq, heads, d_head] (seq-major).
+            let q = q.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
+            let k = k.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
+            let v = v.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
+            candle_flash_attn::flash_attn(&q, &k, &v, scale as f32, true)?
+                .reshape((batch_size, seq, emb))?
+        };
+
+        #[cfg(all(not(target_os = "macos"), not(feature = "flash-attn")))]
         let result = {
             // Our homebrew flash_attn expects [batch, heads, seq, d_head] f32 (heads-first).
-            // transpose(1, 2) on [batch, seq, heads, d_head] -> [batch, heads, seq, d_head],
-            // giving stride_s = d_head (9 floats) in the inner K/V loop instead of heads*d_head.
             let q = q
                 .reshape((batch_size, seq, num_heads, d_head))?
                 .transpose(1, 2)?
