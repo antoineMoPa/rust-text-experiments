@@ -22,12 +22,12 @@ use nn::{VarBuilder, VarMap};
 const EMBEDDING_SIZE: usize = 256;
 const CONTEXT_WINDOW: usize = 256;
 const NUM_ATTENTION_HEADS: usize = 8;
-const FFN_HIDDEN: usize = 1024;
+const FFN_HIDDEN: usize = 2048;
 const NUM_BLOCKS: usize = 2;
 pub const FILE_PATH: &str = "smoll-generated-corpus/level_5/corpus.corpus";
 pub const LR: f64 = 0.01;
 const WARMUP_BATCHES: usize = 600;
-const EPOCHS: u32 = 6;
+const EPOCHS: u32 = 1;
 const TOKEN_BATCH_SIZE: usize = 256;
 const MICRO_BATCH_SIZE: usize = 256;
 
@@ -159,7 +159,6 @@ impl Model {
         let embedded = self.embedding.forward(input_ids)?;
         // Add positional encoding once before the attention blocks
         let embedded = embedded.broadcast_add(self.blocks[0].position_encoding())?;
-        let batch_size = embedded.dim(0)?;
 
         let mut result = embedded;
 
