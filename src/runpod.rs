@@ -249,8 +249,8 @@ set -euo pipefail
 echo "=== RunPod job starting ==="
 
 # Clone source at the exact branch + commit we were sent from
-git clone --branch "$GIT_BRANCH" "$GIT_REPO_URL" /workspace
-cd /workspace
+git clone --branch "$GIT_BRANCH" "$GIT_REPO_URL" /workspace/project
+cd /workspace/project
 git submodule update --init --recursive
 
 # Verify we have the exact commit that was sent
