@@ -283,6 +283,10 @@ echo "=== Build ==="
 CUDA_COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.' | awk '{if ($1+0 > 90) print 89; else print $1}')
 export CUDA_COMPUTE_CAP
 echo "Using CUDA_COMPUTE_CAP=$CUDA_COMPUTE_CAP"
+# Persist cargo registry and build cache in /workspace so re-runs skip recompiling dependencies
+mkdir -p /workspace/.cargo /workspace/target
+export CARGO_HOME=/workspace/.cargo
+export CARGO_TARGET_DIR=/workspace/target
 RUSTFLAGS="-C linker=gcc" cargo build --release --features flash-attn 2>&1 | tee /tmp/build.log
 
 echo "=== Train ==="
