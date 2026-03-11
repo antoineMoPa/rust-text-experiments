@@ -8,17 +8,18 @@ use std::process::Command;
 // ---------------------------------------------------------------------------
 
 pub fn load_env() -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    let Ok(content) = fs::read_to_string(".env") else {
-        return map;
-    };
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some((k, v)) = line.split_once('=') {
-            map.insert(k.trim().to_string(), v.trim().to_string());
+    // Start with actual environment variables
+    let mut map: HashMap<String, String> = std::env::vars().collect();
+    // .env file overrides (local dev)
+    if let Ok(content) = fs::read_to_string(".env") {
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((k, v)) = line.split_once('=') {
+                map.insert(k.trim().to_string(), v.trim().to_string());
+            }
         }
     }
     map

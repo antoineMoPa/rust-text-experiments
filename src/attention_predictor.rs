@@ -21,9 +21,8 @@ use nn::{VarBuilder, VarMap};
 // smoll
 const EMBEDDING_SIZE: usize = 256;
 const CONTEXT_WINDOW: usize = 256;
-const INPUT_SIZE: usize = EMBEDDING_SIZE * CONTEXT_WINDOW;
 const NUM_ATTENTION_HEADS: usize = 8;
-const FFN_HIDDEN: usize = 2048;
+const FFN_HIDDEN: usize = 1024;
 const NUM_BLOCKS: usize = 2;
 pub const FILE_PATH: &str = "smoll-generated-corpus/level_5/corpus.corpus";
 pub const LR: f64 = 0.01;
@@ -99,7 +98,6 @@ impl Model {
 
         for b in 0..NUM_BLOCKS {
             let config: AttentionBlockConfig = AttentionBlockConfig {
-                input_size: INPUT_SIZE,
                 num_attention_heads: NUM_ATTENTION_HEADS,
                 context_window: CONTEXT_WINDOW,
                 embedding_size: EMBEDDING_SIZE,
@@ -161,18 +159,15 @@ impl Model {
         let embedded = self.embedding.forward(input_ids)?;
         // Add positional encoding once before the attention blocks
         let embedded = embedded.broadcast_add(self.blocks[0].position_encoding())?;
-        // Flatten: [batch, CONTEXT_WINDOW * EMBEDDING_SIZE] = [batch, INPUT_SIZE]
         let batch_size = embedded.dim(0)?;
-        let input = embedded.reshape((batch_size, INPUT_SIZE))?;
 
-        let mut result = input.clone();
+        let mut result = embedded;
 
         for block in self.blocks.iter() {
             result = block.forward(&result, train)?;
         }
 
         // Take last token's representation: [batch, emb]
-        let result = result.reshape((batch_size, CONTEXT_WINDOW, EMBEDDING_SIZE))?;
         let result = result
             .narrow(1, CONTEXT_WINDOW - 1, 1)?
             .squeeze(1)?

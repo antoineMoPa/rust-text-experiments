@@ -21,7 +21,6 @@ pub struct AttentionBlock {
 }
 
 pub struct AttentionBlockConfig {
-    pub input_size: usize,
     pub num_attention_heads: usize,
     pub context_window: usize,
     pub embedding_size: usize,
@@ -110,13 +109,10 @@ impl AttentionBlock {
         let d_head = emb / num_heads;
         let scale = 1.0 / (d_head as f64).sqrt();
 
-        // Reshape [batch, seq*emb] -> [batch, seq, emb]
-        let input = input.reshape((batch_size, seq, emb))?;
-
         let input = if train {
-            nn::ops::dropout(&input, 0.1)?
+            nn::ops::dropout(input, 0.1)?
         } else {
-            input
+            input.clone()
         };
 
         // Pre-norm before attention
@@ -191,9 +187,6 @@ impl AttentionBlock {
         let result = self.ffn_in.forward(&normed2)?.gelu()?;
         let result = self.ffn_out.forward(&result)?;
         let result = (result + ffn_residual)?;
-
-        // Flatten back: [batch, seq*emb]
-        let result = result.reshape((batch_size, self.config.input_size))?;
 
         Ok(result)
     }
