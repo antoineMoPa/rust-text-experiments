@@ -337,12 +337,13 @@ fn check_git_pushed() -> Result<(String, String), Box<dyn Error>> {
         .output()?;
     let local = String::from_utf8(local.stdout)?.trim().to_string();
 
+    let remote_ref = format!("origin/{}", branch);
     let upstream = Command::new("git")
-        .args(["rev-parse", "@{u}"])
+        .args(["rev-parse", &remote_ref])
         .output()?;
     if !upstream.status.success() {
         return Err(format!(
-            "Branch '{}' has no upstream. Push it first: git push -u origin {}",
+            "Branch '{}' not found on origin. Push it first: git push origin {}",
             branch, branch
         ).into());
     }
