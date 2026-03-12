@@ -2,7 +2,7 @@ use attention_predictor::{create_model, get_pretrained_dict};
 use candle_core::Var;
 
 use crate::{
-    attention_predictor::{get_device, load_vocab, Model, FILE_PATH, LR},
+    attention_predictor::{get_device, load_vocab, Model, TrainConfig},
     model_tests::{json_test, per_epoch_scores, print_results, qa_test, self_test, test_all},
     token_utils::STOP_TOKEN,
 };
@@ -44,13 +44,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Training new model");
 
         let device = get_device()?;
-        let (dict, tokens, bpe) = get_pretrained_dict(FILE_PATH)?;
-        let mut model = create_model(&dict, bpe, &device)?;
+        let config = TrainConfig::from_env();
+        let lr = config.lr;
+        let file_path = config.file_path.clone();
+        let (dict, tokens, bpe) = get_pretrained_dict(&file_path)?;
+        let mut model = create_model(&dict, bpe, &device, config)?;
         model.save_to_path("data/model");
 
         println!("Training on {} tokens", tokens.len());
 
-        model.simple_train(tokens, &device, LR)?;
+        model.simple_train(tokens, &device, lr)?;
         model.save_to_path("data/model");
 
         return Ok(());
@@ -150,7 +153,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if command == "sweep-lr" {
-        let (dict, tokens, bpe) = get_pretrained_dict(FILE_PATH)?;
+        let config = TrainConfig::from_env();
+        let file_path = config.file_path.clone();
+        let (dict, tokens, bpe) = get_pretrained_dict(&file_path)?;
 
         // 12 log-spaced LRs from 3e-4 to 1e-2
         let n = 12usize;
@@ -162,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         for lr in lrs {
             println!("=== sweep-lr: LR = {:.2e} ===", lr);
-            let mut model = create_model(&dict, bpe.clone(), &device)?;
+            let mut model = create_model(&dict, bpe.clone(), &device, config.clone())?;
             model.simple_train(tokens.clone(), &device, lr)?;
 
             match per_epoch_scores(&model, &device) {
@@ -196,7 +201,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if command == "sweep-corpus" {
-        let (dict, tokens, bpe) = get_pretrained_dict(FILE_PATH)?;
+        let config = TrainConfig::from_env();
+        let lr = config.lr;
+        let file_path = config.file_path.clone();
+        let (dict, tokens, bpe) = get_pretrained_dict(&file_path)?;
 
         // 10 evenly-spaced rates: 100%, 90%, ..., 10%
         let rates: Vec<f64> = (1..=10).rev().map(|i| i as f64 * 0.1).collect();
@@ -209,8 +217,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 rate * 100.0,
                 n
             );
-            let mut model = create_model(&dict, bpe.clone(), &device)?;
-            model.simple_train(subset, &device, LR)?;
+            let mut model = create_model(&dict, bpe.clone(), &device, config.clone())?;
+            model.simple_train(subset, &device, lr)?;
 
             match per_epoch_scores(&model, &device) {
                 Ok((l2, l3, qa, json)) => {
@@ -264,13 +272,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match sub {
             "help" | "--help" => runpod::print_help(),
             "send" => {
-                let machine_type = args
-                    .iter()
-                    .position(|a| a == "--machine-type")
-                    .and_then(|i| args.get(i + 1))
-                    .map(|s| s.as_str())
-                    .unwrap_or("NVIDIA GeForce RTX 4090");
-                runpod::send_job(machine_type)?;
+                fn flag_str<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+                    args.iter()
+                        .position(|a| a == flag)
+                        .and_then(|i| args.get(i + 1))
+                        .map(|s| s.as_str())
+                }
+                fn flag_usize(args: &[String], flag: &str) -> Option<usize> {
+                    flag_str(args, flag).and_then(|v| v.parse().ok())
+                }
+                fn flag_f64(args: &[String], flag: &str) -> Option<f64> {
+                    flag_str(args, flag).and_then(|v| v.parse().ok())
+                }
+                fn flag_u32(args: &[String], flag: &str) -> Option<u32> {
+                    flag_str(args, flag).and_then(|v| v.parse().ok())
+                }
+
+                let machine_type = flag_str(&args, "--machine-type")
+                    .unwrap_or("NVIDIA GeForce RTX 4090")
+                    .to_string();
+
+                // Build config: start from env defaults, then override with CLI flags
+                let mut config = TrainConfig::from_env();
+                if let Some(v) = flag_usize(&args, "--embedding-size")    { config.embedding_size = v; }
+                if let Some(v) = flag_usize(&args, "--context-window")    { config.context_window = v; }
+                if let Some(v) = flag_usize(&args, "--num-heads")         { config.num_attention_heads = v; }
+                if let Some(v) = flag_usize(&args, "--ffn-hidden")        { config.ffn_hidden = v; }
+                if let Some(v) = flag_usize(&args, "--num-blocks")        { config.num_blocks = v; }
+                if let Some(v) = flag_str(&args, "--file-path")           { config.file_path = v.to_string(); }
+                if let Some(v) = flag_f64(&args, "--lr")                  { config.lr = v; }
+                if let Some(v) = flag_usize(&args, "--warmup-batches")    { config.warmup_batches = v; }
+                if let Some(v) = flag_u32(&args, "--epochs")              { config.epochs = v; }
+                if let Some(v) = flag_usize(&args, "--batch-size")        { config.token_batch_size = v; }
+                if let Some(v) = flag_usize(&args, "--micro-batch-size")  { config.micro_batch_size = v; }
+
+                runpod::send_job(runpod::SendParams { machine_type, config })?;
             }
             "list" => runpod::list_pods()?,
             "status" => runpod::status_job(args.get(2).map(|s| s.as_str()))?,

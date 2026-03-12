@@ -2,6 +2,7 @@ use rand::distributions::{Alphanumeric, WeightedIndex};
 use rand::prelude::Distribution;
 use rand::seq::SliceRandom;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::{fs, io::Error};
 
 use crate::grad_accum::AccumAdamW;
@@ -18,20 +19,94 @@ use candle_nn::{self as nn, Module};
 use colored::Colorize;
 use nn::{VarBuilder, VarMap};
 
-// smoll
-const EMBEDDING_SIZE: usize = 256;
-const CONTEXT_WINDOW: usize = 128;
-const NUM_ATTENTION_HEADS: usize = 8;
-const FFN_HIDDEN: usize = 512;
-const NUM_BLOCKS: usize = 2;
-pub const FILE_PATH: &str = "smoll-generated-corpus/level_5/corpus.corpus";
-pub const LR: f64 = 0.01;
-const WARMUP_BATCHES: usize = 600;
-const EPOCHS: u32 = 1;
-const TOKEN_BATCH_SIZE: usize = 256;
-const MICRO_BATCH_SIZE: usize = 256;
-
 const NOT_FOUND: &str = "<notfound>";
+
+// ---------------------------------------------------------------------------
+// TrainConfig — all hyperparameters, readable from environment variables
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainConfig {
+    pub embedding_size: usize,
+    pub context_window: usize,
+    pub num_attention_heads: usize,
+    pub ffn_hidden: usize,
+    pub num_blocks: usize,
+    pub file_path: String,
+    pub lr: f64,
+    pub warmup_batches: usize,
+    pub epochs: u32,
+    pub token_batch_size: usize,
+    pub micro_batch_size: usize,
+}
+
+impl Default for TrainConfig {
+    fn default() -> Self {
+        Self {
+            embedding_size: 256,
+            context_window: 128,
+            num_attention_heads: 8,
+            ffn_hidden: 512,
+            num_blocks: 2,
+            file_path: "smoll-generated-corpus/level_5/corpus.corpus".to_string(),
+            lr: 0.01,
+            warmup_batches: 600,
+            epochs: 1,
+            token_batch_size: 256,
+            micro_batch_size: 256,
+        }
+    }
+}
+
+impl TrainConfig {
+    pub fn from_env() -> Self {
+        let d = Self::default();
+        Self {
+            embedding_size: env_usize("EMBEDDING_SIZE", d.embedding_size),
+            context_window: env_usize("CONTEXT_WINDOW", d.context_window),
+            num_attention_heads: env_usize("NUM_ATTENTION_HEADS", d.num_attention_heads),
+            ffn_hidden: env_usize("FFN_HIDDEN", d.ffn_hidden),
+            num_blocks: env_usize("NUM_BLOCKS", d.num_blocks),
+            file_path: std::env::var("FILE_PATH").unwrap_or(d.file_path),
+            lr: env_f64("LR", d.lr),
+            warmup_batches: env_usize("WARMUP_BATCHES", d.warmup_batches),
+            epochs: env_usize("EPOCHS", d.epochs as usize) as u32,
+            token_batch_size: env_usize("TOKEN_BATCH_SIZE", d.token_batch_size),
+            micro_batch_size: env_usize("MICRO_BATCH_SIZE", d.micro_batch_size),
+        }
+    }
+
+    /// Print the config as env-var export lines (for display / scripts).
+    pub fn to_env_lines(&self) -> Vec<String> {
+        vec![
+            format!("EMBEDDING_SIZE={}", self.embedding_size),
+            format!("CONTEXT_WINDOW={}", self.context_window),
+            format!("NUM_ATTENTION_HEADS={}", self.num_attention_heads),
+            format!("FFN_HIDDEN={}", self.ffn_hidden),
+            format!("NUM_BLOCKS={}", self.num_blocks),
+            format!("FILE_PATH={}", self.file_path),
+            format!("LR={}", self.lr),
+            format!("WARMUP_BATCHES={}", self.warmup_batches),
+            format!("EPOCHS={}", self.epochs),
+            format!("TOKEN_BATCH_SIZE={}", self.token_batch_size),
+            format!("MICRO_BATCH_SIZE={}", self.micro_batch_size),
+        ]
+    }
+}
+
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+fn env_f64(key: &str, default: f64) -> f64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
 
 pub struct Model {
     pub blocks: Vec<AttentionBlock>,
@@ -46,6 +121,7 @@ pub struct Model {
     pub device: Device,
     pub model_id: String,
     pub bpe: Bpe,
+    pub config: TrainConfig,
 }
 
 fn is_oom_error(e: &CandleError) -> bool {
@@ -64,10 +140,11 @@ impl Model {
         var_map: VarMap,
         vb: VarBuilder,
         device: &Device,
+        config: TrainConfig,
     ) -> Result<Self, candle_core::Error> {
-        if EMBEDDING_SIZE % NUM_ATTENTION_HEADS != 0 {
-            for i in 1..(EMBEDDING_SIZE / 2) {
-                if EMBEDDING_SIZE % i == 0 {
+        if config.embedding_size % config.num_attention_heads != 0 {
+            for i in 1..(config.embedding_size / 2) {
+                if config.embedding_size % i == 0 {
                     println!(
                         "Possible num attention heads for this embedding size: {}",
                         i
@@ -77,7 +154,7 @@ impl Model {
             for i in 1..10 {
                 println!(
                     "Possible embedding size for this num attention heads: {}",
-                    i * NUM_ATTENTION_HEADS
+                    i * config.num_attention_heads
                 );
             }
 
@@ -96,22 +173,22 @@ impl Model {
 
         let mut blocks = Vec::new();
 
-        for b in 0..NUM_BLOCKS {
-            let config: AttentionBlockConfig = AttentionBlockConfig {
-                num_attention_heads: NUM_ATTENTION_HEADS,
-                context_window: CONTEXT_WINDOW,
-                embedding_size: EMBEDDING_SIZE,
-                ffn_hidden: FFN_HIDDEN,
+        for b in 0..config.num_blocks {
+            let block_config = AttentionBlockConfig {
+                num_attention_heads: config.num_attention_heads,
+                context_window: config.context_window,
+                embedding_size: config.embedding_size,
+                ffn_hidden: config.ffn_hidden,
             };
 
-            let block = AttentionBlock::new(config, vb.push_prefix(&format!("block_{}", b)))?;
+            let block = AttentionBlock::new(block_config, vb.push_prefix(&format!("block_{}", b)))?;
             blocks.push(block);
         }
 
-        let embedding = nn::embedding(vocab_size, EMBEDDING_SIZE, vb.pp("embedding"))?;
-        let pre_proj_norm = LayerNorm::new(EMBEDDING_SIZE, 1e-5, vb.pp("pre_proj_norm"))?;
-        let pre_proj_in = nn::linear_b(EMBEDDING_SIZE, FFN_HIDDEN, true, vb.pp("pre_proj_in"))?;
-        let pre_proj_out = nn::linear_b(FFN_HIDDEN, EMBEDDING_SIZE, true, vb.pp("pre_proj_out"))?;
+        let embedding = nn::embedding(vocab_size, config.embedding_size, vb.pp("embedding"))?;
+        let pre_proj_norm = LayerNorm::new(config.embedding_size, 1e-5, vb.pp("pre_proj_norm"))?;
+        let pre_proj_in = nn::linear_b(config.embedding_size, config.ffn_hidden, true, vb.pp("pre_proj_in"))?;
+        let pre_proj_out = nn::linear_b(config.ffn_hidden, config.embedding_size, true, vb.pp("pre_proj_out"))?;
 
         println!(
             "Vocab, Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR, Batch Size"
@@ -119,14 +196,14 @@ impl Model {
         let output = format!(
             "{}, {}, {}, {}, {}, {}, {}, {}, {}",
             vocab_size,
-            EMBEDDING_SIZE,
-            CONTEXT_WINDOW,
-            EPOCHS,
-            FFN_HIDDEN,
-            NUM_BLOCKS,
-            NUM_ATTENTION_HEADS,
-            LR,
-            TOKEN_BATCH_SIZE
+            config.embedding_size,
+            config.context_window,
+            config.epochs,
+            config.ffn_hidden,
+            config.num_blocks,
+            config.num_attention_heads,
+            config.lr,
+            config.token_batch_size
         );
         println!("{}", output.on_white().black());
 
@@ -149,6 +226,7 @@ impl Model {
             device: device.clone(),
             model_id,
             bpe,
+            config,
         })
     }
 
@@ -168,7 +246,7 @@ impl Model {
 
         // Take last token's representation: [batch, emb]
         let result = result
-            .narrow(1, CONTEXT_WINDOW - 1, 1)?
+            .narrow(1, self.config.context_window - 1, 1)?
             .squeeze(1)?
             .contiguous()?;
 
@@ -196,12 +274,13 @@ impl Model {
     }
 
     pub fn run(&self, input_ids: &Vec<u32>, device: &Device) -> Result<String, candle_core::Error> {
-        let ids: Vec<u32> = if input_ids.len() > CONTEXT_WINDOW {
-            let start = input_ids.len() - CONTEXT_WINDOW;
+        let cw = self.config.context_window;
+        let ids: Vec<u32> = if input_ids.len() > cw {
+            let start = input_ids.len() - cw;
             input_ids[start..].to_vec()
         } else {
             let pad_id = self.token_to_id(" ");
-            let mut padded = vec![pad_id; CONTEXT_WINDOW - input_ids.len()];
+            let mut padded = vec![pad_id; cw - input_ids.len()];
             padded.extend_from_slice(input_ids);
             padded
         };
@@ -255,12 +334,13 @@ impl Model {
         let tokens = self.bpe.tokenize(input);
         let input_ids: Vec<u32> = tokens.iter().map(|t| self.token_to_id(t)).collect();
 
-        let ids: Vec<u32> = if input_ids.len() > CONTEXT_WINDOW {
-            let start = input_ids.len() - CONTEXT_WINDOW;
+        let cw = self.config.context_window;
+        let ids: Vec<u32> = if input_ids.len() > cw {
+            let start = input_ids.len() - cw;
             input_ids[start..].to_vec()
         } else {
             let pad_id = self.token_to_id(" ");
-            let mut padded = vec![pad_id; CONTEXT_WINDOW - input_ids.len()];
+            let mut padded = vec![pad_id; cw - input_ids.len()];
             padded.extend_from_slice(&input_ids);
             padded
         };
@@ -315,9 +395,13 @@ impl Model {
         base_lr: f64,
     ) -> Result<(), candle_core::Error> {
         let start_time = std::time::Instant::now();
-        let epochs: u32 = EPOCHS;
+        let epochs = self.config.epochs;
+        let context_window = self.config.context_window;
+        let token_batch_size = self.config.token_batch_size;
+        let micro_batch_size = self.config.micro_batch_size;
+        let warmup_batches = self.config.warmup_batches;
 
-        let corpus_level = FILE_PATH
+        let corpus_level = self.config.file_path
             .split('/')
             .find_map(|s| s.strip_prefix("level_").and_then(|n| n.parse::<u32>().ok()))
             .unwrap_or(0);
@@ -337,27 +421,27 @@ impl Model {
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             corpus_level,
             self.dict.len(),
-            EMBEDDING_SIZE,
-            CONTEXT_WINDOW,
-            EPOCHS,
-            FFN_HIDDEN,
-            NUM_BLOCKS,
-            NUM_ATTENTION_HEADS,
+            self.config.embedding_size,
+            context_window,
+            epochs,
+            self.config.ffn_hidden,
+            self.config.num_blocks,
+            self.config.num_attention_heads,
             base_lr,
-            TOKEN_BATCH_SIZE
+            token_batch_size
         );
 
         let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), base_lr)?;
 
         // Convert tokens to IDs once; generate batches on-the-fly to avoid storing
-        // the full [num_samples, CONTEXT_WINDOW] tensor in RAM.
+        // the full [num_samples, context_window] tensor in RAM.
         let pad_id = self.token_to_id(" ");
         let token_ids: Vec<u32> = tokens_chain.iter().map(|t| self.token_to_id(t)).collect();
         let num_samples = token_ids.len().saturating_sub(1);
 
         let mut rng = rand::thread_rng();
         let mut global_step: usize = 0;
-        let batch_count = (num_samples + TOKEN_BATCH_SIZE - 1) / TOKEN_BATCH_SIZE;
+        let batch_count = (num_samples + token_batch_size - 1) / token_batch_size;
         let total_steps = epochs as usize * batch_count;
         let lr_min = base_lr * 0.1;
 
@@ -371,34 +455,34 @@ impl Model {
             let mut batch_timer = std::time::Instant::now();
 
             for j in 0..batch_count {
-                let batch_start = j * TOKEN_BATCH_SIZE;
-                let batch_end = (batch_start + TOKEN_BATCH_SIZE).min(num_samples);
+                let batch_start = j * token_batch_size;
+                let batch_end = (batch_start + token_batch_size).min(num_samples);
                 let batch_indices = &indices[batch_start..batch_end];
 
                 // Build inputs/targets on-the-fly from token_ids
                 let mut flat_inputs: Vec<u32> =
-                    Vec::with_capacity(batch_indices.len() * CONTEXT_WINDOW);
+                    Vec::with_capacity(batch_indices.len() * context_window);
                 let mut flat_targets: Vec<u32> = Vec::with_capacity(batch_indices.len());
                 for &idx in batch_indices {
                     let target = token_ids[idx + 1];
-                    let start = idx.saturating_sub(CONTEXT_WINDOW - 1);
+                    let start = idx.saturating_sub(context_window - 1);
                     let window = &token_ids[start..=idx];
-                    let pad_len = CONTEXT_WINDOW - window.len();
+                    let pad_len = context_window - window.len();
                     flat_inputs.extend(std::iter::repeat(pad_id).take(pad_len));
                     flat_inputs.extend_from_slice(window);
                     flat_targets.push(target);
                 }
                 let batch_size = batch_indices.len();
                 let all_inputs =
-                    Tensor::from_vec(flat_inputs, (batch_size, CONTEXT_WINDOW), &Device::Cpu)?;
+                    Tensor::from_vec(flat_inputs, (batch_size, context_window), &Device::Cpu)?;
                 let all_targets = Tensor::from_vec(flat_targets, batch_size, &Device::Cpu)?;
 
                 // Linear warmup then cosine decay
-                let lr = if global_step < WARMUP_BATCHES {
-                    base_lr * ((global_step + 1) as f64 / WARMUP_BATCHES as f64)
+                let lr = if global_step < warmup_batches {
+                    base_lr * ((global_step + 1) as f64 / warmup_batches as f64)
                 } else {
-                    let decay_steps = (total_steps - WARMUP_BATCHES).max(1);
-                    let progress = (global_step - WARMUP_BATCHES) as f64 / decay_steps as f64;
+                    let decay_steps = (total_steps - warmup_batches).max(1);
+                    let progress = (global_step - warmup_batches) as f64 / decay_steps as f64;
                     lr_min
                         + 0.5 * (base_lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
                 };
@@ -413,11 +497,11 @@ impl Model {
 
                         // Split into micro-batches for gradient accumulation
                         let num_samples = inputs.dim(0)?;
-                        let num_micro = (num_samples + MICRO_BATCH_SIZE - 1) / MICRO_BATCH_SIZE;
+                        let num_micro = (num_samples + micro_batch_size - 1) / micro_batch_size;
 
                         for m in 0..num_micro {
-                            let micro_start = m * MICRO_BATCH_SIZE;
-                            let micro_len = MICRO_BATCH_SIZE.min(num_samples - micro_start);
+                            let micro_start = m * micro_batch_size;
+                            let micro_len = micro_batch_size.min(num_samples - micro_start);
                             let micro_inputs = inputs.narrow(0, micro_start, micro_len)?;
                             let micro_targets = targets.narrow(0, micro_start, micro_len)?;
 
@@ -515,14 +599,14 @@ impl Model {
                         "Model_ID": self.model_id,
                         "Corpus_Level": corpus_level,
                         "Dict_Size": self.dict.len(),
-                        "Embedding_Size": EMBEDDING_SIZE,
-                        "Context_Window": CONTEXT_WINDOW,
+                        "Embedding_Size": self.config.embedding_size,
+                        "Context_Window": context_window,
                         "Epochs": epochs,
-                        "Hidden_Size": FFN_HIDDEN,
-                        "Num_blocks": NUM_BLOCKS,
-                        "Num_att_heads": NUM_ATTENTION_HEADS,
+                        "Hidden_Size": self.config.ffn_hidden,
+                        "Num_blocks": self.config.num_blocks,
+                        "Num_att_heads": self.config.num_attention_heads,
                         "LR": last_lr,
-                        "Batch_Size": TOKEN_BATCH_SIZE,
+                        "Batch_Size": token_batch_size,
                         "State_of_the_code": git_hash,
                         "Time_to_train": time_str,
                         "Self_Test_Score_L2": score_l2,
@@ -564,14 +648,14 @@ impl Model {
             "Model_ID": self.model_id,
             "Corpus_Level": corpus_level,
             "Dict_Size": self.dict.len(),
-            "Embedding_Size": EMBEDDING_SIZE,
-            "Context_Window": CONTEXT_WINDOW,
-            "Epochs": EPOCHS,
-            "Hidden_Size": FFN_HIDDEN,
-            "Num_blocks": NUM_BLOCKS,
-            "Num_att_heads": NUM_ATTENTION_HEADS,
+            "Embedding_Size": self.config.embedding_size,
+            "Context_Window": context_window,
+            "Epochs": epochs,
+            "Hidden_Size": self.config.ffn_hidden,
+            "Num_blocks": self.config.num_blocks,
+            "Num_att_heads": self.config.num_attention_heads,
             "LR": base_lr,
-            "Batch_Size": TOKEN_BATCH_SIZE,
+            "Batch_Size": token_batch_size,
             "State_of_the_code": git_hash,
             "Time_to_train": time_str,
             "Date": date,
@@ -601,7 +685,7 @@ impl Model {
             println!("  {:60} {:>10} params", name, count);
             total += count;
         }
-        let embedding_params = self.dict.len() * EMBEDDING_SIZE;
+        let embedding_params = self.dict.len() * self.config.embedding_size;
         println!(
             "  {:60} {:>10} params  (weight-tied, counted above)",
             "embedding (output projection)", embedding_params
@@ -653,6 +737,11 @@ impl Model {
 
         let bpe_path = format!("{}.bpe", path);
         self.bpe.save(&bpe_path).unwrap();
+
+        let config_path = format!("{}.config.json", path);
+        if let Ok(file) = fs::File::create(&config_path) {
+            let _ = serde_json::to_writer_pretty(file, &self.config);
+        }
     }
 
     pub fn load_from_path(path: &str, device: &Device) -> Result<Self, Error> {
@@ -664,7 +753,16 @@ impl Model {
         let bpe_path = format!("{}.bpe", path);
         let bpe = Bpe::load(&bpe_path).unwrap_or_else(|_| Bpe::new_empty());
 
-        let mut model = create_model(&dict, bpe, device).unwrap();
+        // Load saved config if present, otherwise fall back to env vars
+        let config = {
+            let config_path = format!("{}.config.json", path);
+            fs::File::open(&config_path)
+                .ok()
+                .and_then(|f| serde_json::from_reader(f).ok())
+                .unwrap_or_else(TrainConfig::from_env)
+        };
+
+        let mut model = create_model(&dict, bpe, device, config).unwrap();
 
         let var_map_path = format!("{}.safetensors", path);
         model.var_map.load(var_map_path.as_str()).unwrap();
@@ -700,11 +798,11 @@ impl RunStr for Model {
     }
 }
 
-pub fn create_model(dict: &Dict, bpe: Bpe, device: &Device) -> Result<Model, candle_core::Error> {
+pub fn create_model(dict: &Dict, bpe: Bpe, device: &Device, config: TrainConfig) -> Result<Model, candle_core::Error> {
     let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-    let model = Model::new(dict.clone(), bpe, varmap, vb, device)?;
+    let model = Model::new(dict.clone(), bpe, varmap, vb, device, config)?;
 
     Ok(model)
 }
@@ -720,7 +818,14 @@ pub fn load_vocab(path: &str, device: &Device) -> Result<Model, std::io::Error> 
     let dict = tokens_to_dict(dict_words);
     let bpe_path = format!("{}.bpe", path);
     let bpe = Bpe::load(&bpe_path).unwrap_or_else(|_| Bpe::new_empty());
-    create_model(&dict, bpe, device).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    let config = {
+        let config_path = format!("{}.config.json", path);
+        fs::File::open(&config_path)
+            .ok()
+            .and_then(|f| serde_json::from_reader(f).ok())
+            .unwrap_or_else(TrainConfig::from_env)
+    };
+    create_model(&dict, bpe, device, config).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 }
 
 pub fn get_device() -> Result<Device, candle_core::Error> {

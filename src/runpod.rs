@@ -9,7 +9,17 @@ use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
 
+use crate::attention_predictor::TrainConfig;
 use crate::hf::{load_env, require};
+
+// ---------------------------------------------------------------------------
+// Per-job train params (subset of TrainConfig that the caller may override)
+// ---------------------------------------------------------------------------
+
+pub struct SendParams {
+    pub machine_type: String,
+    pub config: TrainConfig,
+}
 
 // ---------------------------------------------------------------------------
 // Config
@@ -371,13 +381,27 @@ pub fn print_help() {
 
 Subcommands:
   list                                        List all running pods
-  send [--machine-type <GPU_TYPE>]            Create pod and start training job
+  send [options]                              Create pod and start training job
   status [<job_id>]                           Show pod status
   stop   [<job_id|pod_id>] [--all]            Delete pod(s)
   fetch  [<job_id>]                           Download trained model data from HuggingFace
   build_and_upload_binary [--machine-type X]  Build binary on RunPod and upload to HuggingFace
 
-If <job_id> is omitted for send/status/fetch, the most recent job in runpod_jobs/ is used.
+send options (all optional, defaults come from env vars then built-in defaults):
+  --machine-type <GPU>          GPU type (default: NVIDIA GeForce RTX 4090)
+  --embedding-size <N>          Embedding size (default: 256)
+  --context-window <N>          Context window (default: 128)
+  --num-heads <N>               Attention heads (default: 8)
+  --ffn-hidden <N>              FFN hidden size (default: 512)
+  --num-blocks <N>              Transformer blocks (default: 2)
+  --file-path <PATH>            Corpus file path (default: smoll-generated-corpus/level_5/corpus.corpus)
+  --lr <F>                      Learning rate (default: 0.01)
+  --warmup-batches <N>          LR warmup batches (default: 600)
+  --epochs <N>                  Training epochs (default: 1)
+  --batch-size <N>              Token batch size (default: 256)
+  --micro-batch-size <N>        Micro batch size (default: 256)
+
+If <job_id> is omitted for status/fetch, the most recent job in runpod_jobs/ is used.
 
 Required env vars in .env:
   RUNPOD_API_KEY      RunPod API key
@@ -390,6 +414,7 @@ Optional:
 Examples:
   cargo run --release -- runpod build_and_upload_binary --machine-type NVIDIA_A40
   cargo run --release -- runpod send --machine-type NVIDIA_A40
+  cargo run --release -- runpod send --machine-type NVIDIA_A40 --embedding-size 256 --context-window 128 --num-heads 8 --ffn-hidden 512 --num-blocks 2 --lr 0.01 --epochs 1
   cargo run --release -- runpod status
   cargo run --release -- runpod fetch
   cargo run --release -- runpod stop"
@@ -432,9 +457,10 @@ fn check_git_pushed() -> Result<(String, String), Box<dyn Error>> {
     Ok((branch, local))
 }
 
-pub fn send_job(machine_type: &str) -> Result<(), Box<dyn Error>> {
+pub fn send_job(params: SendParams) -> Result<(), Box<dyn Error>> {
+    let machine_type = &params.machine_type;
     let env = load_env();
-    let config = RunpodConfig::from_env(&env)?;
+    let runpod_config = RunpodConfig::from_env(&env)?;
     let git_repo_url = require(&env, "GIT_REPO_URL")?;
     let hf_token = require(&env, "HF_TOKEN")?;
     let hf_repo = require(&env, "HF_REPO")?;
@@ -443,14 +469,18 @@ pub fn send_job(machine_type: &str) -> Result<(), Box<dyn Error>> {
     let (git_branch, git_commit) = check_git_pushed()?;
     println!("Branch {} at {} is pushed.", git_branch, &git_commit[..12]);
     println!("Starting job {} on {}...", job_id, machine_type);
+    println!("Train config:");
+    for line in params.config.to_env_lines() {
+        println!("  {}", line);
+    }
 
     let http = reqwest::blocking::Client::new();
-    let runpod = RunpodClient::new(&http, &config.api_key);
+    let runpod = RunpodClient::new(&http, &runpod_config.api_key);
 
     let startup_b64 =
         base64::engine::general_purpose::STANDARD.encode(make_startup_script().as_bytes());
 
-    let env_vars: Vec<(&str, String)> = vec![
+    let mut env_vars: Vec<(&str, String)> = vec![
         ("JOB_ID", job_id.clone()),
         ("STARTUP_B64", startup_b64),
         ("GIT_REPO_URL", git_repo_url),
@@ -458,15 +488,24 @@ pub fn send_job(machine_type: &str) -> Result<(), Box<dyn Error>> {
         ("GIT_COMMIT", git_commit),
         ("HF_TOKEN", hf_token),
         ("HF_REPO", hf_repo.clone()),
-        ("RUNPOD_API_KEY", config.api_key.clone()),
+        ("RUNPOD_API_KEY", runpod_config.api_key.clone()),
     ];
+
+    // Append all TrainConfig fields as env vars so the pod binary picks them up
+    for line in params.config.to_env_lines() {
+        if let Some((k, v)) = line.split_once('=') {
+            // We need 'static keys — use Box::leak for the small number of keys
+            let k: &'static str = Box::leak(k.to_string().into_boxed_str());
+            env_vars.push((k, v.to_string()));
+        }
+    }
 
     let pod_id = if let Some(existing) = env.get("MACHINE_ID") {
         println!("Using existing pod {} (MACHINE_ID set).", existing);
         existing.clone()
     } else {
         println!("Creating pod...");
-        let id = runpod.create_pod(&job_id, machine_type, env_vars, &config.docker_image)?;
+        let id = runpod.create_pod(&job_id, machine_type, env_vars, &runpod_config.docker_image)?;
         println!("Pod created: {}", id);
         runpod.wait_for_running(&id)?;
         id
