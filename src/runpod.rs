@@ -156,8 +156,7 @@ impl<'a> RunpodClient<'a> {
             "gpuCount": 1,
             "containerDiskInGb": 50,
             "env": env_map,
-            "dockerStartCmd": ["bash", "-c", "echo $STARTUP_B64 | base64 -d | bash"],
-            "restartPolicy": "never"
+            "dockerStartCmd": ["bash", "-c", "echo $STARTUP_B64 | base64 -d | bash"]
         });
 
         let resp = self
