@@ -344,7 +344,9 @@ mkdir -p data
 echo "=== Upload to HuggingFace ==="
 hf upload "$HF_REPO" ./data/ . --repo-type model
 
-echo "=== Done ==="
+echo "=== Done — shutting down pod ==="
+curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
+    -H "Authorization: Bearer $RUNPOD_API_KEY"
 "#
 }
 
@@ -445,6 +447,7 @@ pub fn send_job(machine_type: &str) -> Result<(), Box<dyn Error>> {
         ("GIT_COMMIT", git_commit),
         ("HF_TOKEN", hf_token),
         ("HF_REPO", hf_repo.clone()),
+        ("RUNPOD_API_KEY", config.api_key.clone()),
     ];
 
     let pod_id = if let Some(existing) = env.get("MACHINE_ID") {
