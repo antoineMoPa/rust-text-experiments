@@ -26,7 +26,7 @@ impl RunpodConfig {
             .get("RUNPOD_DOCKER_IMAGE")
             .cloned()
             .unwrap_or_else(|| {
-                "runpod/pytorch:1.0.3-cu1281-torch290-ubuntu2204".to_string()
+                "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04".to_string()
             });
         Ok(Self {
             api_key: require(env, "RUNPOD_API_KEY")?,
@@ -374,7 +374,7 @@ Required env vars in .env:
   HF_TOKEN            HuggingFace token with write access
   HF_REPO             HuggingFace repo ID (e.g. you/rust-text-model)
 Optional:
-  RUNPOD_DOCKER_IMAGE Docker image (default: runpod/pytorch:1.0.3-cu1281-torch290-ubuntu2204)
+  RUNPOD_DOCKER_IMAGE Docker image (default: runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04)
 
 Examples:
   cargo run --release -- runpod build_and_upload_binary --machine-type NVIDIA_A40
