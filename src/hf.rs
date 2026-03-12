@@ -50,10 +50,25 @@ fn run_hf_cli(args: &[&str], hf_token: &str) -> Result<(), Box<dyn Error>> {
         })
 }
 
+const ALLOWED_UPLOADS: &[&str] = &[
+    "model.bpe",
+    "model.config.json",
+    "model.dict",
+    "model.id",
+    "model.safetensors",
+];
+
 pub fn upload(hf_repo: &str, hf_token: &str) -> Result<(), Box<dyn Error>> {
-    println!("Uploading data/ to {}...", hf_repo);
-    run_hf_cli(&["upload", hf_repo, "./data/", ".", "--repo-type", "model"], hf_token)?;
-    println!("Uploaded data/ to {}.", hf_repo);
+    for filename in ALLOWED_UPLOADS {
+        let path = format!("data/{}", filename);
+        if !std::path::Path::new(&path).exists() {
+            println!("Skipping {} (not found)", path);
+            continue;
+        }
+        println!("Uploading {} to {}...", path, hf_repo);
+        run_hf_cli(&["upload", hf_repo, &path, filename, "--repo-type", "model"], hf_token)?;
+    }
+    println!("Upload complete.");
     Ok(())
 }
 

@@ -259,8 +259,11 @@ set -euo pipefail
 shutdown_pod() {
     echo "=== Shutting down pod ==="
     for i in 1 2 3 4 5; do
-        curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
-            -H "Authorization: Bearer $RUNPOD_API_KEY" && break || true
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
+            -H "Authorization: Bearer $RP_ADMIN_KEY")
+        echo "delete HTTP $HTTP"
+        [ "$HTTP" = "200" ] && break || true
         sleep $i
     done
 }
@@ -319,8 +322,11 @@ set -euo pipefail
 shutdown_pod() {
     echo "=== Shutting down pod ==="
     for i in 1 2 3 4 5; do
-        curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
-            -H "Authorization: Bearer $RUNPOD_API_KEY" && break || true
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
+            -H "Authorization: Bearer $RP_ADMIN_KEY")
+        echo "delete HTTP $HTTP"
+        [ "$HTTP" = "200" ] && break || true
         sleep $i
     done
 }
@@ -371,7 +377,13 @@ echo "=== Results ==="
 "$BIN" print_results 2>&1 | tee data/results.txt
 
 echo "=== Upload to HuggingFace ==="
-hf upload "$HF_REPO" ./data/ . --repo-type model
+for f in model.bpe model.config.json model.dict model.id model.safetensors; do
+    if [ -f "data/$f" ]; then
+        hf upload "$HF_REPO" "data/$f" "$f" --repo-type model
+    else
+        echo "Skipping $f (not found)"
+    fi
+done
 
 echo "=== Done ==="
 "#
@@ -494,7 +506,7 @@ pub fn send_job(params: SendParams) -> Result<(), Box<dyn Error>> {
         ("GIT_COMMIT", git_commit),
         ("HF_TOKEN", hf_token),
         ("HF_REPO", hf_repo.clone()),
-        ("RUNPOD_API_KEY", runpod_config.api_key.clone()),
+        ("RP_ADMIN_KEY", runpod_config.api_key.clone()),
     ];
 
     // Append all TrainConfig fields as env vars so the pod binary picks them up
@@ -634,21 +646,45 @@ pub fn stop_job(id_opt: Option<&str>, all: bool) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub fn test_hf_upload() -> Result<(), Box<dyn Error>> {
+
+pub fn test_shutdown(machine_type: &str) -> Result<(), Box<dyn Error>> {
     let env = load_env();
     let config = RunpodConfig::from_env(&env)?;
-    let hf_token = require(&env, "HF_TOKEN")?;
-    let hf_repo = require(&env, "HF_REPO")?;
 
+    // Minimal script: print env, attempt self-delete, log visible in RunPod dashboard only.
     let test_script = r#"#!/bin/bash
-set -euo pipefail
-echo "=== HF upload test ==="
-pip install -q huggingface_hub
-MARKER="runpod-hf-test-$(date +%s)"
-echo "$MARKER" > /tmp/hf_test.txt
-hf upload "$HF_REPO" /tmp/hf_test.txt hf_test.txt --repo-type model
-echo "MARKER=$MARKER"
-echo "=== Upload complete ==="
+set -uo pipefail
+
+echo "=== shutdown test starting at $(date -u) ==="
+
+echo ""
+echo "--- All RUNPOD_* env vars ---"
+printenv | grep -i runpod || echo "(none found)"
+
+echo ""
+echo "--- POD_ID from RUNPOD_POD_ID: '${RUNPOD_POD_ID:-UNSET}' ---"
+# Note: RunPod injects its own RUNPOD_API_KEY (pod-scoped, 403s on delete).
+# We pass our admin key as RP_ADMIN_KEY to avoid the collision.
+echo "--- RP_ADMIN_KEY set: $([ -n "${RP_ADMIN_KEY:-}" ] && echo YES || echo NO) ---"
+
+echo ""
+echo "Sleeping 5s before attempting self-delete..."
+sleep 5
+
+if [ -z "${RUNPOD_POD_ID:-}" ]; then
+    echo "ERROR: RUNPOD_POD_ID is not set — cannot self-delete"
+else
+    echo ""
+    echo "--- Attempting DELETE /v1/pods/$RUNPOD_POD_ID with RP_ADMIN_KEY ---"
+    STATUS=$(curl -s -o /tmp/delete_resp.txt -w "%{http_code}" \
+        -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
+        -H "Authorization: Bearer $RP_ADMIN_KEY")
+    BODY=$(cat /tmp/delete_resp.txt)
+    echo "HTTP status: $STATUS"
+    echo "Response body: $BODY"
+fi
+
+echo "=== done at $(date -u) ==="
 "#;
 
     let startup_b64 =
@@ -656,57 +692,22 @@ echo "=== Upload complete ==="
 
     let env_vars: Vec<(&str, String)> = vec![
         ("STARTUP_B64", startup_b64),
-        ("HF_TOKEN", hf_token.clone()),
-        ("HF_REPO", hf_repo.clone()),
+        ("RP_ADMIN_KEY", config.api_key.clone()),
     ];
 
     let http = reqwest::blocking::Client::new();
     let runpod = RunpodClient::new(&http, &config.api_key);
 
-    println!("Creating test pod...");
-    let pod_id = runpod.create_pod("hf-test", "NVIDIA GeForce RTX 3090", env_vars, &config.docker_image)?;
-    println!("Pod created: {}. Waiting for it to run and finish...", pod_id);
-    runpod.wait_for_running(&pod_id)?;
-
-    // Wait for the container to exit (pod goes EXITED or STOPPED)
-    println!("Pod is running the test script...");
-    loop {
-        thread::sleep(Duration::from_secs(10));
-        let pod = runpod.get_pod(&pod_id)?;
-        let status = pod["desiredStatus"].as_str().unwrap_or("UNKNOWN");
-        println!("  pod status: {}", status);
-        match status {
-            "EXITED" | "STOPPED" | "TERMINATED" => break,
-            "FAILED" => {
-                let _ = runpod.delete_pod(&pod_id);
-                return Err("Test pod failed".into());
-            }
-            _ => {}
-        }
-    }
-
-    println!("Pod finished. Cleaning up...");
-    let _ = runpod.delete_pod(&pod_id);
-
-    // Verify by downloading the marker file
-    println!("Verifying: downloading hf_test.txt from {}...", hf_repo);
-    let tmp = std::env::temp_dir().join("hf_test.txt");
-    let status = Command::new("hf")
-        .args(["download", &hf_repo, "hf_test.txt",
-               "--local-dir", std::env::temp_dir().to_str().unwrap(),
-               "--repo-type", "model"])
-        .env("HF_TOKEN", &hf_token)
-        .status()?;
-
-    if !status.success() || !tmp.exists() {
-        return Err("Could not download hf_test.txt — upload may have failed".into());
-    }
-
-    let contents = fs::read_to_string(&tmp)?;
-    println!("hf_test.txt contents: {}", contents.trim());
-    let _ = fs::remove_file(&tmp);
-
-    println!("HuggingFace remote upload test: PASSED");
+    println!("Creating shutdown-test pod...");
+    let pod_id = runpod.create_pod(
+        "shutdown-test",
+        machine_type,
+        env_vars,
+        &config.docker_image,
+    )?;
+    println!("Pod created: {}", pod_id);
+    println!("Check RunPod dashboard logs to see the HTTP status, and whether pod {} disappears.", pod_id);
+    println!("Force-stop with:  cargo run --release -- runpod stop {}", pod_id);
     Ok(())
 }
 
@@ -741,7 +742,7 @@ pub fn build_and_upload_binary(machine_type: &str) -> Result<(), Box<dyn Error>>
         ("GIT_COMMIT", git_commit),
         ("HF_TOKEN", hf_token),
         ("HF_REPO", hf_repo.clone()),
-        ("RUNPOD_API_KEY", config.api_key.clone()),
+        ("RP_ADMIN_KEY", config.api_key.clone()),
     ];
 
     let pod_id = runpod.create_pod("build-binary", machine_type, env_vars, &config.docker_image)?;

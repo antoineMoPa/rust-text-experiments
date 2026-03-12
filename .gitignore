@@ -13,3 +13,4 @@ training_log.json
 model.id
 .env
 runpod_jobs
+data/**
