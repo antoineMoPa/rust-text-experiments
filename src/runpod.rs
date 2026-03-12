@@ -288,7 +288,9 @@ echo "=== Upload binary to HuggingFace ==="
 pip install -q huggingface_hub
 hf upload "$HF_REPO" "$CARGO_TARGET_DIR/release/rust-text-experiments" bin/rust-text-experiments --repo-type model
 
-echo "=== Done ==="
+echo "=== Done — shutting down pod ==="
+curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
+    -H "Authorization: Bearer $RUNPOD_API_KEY"
 "#
 }
 
@@ -680,6 +682,7 @@ pub fn build_and_upload_binary(machine_type: &str) -> Result<(), Box<dyn Error>>
         ("GIT_COMMIT", git_commit),
         ("HF_TOKEN", hf_token),
         ("HF_REPO", hf_repo.clone()),
+        ("RUNPOD_API_KEY", config.api_key.clone()),
     ];
 
     let pod_id = runpod.create_pod("build-binary", machine_type, env_vars, &config.docker_image)?;
