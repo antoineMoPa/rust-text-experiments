@@ -266,11 +266,12 @@ shutdown_pod() {
         [ "$HTTP" = "200" ] && break || true
         sleep $i
     done
+    sleep 20
 }
-trap shutdown_pod EXIT
 
 on_error() {
     echo "=== FATAL ERROR at line $1 — stopping ==="
+    shutdown_pod
     exit 1
 }
 trap 'on_error $LINENO' ERR
@@ -312,6 +313,8 @@ pip install -q huggingface_hub
 hf upload "$HF_REPO" "$CARGO_TARGET_DIR/release/rust-text-experiments" bin/rust-text-experiments --repo-type model
 
 echo "=== Done ==="
+shutdown_pod
+exit 0
 "#
 }
 
@@ -329,11 +332,12 @@ shutdown_pod() {
         [ "$HTTP" = "200" ] && break || true
         sleep $i
     done
+    sleep 20
 }
-trap shutdown_pod EXIT
 
 on_error() {
     echo "=== FATAL ERROR at line $1 — stopping ==="
+    shutdown_pod
     exit 1
 }
 trap 'on_error $LINENO' ERR
@@ -386,6 +390,8 @@ for f in model.bpe model.config.json model.dict model.id model.safetensors; do
 done
 
 echo "=== Done ==="
+shutdown_pod
+exit 0
 "#
 }
 
@@ -645,72 +651,6 @@ pub fn stop_job(id_opt: Option<&str>, all: bool) -> Result<(), Box<dyn Error>> {
     println!("Pod {} deleted.", pod_id);
     Ok(())
 }
-
-
-pub fn test_shutdown(machine_type: &str) -> Result<(), Box<dyn Error>> {
-    let env = load_env();
-    let config = RunpodConfig::from_env(&env)?;
-
-    // Minimal script: print env, attempt self-delete, log visible in RunPod dashboard only.
-    let test_script = r#"#!/bin/bash
-set -uo pipefail
-
-echo "=== shutdown test starting at $(date -u) ==="
-
-echo ""
-echo "--- All RUNPOD_* env vars ---"
-printenv | grep -i runpod || echo "(none found)"
-
-echo ""
-echo "--- POD_ID from RUNPOD_POD_ID: '${RUNPOD_POD_ID:-UNSET}' ---"
-# Note: RunPod injects its own RUNPOD_API_KEY (pod-scoped, 403s on delete).
-# We pass our admin key as RP_ADMIN_KEY to avoid the collision.
-echo "--- RP_ADMIN_KEY set: $([ -n "${RP_ADMIN_KEY:-}" ] && echo YES || echo NO) ---"
-
-echo ""
-echo "Sleeping 5s before attempting self-delete..."
-sleep 5
-
-if [ -z "${RUNPOD_POD_ID:-}" ]; then
-    echo "ERROR: RUNPOD_POD_ID is not set — cannot self-delete"
-else
-    echo ""
-    echo "--- Attempting DELETE /v1/pods/$RUNPOD_POD_ID with RP_ADMIN_KEY ---"
-    STATUS=$(curl -s -o /tmp/delete_resp.txt -w "%{http_code}" \
-        -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
-        -H "Authorization: Bearer $RP_ADMIN_KEY")
-    BODY=$(cat /tmp/delete_resp.txt)
-    echo "HTTP status: $STATUS"
-    echo "Response body: $BODY"
-fi
-
-echo "=== done at $(date -u) ==="
-"#;
-
-    let startup_b64 =
-        base64::engine::general_purpose::STANDARD.encode(test_script.as_bytes());
-
-    let env_vars: Vec<(&str, String)> = vec![
-        ("STARTUP_B64", startup_b64),
-        ("RP_ADMIN_KEY", config.api_key.clone()),
-    ];
-
-    let http = reqwest::blocking::Client::new();
-    let runpod = RunpodClient::new(&http, &config.api_key);
-
-    println!("Creating shutdown-test pod...");
-    let pod_id = runpod.create_pod(
-        "shutdown-test",
-        machine_type,
-        env_vars,
-        &config.docker_image,
-    )?;
-    println!("Pod created: {}", pod_id);
-    println!("Check RunPod dashboard logs to see the HTTP status, and whether pod {} disappears.", pod_id);
-    println!("Force-stop with:  cargo run --release -- runpod stop {}", pod_id);
-    Ok(())
-}
-
 pub fn fetch_job(job_id_opt: Option<&str>) -> Result<(), Box<dyn Error>> {
     let state = load_job(job_id_opt)?;
     let env = load_env();

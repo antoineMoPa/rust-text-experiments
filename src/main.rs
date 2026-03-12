@@ -325,15 +325,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or("NVIDIA GeForce RTX 4090");
                 runpod::build_and_upload_binary(machine_type)?;
             }
-            "test-shutdown" => {
-                let machine_type = args
-                    .iter()
-                    .position(|a| a == "--machine-type")
-                    .and_then(|i| args.get(i + 1))
-                    .map(|s| s.as_str())
-                    .unwrap_or("NVIDIA GeForce RTX 4090");
-                runpod::test_shutdown(machine_type)?;
-            }
             other => {
                 eprintln!("Unknown runpod subcommand: '{}'. Run 'runpod help' for usage.", other);
                 std::process::exit(1);
