@@ -9,7 +9,7 @@ use crate::{
 
 mod attention_block;
 mod attention_predictor;
-#[cfg(all(not(target_os = "macos"), not(feature = "flash-attn")))]
+#[cfg(not(target_os = "macos"))]
 mod flash_attn_op;
 mod grad_accum;
 mod layer_norm;

@@ -289,7 +289,7 @@ export CARGO_TARGET_DIR=/workspace/target
 export CARGO_BUILD_JOBS=4
 
 echo "=== Build ==="
-cargo build --release --features flash-attn 2>&1 | tee /tmp/build.log
+cargo build --release 2>&1 | tee /tmp/build.log
 
 echo "=== Upload binary to HuggingFace ==="
 pip install -q huggingface_hub
@@ -335,7 +335,7 @@ if [ "$ACTUAL" != "$GIT_COMMIT" ]; then
 fi
 echo "Commit verified: $GIT_COMMIT"
 
-# Download pre-built binary from HuggingFace (built locally with: cargo build --release --features flash-attn)
+# Download pre-built binary from HuggingFace (built locally with: cargo build --release)
 pip install -q huggingface_hub
 echo "=== Downloading binary from HuggingFace ==="
 hf download "$HF_REPO" bin/rust-text-experiments --local-dir /tmp/bin --repo-type model

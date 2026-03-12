@@ -3,12 +3,8 @@ name = "rust-text-experiments"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-flash-attn = ["dep:candle-flash-attn"]
-
 [dependencies]
 candle-nn = "0.8.2"
-candle-flash-attn = { version = "0.8.2", optional = true }
 colored = "3.0.0"
 rand = "0.8.5"
 serde = { version = "1.0.217", features = ["derive"] }

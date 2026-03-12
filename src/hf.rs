@@ -58,13 +58,13 @@ pub fn upload(hf_repo: &str, hf_token: &str) -> Result<(), Box<dyn Error>> {
 }
 
 pub fn upload_binary(hf_repo: &str, hf_token: &str) -> Result<(), Box<dyn Error>> {
-    println!("=== Building binary (flash-attn) ===");
+    println!("=== Building binary ===");
     let status = Command::new("cargo")
-        .args(["build", "--release", "--features", "flash-attn"])
+        .args(["build", "--release"])
         .status()
         .map_err(|e| format!("Failed to run cargo: {}", e))?;
     if !status.success() {
-        return Err("cargo build --release --features flash-attn failed".into());
+        return Err("cargo build --release failed".into());
     }
 
     let binary = "target/release/rust-text-experiments";
