@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
+use rayon::prelude::*;
 
 pub type Dict = std::collections::BTreeMap<String, f32>;
 pub type DictIndex = std::collections::BTreeMap<String, u32>;
@@ -116,26 +117,41 @@ impl Bpe {
         let mut merges: Vec<(String, String)> = Vec::with_capacity(num_merges);
 
         for i in 0..num_merges {
-            // Count adjacent pair frequencies across all word types.
-            let mut pair_freq: HashMap<(&str, &str), usize> = HashMap::new();
-            for (_, seg, freq) in &vocab {
-                for w in seg.windows(2) {
-                    *pair_freq.entry((w[0].as_str(), w[1].as_str())).or_insert(0) += freq;
-                }
-            }
+            // Count adjacent pair frequencies across all word types (parallel).
+            let pair_freq: HashMap<(String, String), usize> = vocab
+                .par_iter()
+                .fold(
+                    HashMap::new,
+                    |mut local, (_, seg, freq)| {
+                        for w in seg.windows(2) {
+                            *local
+                                .entry((w[0].clone(), w[1].clone()))
+                                .or_insert(0) += freq;
+                        }
+                        local
+                    },
+                )
+                .reduce(
+                    HashMap::new,
+                    |mut a, b| {
+                        for (k, v) in b {
+                            *a.entry(k).or_insert(0) += v;
+                        }
+                        a
+                    },
+                );
 
             let Some(((best_a, best_b), _)) = pair_freq.into_iter().max_by_key(|(_, f)| *f) else {
                 break;
             };
-            let (best_a, best_b) = (best_a.to_string(), best_b.to_string());
 
             if i % 500 == 0 {
                 println!("  merge {}/{}: {:?} + {:?}", i, num_merges, best_a, best_b);
             }
 
-            // Apply merge in-place across the whole vocabulary.
+            // Apply merge in-place across the whole vocabulary (parallel).
             let merged = best_a.clone() + &best_b;
-            for (_, seg, _) in &mut vocab {
+            vocab.par_iter_mut().for_each(|(_, seg, _)| {
                 let mut out = Vec::with_capacity(seg.len());
                 let mut j = 0;
                 while j < seg.len() {
@@ -148,7 +164,7 @@ impl Bpe {
                     }
                 }
                 *seg = out;
-            }
+            });
 
             merges.push((best_a, best_b));
         }

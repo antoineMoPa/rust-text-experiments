@@ -331,6 +331,8 @@ BIN=/tmp/bin/bin/rust-text-experiments
 chmod +x "$BIN"
 echo "Binary ready: $("$BIN" --version 2>/dev/null || echo ok)"
 
+mkdir -p data
+
 echo "=== Train ==="
 "$BIN" train 2>&1 | tee /tmp/train.log
 
@@ -338,7 +340,6 @@ echo "=== Test ==="
 "$BIN" test_all 2>&1 | tee /tmp/test.log
 
 echo "=== Results ==="
-mkdir -p data
 "$BIN" print_results 2>&1 | tee data/results.txt
 
 echo "=== Upload to HuggingFace ==="
