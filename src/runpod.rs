@@ -239,8 +239,58 @@ impl<'a> RunpodClient<'a> {
 }
 
 // ---------------------------------------------------------------------------
-// Startup script
+// Startup scripts
 // ---------------------------------------------------------------------------
+
+fn make_build_binary_script() -> &'static str {
+    r#"#!/bin/bash
+set -euo pipefail
+
+on_error() {
+    echo "=== FATAL ERROR at line $1 — stopping ==="
+    exit 0
+}
+trap 'on_error $LINENO' ERR
+
+echo "=== RunPod build_and_upload_binary starting ==="
+
+apt-get update -qq && apt-get install -y curl git 2>&1 | tail -3
+
+WORKDIR=$(mktemp -d)
+git clone --branch "$GIT_BRANCH" "$GIT_REPO_URL" "$WORKDIR"
+cd "$WORKDIR"
+
+ACTUAL=$(git rev-parse HEAD)
+if [ "$ACTUAL" != "$GIT_COMMIT" ]; then
+    echo "ERROR: commit mismatch — expected $GIT_COMMIT, got $ACTUAL"
+    exit 1
+fi
+echo "Commit verified: $GIT_COMMIT"
+
+if ! command -v cargo &>/dev/null; then
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env"
+fi
+
+CUDA_COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.' | awk '{if ($1+0 > 90) print 89; else print $1}')
+export CUDA_COMPUTE_CAP
+echo "Using CUDA_COMPUTE_CAP=$CUDA_COMPUTE_CAP"
+
+mkdir -p /workspace/.cargo /workspace/target
+export CARGO_HOME=/workspace/.cargo
+export CARGO_TARGET_DIR=/workspace/target
+export CARGO_BUILD_JOBS=4
+
+echo "=== Build ==="
+cargo build --release --features flash-attn 2>&1 | tee /tmp/build.log
+
+echo "=== Upload binary to HuggingFace ==="
+pip install -q huggingface_hub
+hf upload "$HF_REPO" "$CARGO_TARGET_DIR/release/rust-text-experiments" bin/rust-text-experiments --repo-type model
+
+echo "=== Done ==="
+"#
+}
 
 fn make_startup_script() -> &'static str {
     r#"#!/bin/bash
@@ -305,13 +355,14 @@ pub fn print_help() {
         "Usage: cargo run --release -- runpod <subcommand> [options]
 
 Subcommands:
-  list                               List all running pods
-  send [--machine-type <GPU_TYPE>]   Create pod and start job
-  status [<job_id>]                  Show pod status
-  stop   [<job_id|pod_id>]           Delete the pod (accepts raw pod ID too)
-  fetch  [<job_id>]                  Download trained model data from HuggingFace
+  list                                        List all running pods
+  send [--machine-type <GPU_TYPE>]            Create pod and start training job
+  status [<job_id>]                           Show pod status
+  stop   [<job_id|pod_id>] [--all]            Delete pod(s)
+  fetch  [<job_id>]                           Download trained model data from HuggingFace
+  build_and_upload_binary [--machine-type X]  Build binary on RunPod and upload to HuggingFace
 
-If <job_id> is omitted, the most recent job in runpod_jobs/ is used.
+If <job_id> is omitted for send/status/fetch, the most recent job in runpod_jobs/ is used.
 
 Required env vars in .env:
   RUNPOD_API_KEY      RunPod API key
@@ -319,9 +370,10 @@ Required env vars in .env:
   HF_TOKEN            HuggingFace token with write access
   HF_REPO             HuggingFace repo ID (e.g. you/rust-text-model)
 Optional:
-  RUNPOD_DOCKER_IMAGE Docker image (default: runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04)
+  RUNPOD_DOCKER_IMAGE Docker image (default: runpod/pytorch:1.0.3-cu1281-torch290-ubuntu2204)
 
 Examples:
+  cargo run --release -- runpod build_and_upload_binary --machine-type NVIDIA_A40
   cargo run --release -- runpod send --machine-type NVIDIA_A40
   cargo run --release -- runpod status
   cargo run --release -- runpod fetch
@@ -602,4 +654,42 @@ pub fn fetch_job(job_id_opt: Option<&str>) -> Result<(), Box<dyn Error>> {
     let env = load_env();
     let hf_token = require(&env, "HF_TOKEN")?;
     crate::hf::download(&state.hf_repo, &hf_token)
+}
+
+pub fn build_and_upload_binary(machine_type: &str) -> Result<(), Box<dyn Error>> {
+    let env = load_env();
+    let config = RunpodConfig::from_env(&env)?;
+    let git_repo_url = require(&env, "GIT_REPO_URL")?;
+    let hf_token = require(&env, "HF_TOKEN")?;
+    let hf_repo = require(&env, "HF_REPO")?;
+
+    let (git_branch, git_commit) = check_git_pushed()?;
+    println!("Branch {} at {} is pushed.", git_branch, &git_commit[..12]);
+    println!("Starting build pod on {}...", machine_type);
+
+    let http = reqwest::blocking::Client::new();
+    let runpod = RunpodClient::new(&http, &config.api_key);
+
+    let startup_b64 =
+        base64::engine::general_purpose::STANDARD.encode(make_build_binary_script().as_bytes());
+
+    let env_vars: Vec<(&str, String)> = vec![
+        ("STARTUP_B64", startup_b64),
+        ("GIT_REPO_URL", git_repo_url),
+        ("GIT_BRANCH", git_branch),
+        ("GIT_COMMIT", git_commit),
+        ("HF_TOKEN", hf_token),
+        ("HF_REPO", hf_repo.clone()),
+    ];
+
+    let pod_id = runpod.create_pod("build-binary", machine_type, env_vars, &config.docker_image)?;
+    println!("Pod created: {}. Waiting for it to start...", pod_id);
+    runpod.wait_for_running(&pod_id)?;
+
+    println!("Pod is building and uploading binary (this takes ~10 min)...");
+    println!("Monitor logs in RunPod dashboard, pod: {}", pod_id);
+    println!("When done the binary will be at {}/bin/rust-text-experiments", hf_repo);
+    println!("Stop the pod manually with:  cargo run --release -- runpod stop {}", pod_id);
+
+    Ok(())
 }

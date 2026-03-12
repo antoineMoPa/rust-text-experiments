@@ -280,6 +280,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 runpod::stop_job(id, all)?;
             }
             "fetch" => runpod::fetch_job(args.get(2).map(|s| s.as_str()))?,
+            "build_and_upload_binary" => {
+                let machine_type = args
+                    .iter()
+                    .position(|a| a == "--machine-type")
+                    .and_then(|i| args.get(i + 1))
+                    .map(|s| s.as_str())
+                    .unwrap_or("NVIDIA GeForce RTX 4090");
+                runpod::build_and_upload_binary(machine_type)?;
+            }
             "test-hf" => runpod::test_hf_upload()?,
             other => {
                 eprintln!("Unknown runpod subcommand: '{}'. Run 'runpod help' for usage.", other);
