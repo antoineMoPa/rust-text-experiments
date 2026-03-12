@@ -156,7 +156,8 @@ impl<'a> RunpodClient<'a> {
             "gpuCount": 1,
             "containerDiskInGb": 50,
             "env": env_map,
-            "dockerStartCmd": ["bash", "-c", "echo $STARTUP_B64 | base64 -d | bash"]
+            "dockerStartCmd": ["bash", "-c", "echo $STARTUP_B64 | base64 -d | bash"],
+            "restartPolicy": "never"
         });
 
         let resp = self
@@ -258,8 +259,11 @@ set -euo pipefail
 
 shutdown_pod() {
     echo "=== Shutting down pod ==="
-    curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
-        -H "Authorization: Bearer $RUNPOD_API_KEY" || true
+    for i in 1 2 3 4 5; do
+        curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
+            -H "Authorization: Bearer $RUNPOD_API_KEY" && break || true
+        sleep $i
+    done
 }
 trap shutdown_pod EXIT
 
@@ -315,8 +319,11 @@ set -euo pipefail
 
 shutdown_pod() {
     echo "=== Shutting down pod ==="
-    curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
-        -H "Authorization: Bearer $RUNPOD_API_KEY" || true
+    for i in 1 2 3 4 5; do
+        curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
+            -H "Authorization: Bearer $RUNPOD_API_KEY" && break || true
+        sleep $i
+    done
 }
 trap shutdown_pod EXIT
 
