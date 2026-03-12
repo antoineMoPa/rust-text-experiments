@@ -253,6 +253,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match sub {
             "upload" => hf::cmd_upload()?,
             "download" => hf::cmd_download()?,
+            "upload_binary" => hf::cmd_upload_binary()?,
             _ => hf::print_help(),
         }
         return Ok(());

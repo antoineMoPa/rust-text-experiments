@@ -256,7 +256,7 @@ echo "=== RunPod job starting ==="
 
 apt-get update -qq && apt-get install -y time 2>&1 | tail -1
 
-# Clone source at the exact branch + commit we were sent from
+# Clone source at the exact branch + commit for corpus generation
 WORKDIR=$(mktemp -d)
 git clone --branch "$GIT_BRANCH" "$GIT_REPO_URL" "$WORKDIR"
 cd "$WORKDIR"
@@ -271,35 +271,25 @@ if [ "$ACTUAL" != "$GIT_COMMIT" ]; then
 fi
 echo "Commit verified: $GIT_COMMIT"
 
-# Install Rust if not present
-if ! command -v cargo &>/dev/null; then
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source "$HOME/.cargo/env"
-fi
-
-# candle-kernels doesn't support sm_120 (Blackwell) yet — compile for sm_89 (Ada),
-# CUDA will JIT the PTX to run on newer architectures.
-CUDA_COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.' | awk '{if ($1+0 > 90) print 89; else print $1}')
-export CUDA_COMPUTE_CAP
-echo "Using CUDA_COMPUTE_CAP=$CUDA_COMPUTE_CAP"
-# Persist cargo registry and build cache in /workspace so re-runs skip recompiling dependencies
-mkdir -p /workspace/.cargo /workspace/target
-export CARGO_HOME=/workspace/.cargo
-export CARGO_TARGET_DIR=/workspace/target
-# Limit parallel nvcc jobs to avoid OOM during candle-flash-attn kernel compilation
-export CARGO_BUILD_JOBS=4
+# Download pre-built binary from HuggingFace (built locally with: cargo build --release --features flash-attn)
+pip install -q huggingface_hub
+echo "=== Downloading binary from HuggingFace ==="
+hf download "$HF_REPO" bin/rust-text-experiments --local-dir /tmp/bin --repo-type model
+BIN=/tmp/bin/bin/rust-text-experiments
+chmod +x "$BIN"
+echo "Binary ready: $("$BIN" --version 2>/dev/null || echo ok)"
 
 echo "=== Train ==="
-make clean train-flash 2>&1 | tee /tmp/train.log
+"$BIN" train 2>&1 | tee /tmp/train.log
 
 echo "=== Test ==="
-make test_model features=flash-attn 2>&1 | tee /tmp/test.log
+"$BIN" test_all 2>&1 | tee /tmp/test.log
 
 echo "=== Results ==="
-make results features=flash-attn 2>&1 | tee data/results.txt
+mkdir -p data
+"$BIN" print_results 2>&1 | tee data/results.txt
 
 echo "=== Upload to HuggingFace ==="
-pip install -q huggingface_hub
 hf upload "$HF_REPO" ./data/ . --repo-type model
 
 echo "=== Done ==="

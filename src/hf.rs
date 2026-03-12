@@ -57,6 +57,26 @@ pub fn upload(hf_repo: &str, hf_token: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+pub fn upload_binary(hf_repo: &str, hf_token: &str) -> Result<(), Box<dyn Error>> {
+    println!("=== Building binary (flash-attn) ===");
+    let status = Command::new("cargo")
+        .args(["build", "--release", "--features", "flash-attn"])
+        .status()
+        .map_err(|e| format!("Failed to run cargo: {}", e))?;
+    if !status.success() {
+        return Err("cargo build --release --features flash-attn failed".into());
+    }
+
+    let binary = "target/release/rust-text-experiments";
+    println!("Uploading binary to {}/bin/rust-text-experiments...", hf_repo);
+    run_hf_cli(
+        &["upload", hf_repo, binary, "bin/rust-text-experiments", "--repo-type", "model"],
+        hf_token,
+    )?;
+    println!("Binary uploaded to {}/bin/rust-text-experiments.", hf_repo);
+    Ok(())
+}
+
 pub fn download(hf_repo: &str, hf_token: &str) -> Result<(), Box<dyn Error>> {
     println!("Downloading data/ from {}...", hf_repo);
     run_hf_cli(&["download", hf_repo, "--local-dir", "data", "--repo-type", "model"], hf_token)?;
@@ -73,8 +93,9 @@ pub fn print_help() {
         "Usage: cargo run --release -- hf <subcommand>
 
 Subcommands:
-  upload    Upload data/ to HuggingFace
-  download  Download data/ from HuggingFace
+  upload         Upload data/ to HuggingFace
+  download       Download data/ from HuggingFace
+  upload_binary  Upload compiled binary to HuggingFace (used by runpod send)
 
 Required env vars in .env:
   HF_TOKEN  HuggingFace token with write access
@@ -90,4 +111,9 @@ pub fn cmd_upload() -> Result<(), Box<dyn Error>> {
 pub fn cmd_download() -> Result<(), Box<dyn Error>> {
     let env = load_env();
     download(&require(&env, "HF_REPO")?, &require(&env, "HF_TOKEN")?)
+}
+
+pub fn cmd_upload_binary() -> Result<(), Box<dyn Error>> {
+    let env = load_env();
+    upload_binary(&require(&env, "HF_REPO")?, &require(&env, "HF_TOKEN")?)
 }

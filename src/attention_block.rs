@@ -129,11 +129,12 @@ impl AttentionBlock {
         // Attention: [batch, seq, emb] -> [batch, seq, emb]
         #[cfg(all(not(target_os = "macos"), feature = "flash-attn"))]
         let result = {
-            // candle-flash-attn expects [batch, seq, heads, d_head] (seq-major).
-            let q = q.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
-            let k = k.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
-            let v = v.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?;
+            // candle-flash-attn expects [batch, seq, heads, d_head] (seq-major) in f16/bf16.
+            let q = q.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?.to_dtype(candle_core::DType::BF16)?;
+            let k = k.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?.to_dtype(candle_core::DType::BF16)?;
+            let v = v.reshape((batch_size, seq, num_heads, d_head))?.contiguous()?.to_dtype(candle_core::DType::BF16)?;
             candle_flash_attn::flash_attn(&q, &k, &v, scale as f32, true)?
+                .to_dtype(candle_core::DType::F32)?
                 .reshape((batch_size, seq, emb))?
         };
 
