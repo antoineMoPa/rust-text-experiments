@@ -286,6 +286,8 @@ echo "Using CUDA_COMPUTE_CAP=$CUDA_COMPUTE_CAP"
 mkdir -p /workspace/.cargo /workspace/target
 export CARGO_HOME=/workspace/.cargo
 export CARGO_TARGET_DIR=/workspace/target
+# Limit parallel nvcc jobs to avoid OOM during candle-flash-attn kernel compilation
+export CARGO_BUILD_JOBS=4
 
 echo "=== Train ==="
 make clean train-flash 2>&1 | tee /tmp/train.log
