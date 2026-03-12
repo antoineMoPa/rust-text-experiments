@@ -246,9 +246,16 @@ fn make_build_binary_script() -> &'static str {
     r#"#!/bin/bash
 set -euo pipefail
 
+shutdown_pod() {
+    echo "=== Shutting down pod ==="
+    curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
+        -H "Authorization: Bearer $RUNPOD_API_KEY" || true
+}
+trap shutdown_pod EXIT
+
 on_error() {
     echo "=== FATAL ERROR at line $1 — stopping ==="
-    exit 0
+    exit 1
 }
 trap 'on_error $LINENO' ERR
 
@@ -288,9 +295,7 @@ echo "=== Upload binary to HuggingFace ==="
 pip install -q huggingface_hub
 hf upload "$HF_REPO" "$CARGO_TARGET_DIR/release/rust-text-experiments" bin/rust-text-experiments --repo-type model
 
-echo "=== Done — shutting down pod ==="
-curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
-    -H "Authorization: Bearer $RUNPOD_API_KEY"
+echo "=== Done ==="
 "#
 }
 
@@ -298,9 +303,16 @@ fn make_startup_script() -> &'static str {
     r#"#!/bin/bash
 set -euo pipefail
 
+shutdown_pod() {
+    echo "=== Shutting down pod ==="
+    curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
+        -H "Authorization: Bearer $RUNPOD_API_KEY" || true
+}
+trap shutdown_pod EXIT
+
 on_error() {
     echo "=== FATAL ERROR at line $1 — stopping ==="
-    exit 0  # exit 0 so RunPod doesn't restart the container
+    exit 1
 }
 trap 'on_error $LINENO' ERR
 
@@ -345,9 +357,7 @@ echo "=== Results ==="
 echo "=== Upload to HuggingFace ==="
 hf upload "$HF_REPO" ./data/ . --repo-type model
 
-echo "=== Done — shutting down pod ==="
-curl -s -X DELETE "https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID" \
-    -H "Authorization: Bearer $RUNPOD_API_KEY"
+echo "=== Done ==="
 "#
 }
 

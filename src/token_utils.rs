@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
-use rayon::prelude::*;
 
 pub type Dict = std::collections::BTreeMap<String, f32>;
 pub type DictIndex = std::collections::BTreeMap<String, u32>;
@@ -85,6 +84,25 @@ pub struct Bpe {
     word_cache: HashMap<String, Vec<String>>,
 }
 
+/// Decrement a pair's count; remove the entry if it reaches zero.
+fn decrement_pair(pair_counts: &mut HashMap<(u32, u32), usize>, pair: (u32, u32), by: usize) {
+    use std::collections::hash_map::Entry;
+    if let Entry::Occupied(mut e) = pair_counts.entry(pair) {
+        let v = e.get_mut();
+        *v = v.saturating_sub(by);
+        if *v == 0 {
+            e.remove();
+        }
+    }
+}
+
+/// Increment a pair's count and return the new value.
+fn increment_pair(pair_counts: &mut HashMap<(u32, u32), usize>, pair: (u32, u32), by: usize) -> usize {
+    let c = pair_counts.entry(pair).or_insert(0);
+    *c += by;
+    *c
+}
+
 impl Bpe {
     pub fn new_empty() -> Self {
         Self {
@@ -94,86 +112,167 @@ impl Bpe {
     }
 
     /// Learn BPE merge rules from a corpus string.
+    ///
+    /// Uses an incremental priority-queue algorithm: pair counts are maintained
+    /// in a HashMap and a lazy-deletion max-heap, updated only for the words
+    /// affected by each merge instead of rescanning the full vocabulary every
+    /// iteration.  Complexity per merge: O(affected × seg_len + log P) instead
+    /// of O(vocab_size × seg_len).
     pub fn learn(corpus: &str, num_merges: usize) -> Self {
+        use std::collections::{BinaryHeap, HashSet};
+
         println!("Learning BPE ({} merges)...", num_merges);
 
-        // Count how often each alphabetic word appears in the corpus.
-        let mut word_freq: HashMap<String, usize> = HashMap::new();
+        // --- word frequency count ---
+        let mut word_freq_map: HashMap<String, usize> = HashMap::new();
         for token in tokenize(corpus) {
             if token.chars().all(|c| c.is_alphabetic()) {
-                *word_freq.entry(token).or_insert(0) += 1;
+                *word_freq_map.entry(token).or_insert(0) += 1;
             }
         }
 
-        // Represent each word as (original_word, current_segmentation, freq).
-        let mut vocab: Vec<(String, Vec<String>, usize)> = word_freq
-            .into_iter()
-            .map(|(word, freq)| {
-                let chars = word.chars().map(|c| c.to_string()).collect();
-                (word, chars, freq)
+        // --- token ID system: work with u32 IDs internally to avoid String clones in the hot loop ---
+        let mut id_to_str: Vec<String> = Vec::new();
+        let mut str_to_id: HashMap<String, u32> = HashMap::new();
+
+        let words_list: Vec<String> = word_freq_map.keys().cloned().collect();
+        let word_freqs: Vec<usize> = words_list.iter().map(|w| word_freq_map[w]).collect();
+
+        // Each word segmentation starts as individual characters (char-level token IDs).
+        let mut segs: Vec<Vec<u32>> = words_list
+            .iter()
+            .map(|word| {
+                word.chars()
+                    .map(|c| {
+                        let s = c.to_string();
+                        if let Some(&id) = str_to_id.get(&s) {
+                            return id;
+                        }
+                        let id = id_to_str.len() as u32;
+                        id_to_str.push(s.clone());
+                        str_to_id.insert(s, id);
+                        id
+                    })
+                    .collect()
             })
+            .collect();
+
+        // --- build initial pair_counts and pair_to_words ---
+        // pair_counts: how many times each adjacent pair appears across the weighted corpus
+        // pair_to_words: which word indices contain each pair (may have stale entries — see below)
+        let mut pair_counts: HashMap<(u32, u32), usize> = HashMap::new();
+        let mut pair_to_words: HashMap<(u32, u32), HashSet<usize>> = HashMap::new();
+        for (wi, (seg, &freq)) in segs.iter().zip(word_freqs.iter()).enumerate() {
+            for w in seg.windows(2) {
+                let pair = (w[0], w[1]);
+                *pair_counts.entry(pair).or_insert(0) += freq;
+                pair_to_words.entry(pair).or_default().insert(wi);
+            }
+        }
+
+        // Max-heap entries: (count, a, b).  Lazy deletion: stale entries (where the heap
+        // count no longer matches pair_counts) are discarded when popped.
+        let mut heap: BinaryHeap<(usize, u32, u32)> = pair_counts
+            .iter()
+            .map(|(&(a, b), &c)| (c, a, b))
             .collect();
 
         let mut merges: Vec<(String, String)> = Vec::with_capacity(num_merges);
 
-        for i in 0..num_merges {
-            // Count adjacent pair frequencies across all word types (parallel).
-            let pair_freq: HashMap<(String, String), usize> = vocab
-                .par_iter()
-                .fold(
-                    HashMap::new,
-                    |mut local, (_, seg, freq)| {
-                        for w in seg.windows(2) {
-                            *local
-                                .entry((w[0].clone(), w[1].clone()))
-                                .or_insert(0) += freq;
-                        }
-                        local
-                    },
-                )
-                .reduce(
-                    HashMap::new,
-                    |mut a, b| {
-                        for (k, v) in b {
-                            *a.entry(k).or_insert(0) += v;
-                        }
-                        a
-                    },
-                );
-
-            let Some(((best_a, best_b), _)) = pair_freq.into_iter().max_by_key(|(_, f)| *f) else {
-                break;
+        'outer: for i in 0..num_merges {
+            // Pop heap until we find an entry whose count still matches pair_counts.
+            let (best_a, best_b) = loop {
+                let Some((count, a, b)) = heap.pop() else {
+                    break 'outer;
+                };
+                if pair_counts.get(&(a, b)).copied() == Some(count) {
+                    break (a, b);
+                }
+                // stale — discard and keep popping
             };
 
             if i % 500 == 0 {
-                println!("  merge {}/{}: {:?} + {:?}", i, num_merges, best_a, best_b);
+                println!(
+                    "  merge {}/{}: {:?} + {:?}",
+                    i, num_merges, &id_to_str[best_a as usize], &id_to_str[best_b as usize]
+                );
             }
 
-            // Apply merge in-place across the whole vocabulary (parallel).
-            let merged = best_a.clone() + &best_b;
-            vocab.par_iter_mut().for_each(|(_, seg, _)| {
-                let mut out = Vec::with_capacity(seg.len());
+            merges.push((
+                id_to_str[best_a as usize].clone(),
+                id_to_str[best_b as usize].clone(),
+            ));
+
+            // Get or create the merged token ID.
+            let merged_str = id_to_str[best_a as usize].clone() + &id_to_str[best_b as usize];
+            let merged_id = if let Some(&id) = str_to_id.get(&merged_str) {
+                id
+            } else {
+                let id = id_to_str.len() as u32;
+                id_to_str.push(merged_str.clone());
+                str_to_id.insert(merged_str, id);
+                id
+            };
+
+            // Remove the consumed pair entirely; iterate only over affected words.
+            pair_counts.remove(&(best_a, best_b));
+            let affected: Vec<usize> = pair_to_words
+                .remove(&(best_a, best_b))
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
+
+            for wi in affected {
+                // Take ownership of the segmentation to rebuild it in place.
+                let seg = std::mem::take(&mut segs[wi]);
+                let freq = word_freqs[wi];
+                let mut new_seg: Vec<u32> = Vec::with_capacity(seg.len());
                 let mut j = 0;
+
                 while j < seg.len() {
                     if j + 1 < seg.len() && seg[j] == best_a && seg[j + 1] == best_b {
-                        out.push(merged.clone());
+                        // The token to the left of best_a in the *emerging* new_seg.
+                        let left = new_seg.last().copied();
+                        // The token to the right of best_b in the *original* old seg.
+                        let right = seg.get(j + 2).copied();
+
+                        // (left, best_a) disappears → (left, merged_id) appears.
+                        if let Some(x) = left {
+                            decrement_pair(&mut pair_counts, (x, best_a), freq);
+                            let new_count = increment_pair(&mut pair_counts, (x, merged_id), freq);
+                            pair_to_words.entry((x, merged_id)).or_default().insert(wi);
+                            heap.push((new_count, x, merged_id));
+                        }
+
+                        // (best_b, right) disappears → (merged_id, right) appears.
+                        if let Some(y) = right {
+                            decrement_pair(&mut pair_counts, (best_b, y), freq);
+                            let new_count =
+                                increment_pair(&mut pair_counts, (merged_id, y), freq);
+                            pair_to_words.entry((merged_id, y)).or_default().insert(wi);
+                            heap.push((new_count, merged_id, y));
+                        }
+
+                        new_seg.push(merged_id);
                         j += 2;
                     } else {
-                        out.push(seg[j].clone());
+                        new_seg.push(seg[j]);
                         j += 1;
                     }
                 }
-                *seg = out;
-            });
 
-            merges.push((best_a, best_b));
+                segs[wi] = new_seg;
+            }
         }
 
-        // Build cache from final segmentations — O(vocab_size), avoids
-        // re-applying all merges when tokenizing the corpus.
-        let word_cache: HashMap<String, Vec<String>> = vocab
+        // Build the word cache from final segmentations.
+        let word_cache: HashMap<String, Vec<String>> = words_list
             .into_iter()
-            .map(|(word, seg, _)| (word, seg))
+            .zip(segs.into_iter())
+            .map(|(word, seg)| {
+                let tokens = seg.iter().map(|&id| id_to_str[id as usize].clone()).collect();
+                (word, tokens)
+            })
             .collect();
 
         println!(
