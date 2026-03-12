@@ -1,3 +1,6 @@
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -c
+
 args = RUST_BACKTRACE=1
 features ?=
 

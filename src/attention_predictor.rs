@@ -52,8 +52,8 @@ impl Default for TrainConfig {
             lr: 0.01,
             warmup_batches: 600,
             epochs: 1,
-            token_batch_size: 128,
-            micro_batch_size: 128,
+            token_batch_size: 512,
+            micro_batch_size: 512,
         }
     }
 }
@@ -490,6 +490,7 @@ impl Model {
                 last_lr = lr;
                 global_step += 1;
 
+                let mut oom_retries = 0u32;
                 loop {
                     let result: Result<(), CandleError> = (|| {
                         let inputs = all_inputs.to_device(device)?;
@@ -525,9 +526,14 @@ impl Model {
                     match result {
                         Ok(()) => break,
                         Err(e) if is_oom_error(&e) => {
+                            oom_retries += 1;
                             optimizer.clear_accumulated();
+                            if oom_retries >= 3 {
+                                eprintln!("\nCUDA OOM on batch {j}: too many retries, aborting.");
+                                return Err(e);
+                            }
                             eprintln!(
-                                "\nCUDA OOM on batch {j}, retrying in {OOM_RETRY_DELAY_SECS}s...",
+                                "\nCUDA OOM on batch {j} (retry {oom_retries}/3), retrying in {OOM_RETRY_DELAY_SECS}s...",
                             );
                             std::thread::sleep(std::time::Duration::from_secs(
                                 OOM_RETRY_DELAY_SECS,

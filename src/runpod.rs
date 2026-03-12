@@ -19,6 +19,7 @@ use crate::hf::{load_env, require};
 pub struct SendParams {
     pub machine_type: String,
     pub config: TrainConfig,
+    pub no_shutdown: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +258,10 @@ fn make_build_binary_script() -> &'static str {
 set -euo pipefail
 
 shutdown_pod() {
+    if [ "${NO_SHUTDOWN:-0}" = "1" ]; then
+        echo "=== NO_SHUTDOWN set — leaving pod running for log inspection ==="
+        return
+    fi
     echo "=== Shutting down pod ==="
     for i in 1 2 3 4 5; do
         HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -277,6 +282,11 @@ on_error() {
 trap 'on_error $LINENO' ERR
 
 echo "=== RunPod build_and_upload_binary starting ==="
+
+if [ "${NO_SHUTDOWN:-0}" = "1" ] && [ -d "/workspace/target" ]; then
+    echo "=== Build already exists and NO_SHUTDOWN set — sleeping forever (workspace pod mode) ==="
+    sleep infinity
+fi
 
 apt-get update -qq && apt-get install -y curl git 2>&1 | tail -3
 
@@ -323,6 +333,10 @@ fn make_startup_script() -> &'static str {
 set -euo pipefail
 
 shutdown_pod() {
+    if [ "${NO_SHUTDOWN:-0}" = "1" ]; then
+        echo "=== NO_SHUTDOWN set — leaving pod running for log inspection ==="
+        return
+    fi
     echo "=== Shutting down pod ==="
     for i in 1 2 3 4 5; do
         HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -513,6 +527,7 @@ pub fn send_job(params: SendParams) -> Result<(), Box<dyn Error>> {
         ("HF_TOKEN", hf_token),
         ("HF_REPO", hf_repo.clone()),
         ("RP_ADMIN_KEY", runpod_config.api_key.clone()),
+        ("NO_SHUTDOWN", if params.no_shutdown { "1" } else { "0" }.to_string()),
     ];
 
     // Append all TrainConfig fields as env vars so the pod binary picks them up
@@ -658,7 +673,7 @@ pub fn fetch_job(job_id_opt: Option<&str>) -> Result<(), Box<dyn Error>> {
     crate::hf::download(&state.hf_repo, &hf_token)
 }
 
-pub fn build_and_upload_binary(machine_type: &str) -> Result<(), Box<dyn Error>> {
+pub fn build_and_upload_binary(machine_type: &str, no_shutdown: bool) -> Result<(), Box<dyn Error>> {
     let env = load_env();
     let config = RunpodConfig::from_env(&env)?;
     let git_repo_url = require(&env, "GIT_REPO_URL")?;
@@ -683,6 +698,7 @@ pub fn build_and_upload_binary(machine_type: &str) -> Result<(), Box<dyn Error>>
         ("HF_TOKEN", hf_token),
         ("HF_REPO", hf_repo.clone()),
         ("RP_ADMIN_KEY", config.api_key.clone()),
+        ("NO_SHUTDOWN", if no_shutdown { "1" } else { "0" }.to_string()),
     ];
 
     let pod_id = runpod.create_pod("build-binary", machine_type, env_vars, &config.docker_image)?;

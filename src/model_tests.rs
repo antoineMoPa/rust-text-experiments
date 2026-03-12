@@ -203,7 +203,7 @@ fn compute_self_test_scores(
         let mut match_count = 0;
         let mut total = 0;
 
-        for line in content.split("\n").take(20) {
+        for line in content.split("\n").filter(|l| !l.trim().is_empty()).take(20) {
             let words: Vec<&str> = line.split(" ").take(6).collect();
             let expected_completion = line.split(" ").skip(6);
             let original_input = words.join(" ");
@@ -268,7 +268,7 @@ fn compute_qa_test_score(
     let mut match_count = 0;
     let mut total = 0;
 
-    for line in content.split("\n") {
+    for line in content.split("\n").filter(|l| !l.trim().is_empty()) {
         let question: Vec<&str> = line.split("A:").take(1).collect();
         let question = question.join("");
         let answer: Vec<&str> = line.split("A:").skip(1).take(1).collect();
@@ -337,7 +337,7 @@ fn compute_json_test_score(
     let content = fs::read_to_string(file_path)?;
 
     // Parse line pairs: odd lines are prompts, even lines are expected JSON
-    let lines: Vec<&str> = content.lines().collect();
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
     let pairs: Vec<(&str, &str)> = lines
         .chunks(2)
         .filter_map(|c| {

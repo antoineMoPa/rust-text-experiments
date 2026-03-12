@@ -268,9 +268,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if command == "runpod" {
+        if args.iter().any(|a| a == "--help" || a == "-h") {
+            runpod::print_help();
+            return Ok(());
+        }
         let sub = args.get(1).map(|s| s.as_str()).unwrap_or("help");
         match sub {
-            "help" | "--help" => runpod::print_help(),
+            "help" => runpod::print_help(),
             "send" => {
                 fn flag_str<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
                     args.iter()
@@ -306,7 +310,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(v) = flag_usize(&args, "--batch-size")        { config.token_batch_size = v; }
                 if let Some(v) = flag_usize(&args, "--micro-batch-size")  { config.micro_batch_size = v; }
 
-                runpod::send_job(runpod::SendParams { machine_type, config })?;
+                let no_shutdown = args.iter().any(|a| a == "--no-shutdown");
+                runpod::send_job(runpod::SendParams { machine_type, config, no_shutdown })?;
             }
             "list" => runpod::list_pods()?,
             "status" => runpod::status_job(args.get(2).map(|s| s.as_str()))?,
@@ -323,7 +328,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .and_then(|i| args.get(i + 1))
                     .map(|s| s.as_str())
                     .unwrap_or("NVIDIA GeForce RTX 4090");
-                runpod::build_and_upload_binary(machine_type)?;
+                let no_shutdown = args.iter().any(|a| a == "--no-shutdown");
+                runpod::build_and_upload_binary(machine_type, no_shutdown)?;
             }
             other => {
                 eprintln!("Unknown runpod subcommand: '{}'. Run 'runpod help' for usage.", other);
