@@ -436,7 +436,7 @@ send options (all optional, defaults come from env vars then built-in defaults):
   --lr <F>                      Learning rate (default: 0.01)
   --warmup-batches <N>          LR warmup batches (default: 600)
   --epochs <N>                  Training epochs (default: 1)
-  --batch-size <N>              Token batch size (default: 256)
+  --batch-size <N>              Sequences per batch (default: 512)
   --micro-batch-size <N>        Micro batch size (default: 256)
 
 If <job_id> is omitted for status/fetch, the most recent job in runpod_jobs/ is used.

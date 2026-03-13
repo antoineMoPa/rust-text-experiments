@@ -52,8 +52,8 @@ impl Default for TrainConfig {
             lr: 0.01,
             warmup_batches: 600,
             epochs: 1,
-            token_batch_size: 512,
-            micro_batch_size: 512,
+            token_batch_size: 8192,
+            micro_batch_size: 8192,
         }
     }
 }
@@ -439,9 +439,12 @@ impl Model {
         let token_ids: Vec<u32> = tokens_chain.iter().map(|t| self.token_to_id(t)).collect();
         let num_samples = token_ids.len().saturating_sub(1);
 
+        let seqs_per_batch = (token_batch_size / context_window).max(1);
+        let micro_seqs = (micro_batch_size / context_window).max(1);
+
         let mut rng = rand::thread_rng();
         let mut global_step: usize = 0;
-        let batch_count = (num_samples + token_batch_size - 1) / token_batch_size;
+        let batch_count = (num_samples + seqs_per_batch - 1) / seqs_per_batch;
         let total_steps = epochs as usize * batch_count;
         let lr_min = base_lr * 0.1;
 
@@ -455,8 +458,8 @@ impl Model {
             let mut batch_timer = std::time::Instant::now();
 
             for j in 0..batch_count {
-                let batch_start = j * token_batch_size;
-                let batch_end = (batch_start + token_batch_size).min(num_samples);
+                let batch_start = j * seqs_per_batch;
+                let batch_end = (batch_start + seqs_per_batch).min(num_samples);
                 let batch_indices = &indices[batch_start..batch_end];
 
                 // Build inputs/targets on-the-fly from token_ids
@@ -498,11 +501,11 @@ impl Model {
 
                         // Split into micro-batches for gradient accumulation
                         let num_samples = inputs.dim(0)?;
-                        let num_micro = (num_samples + micro_batch_size - 1) / micro_batch_size;
+                        let num_micro = (num_samples + micro_seqs - 1) / micro_seqs;
 
                         for m in 0..num_micro {
-                            let micro_start = m * micro_batch_size;
-                            let micro_len = micro_batch_size.min(num_samples - micro_start);
+                            let micro_start = m * micro_seqs;
+                            let micro_len = micro_seqs.min(num_samples - micro_start);
                             let micro_inputs = inputs.narrow(0, micro_start, micro_len)?;
                             let micro_targets = targets.narrow(0, micro_start, micro_len)?;
 
