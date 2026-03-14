@@ -285,10 +285,20 @@ impl candle_core::CustomOp3 for FlashAttnOp {
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// q, k, v: [batch, heads, seq, d_head] f32 on CUDA (heads-first layout).
-/// Returns:  [batch, heads, seq, d_head] f32.
+/// q, k, v: [batch, heads, seq, d_head] f32 or bf16 on CUDA (heads-first layout).
+/// Returns:  same dtype as input.
 pub fn flash_attn(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32, causal: bool) -> Result<Tensor> {
-    q.apply_op3(
+    let dtype = q.dtype();
+    let (qf, kf, vf);
+    let (q, k, v) = if dtype == candle_core::DType::BF16 {
+        qf = q.to_dtype(candle_core::DType::F32)?;
+        kf = k.to_dtype(candle_core::DType::F32)?;
+        vf = v.to_dtype(candle_core::DType::F32)?;
+        (&qf, &kf, &vf)
+    } else {
+        (q, k, v)
+    };
+    let out = q.apply_op3(
         k,
         v,
         FlashAttnOp {
@@ -296,5 +306,10 @@ pub fn flash_attn(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32, causal: bool) 
             causal,
             lse_cache: Arc::new(Mutex::new(None)),
         },
-    )
+    )?;
+    if dtype == candle_core::DType::BF16 {
+        out.to_dtype(candle_core::DType::BF16)
+    } else {
+        Ok(out)
+    }
 }

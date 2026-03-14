@@ -48,6 +48,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.iter().any(|a| a == "--no-warmup") {
             config.no_warmup = true;
         }
+        if args.iter().any(|a| a == "--bf16") {
+            config.use_bf16 = true;
+        }
         let lr = config.lr;
         let file_path = config.file_path.clone();
         let (dict, tokens, bpe) = get_pretrained_dict(&file_path)?;
@@ -317,6 +320,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(v) = flag_u32(&args, "--epochs")              { config.epochs = v; }
                 if let Some(v) = flag_usize(&args, "--batch-size")        { config.token_batch_size = v; }
                 if let Some(v) = flag_usize(&args, "--micro-batch-size")  { config.micro_batch_size = v; }
+                if args.iter().any(|a| a == "--bf16") { config.use_bf16 = true; }
 
                 let no_shutdown = args.iter().any(|a| a == "--no-shutdown");
                 runpod::send_job(runpod::SendParams { machine_type, config, no_shutdown })?;

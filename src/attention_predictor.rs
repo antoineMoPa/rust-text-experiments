@@ -203,7 +203,7 @@ impl Model {
 
         // Mask <notfound> so it can never be predicted during inference
         let not_found_id = self.token_to_id(NOT_FOUND) as usize;
-        let mut logits_vec = logits.to_vec2::<f32>()?[0].clone();
+        let mut logits_vec = logits.to_dtype(DType::F32)?.to_vec2::<f32>()?[0].clone();
         logits_vec[not_found_id] = f32::NEG_INFINITY;
 
         // Top-k sampling
@@ -262,7 +262,7 @@ impl Model {
         let logits = self.forward(&input_tensor, false)?;
 
         let not_found_id = self.token_to_id(NOT_FOUND) as usize;
-        let mut logits_vec = logits.to_vec2::<f32>()?[0].clone();
+        let mut logits_vec = logits.to_dtype(DType::F32)?.to_vec2::<f32>()?[0].clone();
         logits_vec[not_found_id] = f32::NEG_INFINITY;
 
         let token_id = logits_vec
@@ -427,7 +427,7 @@ impl Model {
                             let predictions = self.forward(&micro_inputs, true)?;
 
                             let loss = nn::loss::cross_entropy(&predictions, &micro_targets)?;
-                            loss_stat = loss.to_vec0::<f32>()?;
+                            loss_stat = loss.to_dtype(DType::F32)?.to_vec0::<f32>()?;
 
                             if loss_stat.is_nan() {
                                 self.crash_dump(inputs.clone(), targets.clone())?;
@@ -629,10 +629,10 @@ impl Model {
 
         // print min, max, mean, std of all tensors
         for var in self.var_map.all_vars().iter() {
-            let min = var.min_all()?.to_vec0::<f32>()?;
-            let max = var.max_all()?.to_vec0::<f32>()?;
-            let mean = var.mean_all()?.to_vec0::<f32>()?;
-            let variance = var.flatten_all()?.var(D::Minus1)?.to_vec0::<f32>()?;
+            let min = var.min_all()?.to_dtype(DType::F32)?.to_vec0::<f32>()?;
+            let max = var.max_all()?.to_dtype(DType::F32)?.to_vec0::<f32>()?;
+            let mean = var.mean_all()?.to_dtype(DType::F32)?.to_vec0::<f32>()?;
+            let variance = var.flatten_all()?.to_dtype(DType::F32)?.var(D::Minus1)?.to_vec0::<f32>()?;
             println!(
                 "{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3}",
                 "", min, max, mean, variance
@@ -734,7 +734,8 @@ impl RunStr for Model {
 
 pub fn create_model(dict: &Dict, bpe: Bpe, device: &Device, config: TrainConfig) -> Result<Model, candle_core::Error> {
     let varmap = VarMap::new();
-    let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+    let dtype = if config.use_bf16 { DType::BF16 } else { DType::F32 };
+    let vb = VarBuilder::from_varmap(&varmap, dtype, &device);
 
     let model = Model::new(dict.clone(), bpe, varmap, vb, device, config)?;
 
