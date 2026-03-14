@@ -156,8 +156,8 @@ impl candle_core::CustomOp3 for FlashAttnOp {
             ),
         };
 
-        if d_head > 32 {
-            candle_core::bail!("flash_attn: d_head={} exceeds warp limit of 32 (use fewer heads or smaller embedding)", d_head);
+        if d_head > 1024 {
+            candle_core::bail!("flash_attn: d_head={} exceeds CUDA block size limit of 1024", d_head);
         }
 
         // Raw device pointers are base-of-allocation; verify no logical offset is hiding.

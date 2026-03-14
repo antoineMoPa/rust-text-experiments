@@ -505,6 +505,8 @@ pub fn send_job(params: SendParams) -> Result<(), Box<dyn Error>> {
     let hf_repo = require(&env, "HF_REPO")?;
     let job_id = make_job_id();
 
+    params.config.validate().map_err(|e| format!("Config error: {}", e))?;
+
     let (git_branch, git_commit) = check_git_pushed()?;
     println!("Branch {} at {} is pushed.", git_branch, &git_commit[..12]);
     println!("Starting job {} on {}...", job_id, machine_type);

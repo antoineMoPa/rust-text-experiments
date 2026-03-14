@@ -37,6 +37,24 @@ impl Default for TrainConfig {
 }
 
 impl TrainConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.embedding_size % self.num_attention_heads != 0 {
+            return Err(format!(
+                "embedding_size={} must be divisible by num_attention_heads={}",
+                self.embedding_size, self.num_attention_heads
+            ));
+        }
+        let d_head = self.embedding_size / self.num_attention_heads;
+        if d_head > 1024 {
+            return Err(format!(
+                "d_head={} (embedding_size={} / num_attention_heads={}) exceeds \
+                 CUDA block size limit of 1024.",
+                d_head, self.embedding_size, self.num_attention_heads
+            ));
+        }
+        Ok(())
+    }
+
     pub fn from_env() -> Self {
         let d = Self::default();
         Self {

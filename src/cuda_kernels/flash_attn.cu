@@ -1,11 +1,10 @@
-// Homebrew Flash Attention for sm_75 (GTX 1660 / Turing).
+// Homebrew Flash Attention — supports any d_head that fits in one CUDA block (≤ 1024).
 // Uses standard CUDA — no Ampere-specific instructions.
 //
 // Layout: all tensors are [batch, heads, seq, d_head] row-major, f32.
 //   stride_b = heads * seq * d_head
 //   stride_h =         seq * d_head
-//   stride_s =               d_head    <-- inner-loop stride is d_head (9 floats),
-//                                          giving ~3-4 kv rows per 128-byte cache line.
+//   stride_s =               d_head
 //
 // lse [batch, heads, seq] is written in forward and read in backward (no recomputation).
 
@@ -14,21 +13,42 @@
 #include <stdio.h>
 
 // ---------------------------------------------------------------------------
-// Warp helpers  (d_head <= 32, so everything fits in one warp)
+// Block-level helpers  (block = d_head threads, any d_head ≤ 1024)
+//
+// smem: scratch array of at least ceil(d_head/32) floats,
+//       declared as `extern __shared__` in each kernel.
 // ---------------------------------------------------------------------------
 
 __device__ __forceinline__
-float warp_reduce_sum(float val, unsigned int mask) {
+float block_reduce_sum(float val, float* smem) {
+    const int lane      = threadIdx.x & 31;
+    const int warp_id   = threadIdx.x >> 5;
+    const int num_warps = ((int)blockDim.x + 31) / 32;
+
+    // Per-warp active-lane mask (last warp may be partial when d_head % 32 != 0).
+    const int warp_threads = min(32, (int)blockDim.x - warp_id * 32);
+    const unsigned int mask = (warp_threads == 32) ? 0xffffffffu
+                                                   : (1u << warp_threads) - 1u;
+
     for (int offset = 16; offset > 0; offset >>= 1)
         val += __shfl_down_sync(mask, val, offset);
-    return val;
+
+    if (lane == 0) smem[warp_id] = val;
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+        float sum = 0.0f;
+        for (int i = 0; i < num_warps; i++) sum += smem[i];
+        smem[0] = sum;
+    }
+    __syncthreads();
+    return smem[0];
 }
 
-// Dot product of two d_head-dimensional vectors, one element per thread.
-// Result is broadcast to all threads in the warp.
+// Dot product of two d_head-dimensional vectors, result broadcast to all threads.
 __device__ __forceinline__
-float warp_dot(float a, float b, unsigned int mask) {
-    return __shfl_sync(mask, warp_reduce_sum(a * b, mask), 0);
+float block_dot(float a, float b, float* smem) {
+    return block_reduce_sum(a * b, smem);
 }
 
 // ---------------------------------------------------------------------------
@@ -36,6 +56,7 @@ float warp_dot(float a, float b, unsigned int mask) {
 //
 // Grid : (batch, heads, seq)  — one block per query row
 // Block: (d_head)             — one thread per head dimension
+// Smem : ceil(d_head/32) floats for cross-warp reduction
 // ---------------------------------------------------------------------------
 __global__ void flash_attn_fwd_kernel(
     const float* __restrict__ Q,    // [batch, heads, seq, d_head]
@@ -46,16 +67,13 @@ __global__ void flash_attn_fwd_kernel(
     int seq, int heads, int d_head,
     float scale, bool causal)
 {
+    extern __shared__ float smem[];
+
     const int b  = blockIdx.x;
     const int h  = blockIdx.y;
     const int qi = blockIdx.z;
     const int d  = threadIdx.x;
 
-    // Active-lane mask for warp ops (d_head <= 32 enforced by caller).
-    // NOTE: (1u << 32) is UB; the ternary special-cases d_head == 32 to avoid it.
-    const unsigned int mask = (d_head == 32) ? 0xffffffffu : (1u << d_head) - 1u;
-
-    // [batch, heads, seq, d_head] strides — inner-loop step is d_head, not heads*d_head.
     const int stride_b = heads * seq * d_head;
     const int stride_h =         seq * d_head;
     const int stride_s =               d_head;
@@ -63,19 +81,18 @@ __global__ void flash_attn_fwd_kernel(
     const float q_d = __ldg(&Q[b * stride_b + h * stride_h + qi * stride_s + d]);
 
     // Online softmax state
-    float m   = -FLT_MAX;  // running max
-    float l   = 0.0f;      // running sum of exp(score - m)
-    float o_d = 0.0f;      // running weighted-value accumulator
+    float m   = -FLT_MAX;
+    float l   = 0.0f;
+    float o_d = 0.0f;
 
     const int kv_end = causal ? qi + 1 : seq;
 
     for (int kv = 0; kv < kv_end; kv++) {
         const int   base  = b * stride_b + h * stride_h + kv * stride_s;
-        const float score = warp_dot(q_d, __ldg(&K[base + d]), mask) * scale;
+        const float score = block_dot(q_d, __ldg(&K[base + d]), smem) * scale;
 
         const float m_new     = fmaxf(m, score);
         const float exp_score = __expf(score - m_new);
-        // When m == -FLT_MAX (first iter), __expf(-FLT_MAX - m_new) underflows to 0 — correct.
         const float rescale   = __expf(m - m_new);
 
         o_d = o_d * rescale + exp_score * __ldg(&V[base + d]);
@@ -86,7 +103,6 @@ __global__ void flash_attn_fwd_kernel(
     const int out_base = b * stride_b + h * stride_h + qi * stride_s;
     O[out_base + d] = o_d / fmaxf(l, 1e-38f);
 
-    // Save lse for backward (thread 0 only — lse is a scalar per query row).
     if (d == 0)
         lse[b * heads * seq + h * seq + qi] = m + __logf(fmaxf(l, 1e-38f));
 }
@@ -96,11 +112,10 @@ __global__ void flash_attn_fwd_kernel(
 //
 // Grid : (batch, heads, seq)  — one block per query row
 // Block: (d_head)
+// Smem : ceil(d_head/32) floats for cross-warp reduction
 //
 // dK and dV are accumulated across query rows via atomicAdd (zeroed before launch).
 // dQ has no conflicts and is written directly.
-//
-// lse is read from the value saved in the forward pass — no recomputation needed.
 // ---------------------------------------------------------------------------
 __global__ void flash_attn_bwd_kernel(
     const float* __restrict__ Q,
@@ -115,14 +130,12 @@ __global__ void flash_attn_bwd_kernel(
     int seq, int heads, int d_head,
     float scale, bool causal)
 {
+    extern __shared__ float smem[];
+
     const int b  = blockIdx.x;
     const int h  = blockIdx.y;
     const int qi = blockIdx.z;
     const int d  = threadIdx.x;
-
-    // Active-lane mask for warp ops (d_head <= 32 enforced by caller).
-    // NOTE: (1u << 32) is UB; the ternary special-cases d_head == 32 to avoid it.
-    const unsigned int mask = (d_head == 32) ? 0xffffffffu : (1u << d_head) - 1u;
 
     const int stride_b = heads * seq * d_head;
     const int stride_h =         seq * d_head;
@@ -134,9 +147,8 @@ __global__ void flash_attn_bwd_kernel(
     const float do_d = __ldg(&dO[qi_base + d]);
 
     // D_i = dot(O_i, dO_i) — scalar used in the softmax gradient formula
-    const float D = warp_dot(o_d, do_d, mask);
+    const float D = block_dot(o_d, do_d, smem);
 
-    // lse_i saved from forward — no need to re-scan K.
     const float lse_i = __ldg(&lse[b * heads * seq + h * seq + qi]);
 
     const int kv_end = causal ? qi + 1 : seq;
@@ -147,22 +159,15 @@ __global__ void flash_attn_bwd_kernel(
         const float k_d   = __ldg(&K[base + d]);
         const float v_d   = __ldg(&V[base + d]);
 
-        const float score = warp_dot(q_d, k_d, mask) * scale;
-        const float p     = __expf(score - lse_i);   // softmax weight p_ij
+        const float score = block_dot(q_d, k_d, smem) * scale;
+        const float p     = __expf(score - lse_i);
 
-        // dV_kv += p_ij * dO_qi
         atomicAdd(&dV[base + d], p * do_d);
 
-        // dp_ij = dot(dO_qi, V_kv)
-        const float dp = warp_dot(do_d, v_d, mask);
-
-        // ds_ij = p_ij * (dp_ij - D_i)   [softmax Jacobian]
+        const float dp = block_dot(do_d, v_d, smem);
         const float ds = p * (dp - D);
 
-        // dQ_qi += ds_ij * K_kv * scale
         dq_d += ds * k_d * scale;
-
-        // dK_kv += ds_ij * Q_qi * scale
         atomicAdd(&dK[base + d], ds * q_d * scale);
     }
 
@@ -182,7 +187,8 @@ void flash_attn_fwd(
 {
     dim3 grid(batch, heads, seq);
     dim3 block(d_head);
-    flash_attn_fwd_kernel<<<grid, block>>>(
+    const int smem_bytes = ((d_head + 31) / 32) * sizeof(float);
+    flash_attn_fwd_kernel<<<grid, block, smem_bytes>>>(
         q, k, v, o, lse, seq, heads, d_head, scale, causal);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess)
@@ -203,7 +209,8 @@ void flash_attn_bwd(
 
     dim3 grid(batch, heads, seq);
     dim3 block(d_head);
-    flash_attn_bwd_kernel<<<grid, block>>>(
+    const int smem_bytes = ((d_head + 31) / 32) * sizeof(float);
+    flash_attn_bwd_kernel<<<grid, block, smem_bytes>>>(
         q, k, v, o, do_, lse, dq, dk, dv, seq, heads, d_head, scale, causal);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess)
