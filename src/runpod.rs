@@ -9,7 +9,7 @@ use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
 
-use crate::attention_predictor::TrainConfig;
+use crate::train_config::TrainConfig;
 use crate::hf::{load_env, require};
 
 // ---------------------------------------------------------------------------
@@ -395,9 +395,10 @@ echo "=== Results ==="
 "$BIN" print_results 2>&1 | tee data/results.txt
 
 echo "=== Upload to HuggingFace ==="
-for f in model.bpe model.config.json model.dict model.id model.safetensors; do
-    if [ -f "data/$f" ]; then
-        hf upload "$HF_REPO" "data/$f" "$f" --repo-type model
+for ext in bpe config.json dict id safetensors; do
+    f="data/model.${ext}"
+    if [ -f "$f" ]; then
+        hf upload "$HF_REPO" "$f" "model.${ext}" --repo-type model
     else
         echo "Skipping $f (not found)"
     fi

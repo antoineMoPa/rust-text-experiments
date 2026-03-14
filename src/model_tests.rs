@@ -3,6 +3,7 @@ use std::io::prelude::*;
 
 use crate::{
     attention_predictor::{get_device, Model},
+    models::PredictGreedy,
     token_utils::STOP_TOKEN,
 };
 
@@ -149,8 +150,8 @@ pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Run all scores on an already-loaded model (used during training).
-pub fn per_epoch_scores(
-    model: &Model,
+pub fn per_epoch_scores<M: PredictGreedy>(
+    model: &M,
     device: &candle_core::Device,
 ) -> Result<(f32, f32, f32, f32), Box<dyn std::error::Error>> {
     let (l2, l3) = compute_self_test_scores(model, device)?;
@@ -184,8 +185,8 @@ fn first_n_words_contain(output: &str, expected: &str, n: usize) -> bool {
     prefix.contains(expected)
 }
 
-fn compute_self_test_scores(
-    model: &Model,
+fn compute_self_test_scores<M: PredictGreedy>(
+    model: &M,
     device: &candle_core::Device,
 ) -> Result<(f32, f32), Box<dyn std::error::Error>> {
     let level_file_paths = vec![
@@ -256,8 +257,8 @@ fn compute_self_test_scores(
     Ok((scores[0], scores[1]))
 }
 
-fn compute_qa_test_score(
-    model: &Model,
+fn compute_qa_test_score<M: PredictGreedy>(
+    model: &M,
     device: &candle_core::Device,
 ) -> Result<f32, Box<dyn std::error::Error>> {
     let file_path = "smoll-generated-corpus/level_3/qa.txt";
@@ -329,8 +330,8 @@ fn qa_test_score() -> Result<f32, Box<dyn std::error::Error>> {
     compute_qa_test_score(&model, &device)
 }
 
-fn compute_json_test_score(
-    model: &Model,
+fn compute_json_test_score<M: PredictGreedy>(
+    model: &M,
     device: &candle_core::Device,
 ) -> Result<f32, Box<dyn std::error::Error>> {
     let file_path = "smoll-generated-corpus/level_5/json_test.txt";

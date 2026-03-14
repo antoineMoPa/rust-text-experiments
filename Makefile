@@ -13,7 +13,7 @@ train-flash:
 	mkdir -p data
 	$(args) RUSTFLAGS="-C linker=gcc" nohup time cargo run --release --features flash-attn train 2>&1 | tee train_log.log
 merge:
-	$(time cargo run --release merge 2>&1
+	$(args) cargo run --release merge 2>&1
 print_stats:
 	$(args) cargo run --release print_stats
 test:

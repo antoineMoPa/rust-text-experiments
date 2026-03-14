@@ -2,9 +2,10 @@ use attention_predictor::{create_model, get_pretrained_dict};
 use candle_core::Var;
 
 use crate::{
-    attention_predictor::{get_device, load_vocab, Model, TrainConfig},
+    attention_predictor::{get_device, load_vocab, Model},
     model_tests::{json_test, per_epoch_scores, print_results, qa_test, self_test, test_all},
     token_utils::STOP_TOKEN,
+    train_config::TrainConfig,
 };
 
 mod attention_block;
@@ -18,6 +19,7 @@ mod models;
 mod hf;
 mod runpod;
 mod token_utils;
+mod train_config;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -41,20 +43,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if command == "train" {
-        println!("Training new model");
-
         let device = get_device()?;
-        let config = TrainConfig::from_env();
+        let mut config = TrainConfig::from_env();
+        if args.iter().any(|a| a == "--no-warmup") {
+            config.no_warmup = true;
+        }
         let lr = config.lr;
         let file_path = config.file_path.clone();
         let (dict, tokens, bpe) = get_pretrained_dict(&file_path)?;
-        let mut model = create_model(&dict, bpe, &device, config)?;
-        model.save_to_path("data/model");
 
         println!("Training on {} tokens", tokens.len());
 
-        model.simple_train(tokens, &device, lr)?;
-        model.save_to_path("data/model");
+        let new_epoch_flag = args.iter().position(|a| a == "--new-epoch");
+        if let Some(pos) = new_epoch_flag {
+            let n = args.get(pos + 1).and_then(|v| v.parse::<u32>().ok()).unwrap_or(1);
+            println!("Continuing training for {} more epoch(s)", n);
+            let mut model = Model::load_from_path("data/model", &device)?;
+            model.config.epochs = n;
+            model.config.no_warmup = config.no_warmup;
+            model.simple_train(tokens, &device, lr)?;
+            model.save_to_path("data/model");
+        } else {
+            println!("Training new model");
+            let mut model = create_model(&dict, bpe, &device, config)?;
+            model.save_to_path("data/model");
+            model.simple_train(tokens, &device, lr)?;
+            model.save_to_path("data/model");
+        }
 
         return Ok(());
     }
@@ -95,26 +110,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if command == "run" {
+        let mut input = args[1..].join(" ") + " ";
+        println!("Completing: '{:?}'", input);
         println!("Loading model");
         let model = Model::load_from_path("data/model", &device)?;
-
-        let args = args[1..].to_vec();
-
-        let mut input = args.join(" ") + " ";
-        println!("Completing: '{:?}'", input);
-
         loop {
             let pred = model.predict_next_token(input.as_str(), &device)?;
-
             if pred == STOP_TOKEN {
                 println!();
                 break;
             }
-
             input = input + pred.as_str();
             print!("{}", pred);
         }
-
         return Ok(());
     }
 
@@ -339,6 +347,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, runpod");
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, runpod\ntrain flags: --new-epoch [N] (continue training saved model for N more epochs, default 1), --no-warmup (constant LR)");
     Ok(())
 }
