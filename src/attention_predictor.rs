@@ -732,9 +732,36 @@ impl RunStr for Model {
     }
 }
 
-pub fn create_model(dict: &Dict, bpe: Bpe, device: &Device, config: TrainConfig) -> Result<Model, candle_core::Error> {
+fn gpu_compute_cap_x10() -> Option<u32> {
+    let out = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=compute_cap", "--format=csv,noheader"])
+        .output()
+        .ok()?;
+    let s = String::from_utf8(out.stdout).ok()?;
+    let cap: f32 = s.trim().parse().ok()?;
+    Some((cap * 10.0).round() as u32)
+}
+
+pub fn create_model(dict: &Dict, bpe: Bpe, device: &Device, mut config: TrainConfig) -> Result<Model, candle_core::Error> {
+    if config.use_bf16 {
+        match gpu_compute_cap_x10() {
+            Some(cap) if cap < 80 => {
+                eprintln!(
+                    "Warning: GPU compute capability {:.1} < 8.0 — bf16 Tensor Cores not available, falling back to f32.",
+                    cap as f32 / 10.0
+                );
+                config.use_bf16 = false;
+            }
+            None => {
+                eprintln!("Warning: could not detect GPU compute capability — disabling bf16 to be safe.");
+                config.use_bf16 = false;
+            }
+            _ => {}
+        }
+    }
     let varmap = VarMap::new();
     let dtype = if config.use_bf16 { DType::BF16 } else { DType::F32 };
+    println!("Model dtype: {:?}", dtype);
     let vb = VarBuilder::from_varmap(&varmap, dtype, &device);
 
     let model = Model::new(dict.clone(), bpe, varmap, vb, device, config)?;
