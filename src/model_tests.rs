@@ -66,11 +66,17 @@ pub fn print_results() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", RESULT_COLS.join(","));
 
     let empty = serde_json::Value::Object(Default::default());
-    for t in &train {
-        // Match test result by Model_ID, fall back to empty if not found
+    // If no training log, fall back to test results as the primary source
+    let (primary, secondary): (&Vec<_>, &Vec<_>) = if train.is_empty() {
+        (&tests, &train)
+    } else {
+        (&train, &tests)
+    };
+    for t in primary {
+        // Match the other source by Model_ID
         let r = t
             .get("Model_ID")
-            .and_then(|id| tests.iter().rev().find(|r| r.get("Model_ID") == Some(id)))
+            .and_then(|id| secondary.iter().rev().find(|r| r.get("Model_ID") == Some(id)))
             .unwrap_or(&empty);
         let row: Vec<String> = RESULT_COLS
             .iter()

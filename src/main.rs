@@ -323,7 +323,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if args.iter().any(|a| a == "--bf16") { config.use_bf16 = true; }
 
                 let no_shutdown = args.iter().any(|a| a == "--no-shutdown");
-                runpod::send_job(runpod::SendParams { machine_type, config, no_shutdown })?;
+                let continue_training = args.iter().any(|a| a == "--continue");
+                runpod::send_job(runpod::SendParams { machine_type, config, no_shutdown, continue_training })?;
             }
             "list" => runpod::list_pods()?,
             "status" => runpod::status_job(args.get(2).map(|s| s.as_str()))?,

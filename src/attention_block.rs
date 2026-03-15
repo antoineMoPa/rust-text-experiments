@@ -68,6 +68,7 @@ impl AttentionBlock {
                 })
                 .collect();
             Tensor::from_slice(&mask_data, (seq_len, seq_len), device)?
+                .to_dtype(vb.dtype())?
         };
 
         let mut pe_data: Vec<f32> = Vec::with_capacity(seq_len * config.embedding_size);
@@ -78,7 +79,8 @@ impl AttentionBlock {
                 pe_data.push(if j % 2 == 0 { val.sin() } else { val.cos() });
             }
         }
-        let pos_enc = Tensor::from_slice(&pe_data, (1, seq_len, config.embedding_size), device)?;
+        let pos_enc = Tensor::from_slice(&pe_data, (1, seq_len, config.embedding_size), device)?
+            .to_dtype(vb.dtype())?;
 
         let norm1 = LayerNorm::new(config.embedding_size, 1e-5, vb.pp("norm1"))?;
         let norm2 = LayerNorm::new(config.embedding_size, 1e-5, vb.pp("norm2"))?;

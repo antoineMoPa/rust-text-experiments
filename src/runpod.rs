@@ -20,6 +20,7 @@ pub struct SendParams {
     pub machine_type: String,
     pub config: TrainConfig,
     pub no_shutdown: bool,
+    pub continue_training: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +352,10 @@ shutdown_pod() {
 
 on_error() {
     echo "=== FATAL ERROR at line $1 — stopping ==="
+    if [ "${NO_SHUTDOWN:-0}" = "1" ]; then
+        echo "=== NO_SHUTDOWN set — sleeping forever for log inspection ==="
+        sleep infinity
+    fi
     shutdown_pod
     exit 1
 }
@@ -385,8 +390,19 @@ echo "Binary ready: $("$BIN" --version 2>/dev/null || echo ok)"
 
 mkdir -p data
 
-echo "=== Train ==="
-"$BIN" train 2>&1 | tee /tmp/train.log
+if [ "${CONTINUE_TRAINING:-0}" = "1" ]; then
+    echo "=== Downloading existing model from HuggingFace ==="
+    mkdir -p data
+    for f in model.bpe model.config.json model.dict model.id model.safetensors; do
+        hf download "$HF_REPO" "$f" --local-dir data --repo-type model 2>/dev/null \
+            || echo "Skipping $f (not found in HF)"
+    done
+    echo "=== Continue training (--new-epoch $EPOCHS) ==="
+    "$BIN" train --new-epoch "$EPOCHS" 2>&1 | tee /tmp/train.log
+else
+    echo "=== Train ==="
+    "$BIN" train 2>&1 | tee /tmp/train.log
+fi
 
 echo "=== Test ==="
 "$BIN" test_all 2>&1 | tee /tmp/test.log
@@ -421,6 +437,7 @@ pub fn print_help() {
 Subcommands:
   list                                        List all running pods
   send [options]                              Create pod and start training job
+  send --continue [options]                   Fetch latest model from HuggingFace and continue training
   status [<job_id>]                           Show pod status
   stop   [<job_id|pod_id>] [--all]            Delete pod(s)
   fetch  [<job_id>]                           Download trained model data from HuggingFace
@@ -531,6 +548,7 @@ pub fn send_job(params: SendParams) -> Result<(), Box<dyn Error>> {
         ("HF_REPO", hf_repo.clone()),
         ("RP_ADMIN_KEY", runpod_config.api_key.clone()),
         ("NO_SHUTDOWN", if params.no_shutdown { "1" } else { "0" }.to_string()),
+        ("CONTINUE_TRAINING", if params.continue_training { "1" } else { "0" }.to_string()),
     ];
 
     // Append all TrainConfig fields as env vars so the pod binary picks them up
