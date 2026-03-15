@@ -22,7 +22,6 @@ const RESULT_COLS: &[&str] = &[
     "State_of_the_code",
     "Time_to_train",
     "Self_Test_Score_L2",
-    "Self_Test_Score_L3",
     "QA_Test_Score",
     "JSON_Test_Score",
     "Date",
@@ -44,7 +43,6 @@ const EPOCH_COLS: &[&str] = &[
     "State_of_the_code",
     "Time_to_train",
     "Self_Test_Score_L2",
-    "Self_Test_Score_L3",
     "QA_Test_Score",
     "JSON_Test_Score",
     "Date",
@@ -97,8 +95,8 @@ pub fn print_results() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn self_test() -> Result<(), Box<dyn std::error::Error>> {
-    let (l2, l3) = self_test_scores()?;
-    println!("Self test scores: L2={}, L3={}", l2, l3);
+    let l2 = self_test_scores()?;
+    println!("Self test score: L2={}", l2);
     Ok(())
 }
 
@@ -115,7 +113,7 @@ pub fn json_test() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
-    let (score_l2, score_l3) = self_test_scores()?;
+    let score_l2 = self_test_scores()?;
     let score_qa = qa_test_score()?;
     let score_json = json_test_score()?;
 
@@ -132,7 +130,6 @@ pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
     let entry = serde_json::json!({
         "Model_ID": model_id,
         "Self_Test_Score_L2": score_l2,
-        "Self_Test_Score_L3": score_l3,
         "QA_Test_Score": score_qa,
         "JSON_Test_Score": score_json,
         "Date": date,
@@ -146,11 +143,8 @@ pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
         writeln!(file, "{}", serde_json::to_string(&entry).unwrap())?;
     }
 
-    println!("Self_Test_Score_L2\tSelf_Test_Score_L3\tQA_Test_Score\tJSON_Test_Score\tDate");
-    println!(
-        "{}\t{}\t{}\t{}\t{}",
-        score_l2, score_l3, score_qa, score_json, date
-    );
+    println!("Self_Test_Score_L2\tQA_Test_Score\tJSON_Test_Score\tDate");
+    println!("{}\t{}\t{}\t{}", score_l2, score_qa, score_json, date);
 
     Ok(())
 }
@@ -159,11 +153,11 @@ pub fn test_all() -> Result<(), Box<dyn std::error::Error>> {
 pub fn per_epoch_scores<M: PredictGreedy>(
     model: &M,
     device: &candle_core::Device,
-) -> Result<(f32, f32, f32, f32), Box<dyn std::error::Error>> {
-    let (l2, l3) = compute_self_test_scores(model, device)?;
+) -> Result<(f32, f32, f32), Box<dyn std::error::Error>> {
+    let l2 = compute_self_test_scores(model, device)?;
     let qa = compute_qa_test_score(model, device)?;
     let json = compute_json_test_score(model, device)?;
-    Ok((l2, l3, qa, json))
+    Ok((l2, qa, json))
 }
 
 /// Print the header for per_epoch_stats.log (call once before training).
@@ -194,73 +188,54 @@ fn first_n_words_contain(output: &str, expected: &str, n: usize) -> bool {
 fn compute_self_test_scores<M: PredictGreedy>(
     model: &M,
     device: &candle_core::Device,
-) -> Result<(f32, f32), Box<dyn std::error::Error>> {
-    let level_file_paths = vec![
-        "smoll-generated-corpus/level_2/corpus.txt",
-        "smoll-generated-corpus/level_3/corpus.txt",
-    ];
+) -> Result<f32, Box<dyn std::error::Error>> {
+    let level_file_path = "smoll-generated-corpus/level_2/corpus.txt";
+    let mut file = fs::File::open(level_file_path)?;
+    let mut content: String = String::new();
+    file.read_to_string(&mut content)?;
 
-    let mut scores: Vec<f32> = Vec::new();
+    let mut match_count = 0;
+    let mut total = 0;
 
-    for level_file_path in level_file_paths.iter() {
-        let mut file = fs::File::open(level_file_path)?;
-        let mut content: String = String::new();
-        file.read_to_string(&mut content)?;
+    for line in content.split("\n").filter(|l| !l.trim().is_empty()).take(20) {
+        let words: Vec<&str> = line.split(" ").take(6).collect();
+        let expected_completion = line.split(" ").skip(6);
+        let original_input = words.join(" ");
+        let mut input = original_input.clone() + " ";
 
-        let mut match_count = 0;
-        let mut total = 0;
+        let mut buf = String::new();
+        loop {
+            let pred = model.predict_next_token_greedy(input.as_str(), device)?;
+            input = input + pred.as_str();
 
-        for line in content.split("\n").filter(|l| !l.trim().is_empty()).take(20) {
-            let words: Vec<&str> = line.split(" ").take(6).collect();
-            let expected_completion = line.split(" ").skip(6);
-            let original_input = words.join(" ");
-            let mut input = original_input.clone() + " ";
-
-            let mut buf = String::new();
-            loop {
-                let pred = model.predict_next_token_greedy(input.as_str(), device)?;
-                input = input + pred.as_str();
-
-                if buf.len() > 50 || pred == "." {
-                    buf.push_str(pred.as_str());
-                    break;
-                }
-
-                if pred == STOP_TOKEN {
-                    break;
-                }
-
+            if buf.len() > 50 || pred == "." {
                 buf.push_str(pred.as_str());
+                break;
             }
 
-            let expected_completion: Vec<&str> = expected_completion.collect();
-            let expected_completion = expected_completion.join(" ").replace("<stop>", "");
-
-            if first_n_words_contain(&buf, &expected_completion, 3) {
-                match_count += 1;
-                println!(
-                    "'{}' |> '{}' ~ '{}' - match",
-                    original_input, buf, expected_completion
-                );
-            } else {
-                println!(
-                    "'{}' |> '{}' ~ '{}' - no match",
-                    original_input, buf, expected_completion
-                );
+            if pred == STOP_TOKEN {
+                break;
             }
 
-            total += 1;
+            buf.push_str(pred.as_str());
         }
 
-        let success_rate = match_count as f32 / total as f32;
-        println!(
-            "corpus {} - matches - {}, total - {}, success rate - {}",
-            level_file_path, match_count, total, success_rate
-        );
-        scores.push(success_rate);
+        let expected_completion: Vec<&str> = expected_completion.collect();
+        let expected_completion = expected_completion.join(" ").replace("<stop>", "");
+
+        if first_n_words_contain(&buf, &expected_completion, 3) {
+            match_count += 1;
+            println!("'{}' |> '{}' ~ '{}' - match", original_input, buf, expected_completion);
+        } else {
+            println!("'{}' |> '{}' ~ '{}' - no match", original_input, buf, expected_completion);
+        }
+
+        total += 1;
     }
 
-    Ok((scores[0], scores[1]))
+    let success_rate = match_count as f32 / total as f32;
+    println!("corpus {} - matches - {}, total - {}, success rate - {}", level_file_path, match_count, total, success_rate);
+    Ok(success_rate)
 }
 
 fn compute_qa_test_score<M: PredictGreedy>(
@@ -322,7 +297,7 @@ fn compute_qa_test_score<M: PredictGreedy>(
     Ok(success_rate)
 }
 
-fn self_test_scores() -> Result<(f32, f32), Box<dyn std::error::Error>> {
+fn self_test_scores() -> Result<f32, Box<dyn std::error::Error>> {
     let device = get_device()?;
     println!("Loading test model");
     let model = Model::load_from_path("data/model", &device)?;

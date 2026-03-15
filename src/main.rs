@@ -186,12 +186,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             model.simple_train(tokens.clone(), &device, lr)?;
 
             match per_epoch_scores(&model, &device) {
-                Ok((l2, l3, qa, json)) => {
+                Ok((l2, qa, json)) => {
                     let entry = serde_json::json!({
                         "Model_ID": model.model_id,
                         "LR": lr,
                         "Self_Test_Score_L2": l2,
-                        "Self_Test_Score_L3": l3,
                         "QA_Test_Score": qa,
                         "JSON_Test_Score": json,
                     });
@@ -203,10 +202,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         use std::io::Write as W;
                         let _ = writeln!(f, "{}", serde_json::to_string(&entry).unwrap());
                     }
-                    println!(
-                        "sweep result: LR={:.2e} L2={:.3} L3={:.3} QA={:.3} JSON={:.3}",
-                        lr, l2, l3, qa, json
-                    );
+                    println!("sweep result: LR={:.2e} L2={:.3} QA={:.3} JSON={:.3}", lr, l2, qa, json);
                 }
                 Err(e) => eprintln!("sweep score failed for LR={:.2e}: {}", lr, e),
             }
@@ -236,13 +232,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             model.simple_train(subset, &device, lr)?;
 
             match per_epoch_scores(&model, &device) {
-                Ok((l2, l3, qa, json)) => {
+                Ok((l2, qa, json)) => {
                     let entry = serde_json::json!({
                         "Model_ID": model.model_id,
                         "Corpus_Rate": rate,
                         "Num_Tokens": n,
                         "Self_Test_Score_L2": l2,
-                        "Self_Test_Score_L3": l3,
                         "QA_Test_Score": qa,
                         "JSON_Test_Score": json,
                     });
@@ -255,13 +250,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = writeln!(f, "{}", serde_json::to_string(&entry).unwrap());
                     }
                     println!(
-                        "sweep result: rate={:.0}% tokens={} L2={:.3} L3={:.3} QA={:.3} JSON={:.3}",
-                        rate * 100.0,
-                        n,
-                        l2,
-                        l3,
-                        qa,
-                        json
+                        "sweep result: rate={:.0}% tokens={} L2={:.3} QA={:.3} JSON={:.3}",
+                        rate * 100.0, n, l2, qa, json
                     );
                 }
                 Err(e) => eprintln!("sweep score failed for rate={:.0}%: {}", rate * 100.0, e),

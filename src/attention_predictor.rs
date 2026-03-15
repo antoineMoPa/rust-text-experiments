@@ -507,7 +507,7 @@ impl Model {
                 .unwrap_or_default();
 
             match per_epoch_scores(self, device) {
-                Ok((score_l2, score_l3, score_qa, score_json)) => {
+                Ok((score_l2, score_qa, score_json)) => {
                     let entry = serde_json::json!({
                         "Epoch": epoch,
                         "Model_ID": self.model_id,
@@ -524,7 +524,6 @@ impl Model {
                         "State_of_the_code": git_hash,
                         "Time_to_train": time_str,
                         "Self_Test_Score_L2": score_l2,
-                        "Self_Test_Score_L3": score_l3,
                         "QA_Test_Score": score_qa,
                         "JSON_Test_Score": score_json,
                         "Date": date,
@@ -538,8 +537,8 @@ impl Model {
                         let _ = writeln!(file, "{}", serde_json::to_string(&entry).unwrap());
                     }
                     println!(
-                        "Epoch {} scores: L2={:.3} L3={:.3} QA={:.3} JSON={:.3} LR={:.2e}",
-                        epoch, score_l2, score_l3, score_qa, score_json, last_lr
+                        "Epoch {} scores: L2={:.3} QA={:.3} JSON={:.3} LR={:.2e}",
+                        epoch, score_l2, score_qa, score_json, last_lr
                     );
                 }
                 Err(e) => eprintln!("Epoch {} test failed: {}", epoch, e),
