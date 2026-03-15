@@ -43,6 +43,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if command == "train" {
+        if args.iter().any(|a| a == "--help" || a == "-h") {
+            println!("Usage: train [FLAGS]\n\nFlags:\n  --bf16          Use bfloat16 (falls back to f32 if GPU doesn't support it)\n  --no-warmup     Disable LR warmup (constant LR)\n  --new-epoch [N] Continue training saved model for N more epochs (default 1)");
+            return Ok(());
+        }
         let device = get_device()?;
         let mut config = TrainConfig::from_env();
         if args.iter().any(|a| a == "--no-warmup") {
