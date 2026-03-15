@@ -1,4 +1,4 @@
-use candle_core::{Result, Tensor, Var};
+use candle_core::{DType, Result, Tensor, Var};
 use std::collections::HashMap;
 
 /// AdamW optimizer with gradient accumulation support.
@@ -25,13 +25,14 @@ impl AccumAdamW {
             .into_iter()
             .filter(|var| var.dtype().is_float())
             .collect();
+        // Always keep optimizer states in F32 for numerical stability (standard mixed-precision).
         let first_moment = vars
             .iter()
-            .map(|v| Tensor::zeros(v.shape(), v.dtype(), v.device()))
+            .map(|v| Tensor::zeros(v.shape(), DType::F32, v.device()))
             .collect::<Result<Vec<_>>>()?;
         let second_moment = vars
             .iter()
-            .map(|v| Tensor::zeros(v.shape(), v.dtype(), v.device()))
+            .map(|v| Tensor::zeros(v.shape(), DType::F32, v.device()))
             .collect::<Result<Vec<_>>>()?;
 
         Ok(Self {
@@ -92,8 +93,8 @@ impl AccumAdamW {
         let mut global_norm_sq = 0f64;
         for (i, _) in self.vars.iter().enumerate() {
             if let Some(grad) = self.accumulated_grads.get(&i) {
-                let g = (grad / accum_count)?;
-                let norm_sq = g.sqr()?.sum_all()?.to_dtype(candle_core::DType::F32)?.to_vec0::<f32>()? as f64;
+                let g = (grad / accum_count)?.to_dtype(DType::F32)?;
+                let norm_sq = g.sqr()?.sum_all()?.to_vec0::<f32>()? as f64;
                 global_norm_sq += norm_sq;
             }
         }
@@ -101,8 +102,8 @@ impl AccumAdamW {
 
         for (i, var) in self.vars.iter().enumerate() {
             if let Some(grad) = self.accumulated_grads.get(&i) {
-                let g = (grad / accum_count)?;
-                let g = (g * clip_scale)?;
+                // Cast gradient to F32 — moments are always F32 (mixed-precision training).
+                let g = ((grad / accum_count)? * clip_scale)?.to_dtype(DType::F32)?;
 
                 let m = &self.first_moment[i];
                 let v = &self.second_moment[i];
@@ -111,13 +112,15 @@ impl AccumAdamW {
                 let next_v = ((v * beta2)? + (g.sqr()? * (1.0 - beta2))?)?;
                 let m_hat = (&next_m * scale_m)?;
                 let v_hat = (&next_v * scale_v)?;
-                let next_theta = (var.as_tensor() * (1.0 - lr_lambda))?;
+
+                // Compute update in F32, then cast back to the var's dtype (e.g. BF16).
+                let theta_f32 = var.as_tensor().to_dtype(DType::F32)?;
                 let adjusted_grad = (m_hat / (v_hat.sqrt()? + self.eps)?)?;
-                let next_theta = (next_theta - (adjusted_grad * lr)?)?;
+                let next_theta = ((theta_f32 * (1.0 - lr_lambda))? - (adjusted_grad * lr)?)?;
 
                 self.first_moment[i] = next_m;
                 self.second_moment[i] = next_v;
-                var.set(&next_theta)?;
+                var.set(&next_theta.to_dtype(var.dtype())?)?;
             }
         }
 

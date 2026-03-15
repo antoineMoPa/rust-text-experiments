@@ -469,9 +469,19 @@ impl Model {
                     } else {
                         0.0
                     };
+                    let batches_done = epoch as usize * batch_count + j;
+                    let batches_left = total_steps - batches_done;
+                    let eta_secs = batches_left as f64 * ms_per_batch / 1000.0;
+                    let eta_str = if ms_per_batch > 0.0 {
+                        let h = (eta_secs / 3600.0) as u64;
+                        let m = ((eta_secs % 3600.0) / 60.0) as u64;
+                        format!("{}h{}m left", h, m)
+                    } else {
+                        "?".to_string()
+                    };
                     println!(
-                        "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6} LR = {:.2e} ({:.0}ms/batch)",
-                        epoch, epochs, j, batch_count, loss_stat, lr, ms_per_batch
+                        "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6} LR = {:.2e} ({:.0}ms/batch, {})",
+                        epoch, epochs, j, batch_count, loss_stat, lr, ms_per_batch, eta_str
                     );
                     let prediction = self.run_str("Two birds", 15)?;
                     let prediction = prediction.replace("\n", "_");

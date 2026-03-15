@@ -248,6 +248,7 @@ impl<'a> RunpodClient<'a> {
             Ok(())
         })
     }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -283,11 +284,6 @@ on_error() {
 trap 'on_error $LINENO' ERR
 
 echo "=== RunPod build_and_upload_binary starting ==="
-
-if [ "${NO_SHUTDOWN:-0}" = "1" ] && [ -d "/workspace/target" ]; then
-    echo "=== Build already exists and NO_SHUTDOWN set — sleeping forever (workspace pod mode) ==="
-    sleep infinity
-fi
 
 apt-get update -qq && apt-get install -y curl git 2>&1 | tail -3
 
