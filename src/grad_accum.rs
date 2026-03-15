@@ -93,7 +93,7 @@ impl AccumAdamW {
         for (i, _) in self.vars.iter().enumerate() {
             if let Some(grad) = self.accumulated_grads.get(&i) {
                 let g = (grad / accum_count)?;
-                let norm_sq = g.sqr()?.sum_all()?.to_vec0::<f32>()? as f64;
+                let norm_sq = g.sqr()?.sum_all()?.to_dtype(candle_core::DType::F32)?.to_vec0::<f32>()? as f64;
                 global_norm_sq += norm_sq;
             }
         }

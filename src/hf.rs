@@ -110,7 +110,7 @@ pub fn print_help() {
 Subcommands:
   upload         Upload data/ to HuggingFace
   download       Download data/ from HuggingFace
-  upload_binary  Upload compiled binary to HuggingFace (used by runpod send)
+  upload_binary  Build locally and upload binary to HuggingFace (used by: runpod build_and_upload_binary)
 
 Required env vars in .env:
   HF_TOKEN  HuggingFace token with write access

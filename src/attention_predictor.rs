@@ -426,7 +426,7 @@ impl Model {
 
                             let predictions = self.forward(&micro_inputs, true)?;
 
-                            let loss = nn::loss::cross_entropy(&predictions, &micro_targets)?;
+                            let loss = nn::loss::cross_entropy(&predictions.to_dtype(DType::F32)?, &micro_targets)?;
                             loss_stat = loss.to_dtype(DType::F32)?.to_vec0::<f32>()?;
 
                             if loss_stat.is_nan() {
