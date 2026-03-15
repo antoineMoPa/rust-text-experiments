@@ -1,11 +1,6 @@
 use candle_core::{DType, Result, Tensor, Var};
-use std::collections::HashMap;
 
-/// AdamW optimizer with gradient accumulation support.
-///
-/// Allows calling `accumulate()` multiple times (one per micro-batch),
-/// then `step()` once to apply the averaged gradients.
-pub struct AccumAdamW {
+pub struct AdamW {
     vars: Vec<Var>,
     first_moment: Vec<Tensor>,
     second_moment: Vec<Tensor>,
@@ -15,17 +10,15 @@ pub struct AccumAdamW {
     beta2: f64,
     eps: f64,
     weight_decay: f64,
-    accumulated_grads: HashMap<usize, Tensor>,
-    accum_count: usize,
 }
 
-impl AccumAdamW {
+impl AdamW {
     pub fn new(vars: Vec<Var>, lr: f64) -> Result<Self> {
         let vars: Vec<Var> = vars
             .into_iter()
             .filter(|var| var.dtype().is_float())
             .collect();
-        // Always keep optimizer states in F32 for numerical stability (standard mixed-precision).
+        // Always keep optimizer states in F32 for numerical stability (mixed-precision).
         let first_moment = vars
             .iter()
             .map(|v| Tensor::zeros(v.shape(), DType::F32, v.device()))
@@ -45,8 +38,6 @@ impl AccumAdamW {
             beta2: 0.999,
             eps: 1e-8,
             weight_decay: 0.01,
-            accumulated_grads: HashMap::new(),
-            accum_count: 0,
         })
     }
 
@@ -54,56 +45,34 @@ impl AccumAdamW {
         self.lr = lr;
     }
 
-    /// Compute gradients for a loss and add them to the accumulator.
-    pub fn accumulate(&mut self, loss: &Tensor) -> Result<()> {
+    pub fn step(&mut self, loss: &Tensor) -> Result<()> {
         let grads = loss.backward()?;
-
-        for (i, var) in self.vars.iter().enumerate() {
-            if let Some(grad) = grads.get(var) {
-                let entry = self.accumulated_grads.remove(&i);
-                let new_grad = match entry {
-                    Some(existing) => (existing + grad)?,
-                    None => grad.clone(),
-                };
-                self.accumulated_grads.insert(i, new_grad);
-            }
-        }
-        self.accum_count += 1;
-
-        Ok(())
-    }
-
-    /// Apply the averaged accumulated gradients with AdamW update rule, then clear.
-    pub fn step(&mut self) -> Result<()> {
-        if self.accum_count == 0 {
-            return Ok(());
-        }
 
         self.step_t += 1;
         let lr = self.lr;
-        let lr_lambda = lr * self.weight_decay;
         let beta1 = self.beta1;
         let beta2 = self.beta2;
         let scale_m = 1.0 / (1.0 - beta1.powi(self.step_t as i32));
         let scale_v = 1.0 / (1.0 - beta2.powi(self.step_t as i32));
-        let accum_count = self.accum_count as f64;
 
-        // Compute global gradient norm across all parameters for clipping.
+        // Gradient clipping: compute global norm across all parameters.
         const CLIP_NORM: f64 = 1.0;
         let mut global_norm_sq = 0f64;
-        for (i, _) in self.vars.iter().enumerate() {
-            if let Some(grad) = self.accumulated_grads.get(&i) {
-                let g = (grad / accum_count)?.to_dtype(DType::F32)?;
+        for (i, var) in self.vars.iter().enumerate() {
+            if let Some(grad) = grads.get(var) {
+                let g = grad.to_dtype(DType::F32)?;
                 let norm_sq = g.sqr()?.sum_all()?.to_vec0::<f32>()? as f64;
                 global_norm_sq += norm_sq;
+                // Stash the f32 grad temporarily — recompute below (simpler than caching).
+                let _ = (i, norm_sq);
             }
         }
         let clip_scale = (CLIP_NORM / global_norm_sq.sqrt()).min(1.0);
 
         for (i, var) in self.vars.iter().enumerate() {
-            if let Some(grad) = self.accumulated_grads.get(&i) {
+            if let Some(grad) = grads.get(var) {
                 // Cast gradient to F32 — moments are always F32 (mixed-precision training).
-                let g = ((grad / accum_count)? * clip_scale)?.to_dtype(DType::F32)?;
+                let g = (grad.to_dtype(DType::F32)? * clip_scale)?;
 
                 let m = &self.first_moment[i];
                 let v = &self.second_moment[i];
@@ -116,7 +85,7 @@ impl AccumAdamW {
                 // Compute update in F32, then cast back to the var's dtype (e.g. BF16).
                 let theta_f32 = var.as_tensor().to_dtype(DType::F32)?;
                 let adjusted_grad = (m_hat / (v_hat.sqrt()? + self.eps)?)?;
-                let next_theta = ((theta_f32 * (1.0 - lr_lambda))? - (adjusted_grad * lr)?)?;
+                let next_theta = ((theta_f32 * (1.0 - lr * self.weight_decay))? - (adjusted_grad * lr)?)?;
 
                 self.first_moment[i] = next_m;
                 self.second_moment[i] = next_v;
@@ -124,15 +93,6 @@ impl AccumAdamW {
             }
         }
 
-        self.accumulated_grads.clear();
-        self.accum_count = 0;
-
         Ok(())
-    }
-
-    /// Discard any accumulated gradients without applying them.
-    pub fn clear_accumulated(&mut self) {
-        self.accumulated_grads.clear();
-        self.accum_count = 0;
     }
 }

@@ -4,7 +4,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use std::{fs, io::Error};
 
-use crate::grad_accum::AccumAdamW;
+use crate::grad_accum::AdamW;
 use crate::layer_norm::LayerNorm;
 use crate::model_tests::{per_epoch_scores, print_epoch_stats_header};
 use crate::models::{PredictGreedy, RunStr};
@@ -311,7 +311,6 @@ impl Model {
         let epochs = self.config.epochs;
         let context_window = self.config.context_window;
         let token_batch_size = self.config.token_batch_size;
-        let micro_batch_size = self.config.micro_batch_size;
         let warmup_batches = self.config.warmup_batches;
 
         let corpus_level = self.config.file_path
@@ -344,16 +343,31 @@ impl Model {
             token_batch_size
         );
 
-        let mut optimizer = AccumAdamW::new(self.var_map.all_vars(), base_lr)?;
+        let mut optimizer = AdamW::new(self.var_map.all_vars(), base_lr)?;
 
-        // Convert tokens to IDs once; generate batches on-the-fly to avoid storing
-        // the full [num_samples, context_window] tensor in RAM.
         let pad_id = self.token_to_id(" ");
         let token_ids: Vec<u32> = tokens_chain.iter().map(|t| self.token_to_id(t)).collect();
         let num_samples = token_ids.len().saturating_sub(1);
 
+        // Pre-build all sequences once and upload to VRAM.
+        // corpus_seqs: [num_samples, context_window], corpus_tgts: [num_samples]
+        println!("Pre-building corpus on GPU ({} sequences × {} tokens)...", num_samples, context_window);
+        let mut flat_seqs: Vec<u32> = Vec::with_capacity(num_samples * context_window);
+        let mut flat_tgts: Vec<u32> = Vec::with_capacity(num_samples);
+        for idx in 0..num_samples {
+            let target = token_ids[idx + 1];
+            let start = idx.saturating_sub(context_window - 1);
+            let window = &token_ids[start..=idx];
+            let pad_len = context_window - window.len();
+            flat_seqs.extend(std::iter::repeat(pad_id).take(pad_len));
+            flat_seqs.extend_from_slice(window);
+            flat_tgts.push(target);
+        }
+        let corpus_seqs = Tensor::from_vec(flat_seqs, (num_samples, context_window), device)?;
+        let corpus_tgts = Tensor::from_vec(flat_tgts, num_samples, device)?;
+        println!("Corpus on GPU ({:.1} MB)", (num_samples * (context_window + 1) * 4) as f64 / 1e6);
+
         let seqs_per_batch = (token_batch_size / context_window).max(1);
-        let micro_seqs = (micro_batch_size / context_window).max(1);
 
         let mut rng = rand::thread_rng();
         let mut global_step: usize = 0;
@@ -365,33 +379,17 @@ impl Model {
             let mut loss_stat: f32 = 1.0;
             let mut last_lr = base_lr;
 
-            // Shuffle sample indices each epoch so batches draw from across the corpus
-            let mut indices: Vec<usize> = (0..num_samples).collect();
+            // Shuffle sample indices each epoch
+            let mut indices: Vec<u32> = (0..num_samples as u32).collect();
             indices.shuffle(&mut rng);
             let mut batch_timer = std::time::Instant::now();
 
             for j in 0..batch_count {
                 let batch_start = j * seqs_per_batch;
                 let batch_end = (batch_start + seqs_per_batch).min(num_samples);
-                let batch_indices = &indices[batch_start..batch_end];
-
-                // Build inputs/targets on-the-fly from token_ids
-                let mut flat_inputs: Vec<u32> =
-                    Vec::with_capacity(batch_indices.len() * context_window);
-                let mut flat_targets: Vec<u32> = Vec::with_capacity(batch_indices.len());
-                for &idx in batch_indices {
-                    let target = token_ids[idx + 1];
-                    let start = idx.saturating_sub(context_window - 1);
-                    let window = &token_ids[start..=idx];
-                    let pad_len = context_window - window.len();
-                    flat_inputs.extend(std::iter::repeat(pad_id).take(pad_len));
-                    flat_inputs.extend_from_slice(window);
-                    flat_targets.push(target);
-                }
-                let batch_size = batch_indices.len();
-                let all_inputs =
-                    Tensor::from_vec(flat_inputs, (batch_size, context_window), &Device::Cpu)?;
-                let all_targets = Tensor::from_vec(flat_targets, batch_size, &Device::Cpu)?;
+                let batch_idx = Tensor::from_slice(&indices[batch_start..batch_end], batch_end - batch_start, device)?;
+                let all_inputs = corpus_seqs.index_select(&batch_idx, 0)?;
+                let all_targets = corpus_tgts.index_select(&batch_idx, 0)?;
 
                 // Constant LR, or linear warmup then cosine decay
                 let lr = if self.config.no_warmup {
@@ -411,33 +409,16 @@ impl Model {
                 let mut oom_retries = 0u32;
                 loop {
                     let result: Result<(), CandleError> = (|| {
-                        let inputs = all_inputs.to_device(device)?;
-                        let targets = all_targets.to_device(device)?;
+                        let predictions = self.forward(&all_inputs, true)?;
+                        let loss = nn::loss::cross_entropy(&predictions.to_dtype(DType::F32)?, &all_targets)?;
+                        loss_stat = loss.to_dtype(DType::F32)?.to_vec0::<f32>()?;
 
-                        // Split into micro-batches for gradient accumulation
-                        let num_samples = inputs.dim(0)?;
-                        let num_micro = (num_samples + micro_seqs - 1) / micro_seqs;
-
-                        for m in 0..num_micro {
-                            let micro_start = m * micro_seqs;
-                            let micro_len = micro_seqs.min(num_samples - micro_start);
-                            let micro_inputs = inputs.narrow(0, micro_start, micro_len)?;
-                            let micro_targets = targets.narrow(0, micro_start, micro_len)?;
-
-                            let predictions = self.forward(&micro_inputs, true)?;
-
-                            let loss = nn::loss::cross_entropy(&predictions.to_dtype(DType::F32)?, &micro_targets)?;
-                            loss_stat = loss.to_dtype(DType::F32)?.to_vec0::<f32>()?;
-
-                            if loss_stat.is_nan() {
-                                self.crash_dump(inputs.clone(), targets.clone())?;
-                                panic!("Loss is nan, gradient probably exploded or vanished.");
-                            }
-
-                            optimizer.accumulate(&loss)?;
+                        if loss_stat.is_nan() {
+                            self.crash_dump(all_inputs.clone(), all_targets.clone())?;
+                            panic!("Loss is nan, gradient probably exploded or vanished.");
                         }
 
-                        optimizer.step()?;
+                        optimizer.step(&loss)?;
                         Ok(())
                     })();
 
@@ -445,7 +426,6 @@ impl Model {
                         Ok(()) => break,
                         Err(e) if is_oom_error(&e) => {
                             oom_retries += 1;
-                            optimizer.clear_accumulated();
                             if oom_retries >= 3 {
                                 eprintln!("\nCUDA OOM on batch {j}: too many retries, aborting.");
                                 return Err(e);

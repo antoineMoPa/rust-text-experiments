@@ -12,7 +12,6 @@ pub struct TrainConfig {
     pub warmup_batches: usize,
     pub epochs: u32,
     pub token_batch_size: usize,
-    pub micro_batch_size: usize,
     #[serde(default)]
     pub no_warmup: bool,
     #[serde(default)]
@@ -32,7 +31,6 @@ impl Default for TrainConfig {
             warmup_batches: 600,
             epochs: 6,
             token_batch_size: 8192,
-            micro_batch_size: 8192,
             no_warmup: false,
             use_bf16: false,
         }
@@ -71,7 +69,6 @@ impl TrainConfig {
             warmup_batches: env_usize("WARMUP_BATCHES", d.warmup_batches),
             epochs: env_usize("EPOCHS", d.epochs as usize) as u32,
             token_batch_size: env_usize("TOKEN_BATCH_SIZE", d.token_batch_size),
-            micro_batch_size: env_usize("MICRO_BATCH_SIZE", d.micro_batch_size),
             no_warmup: std::env::var("NO_WARMUP").map(|v| v == "1").unwrap_or(false),
             use_bf16: std::env::var("BF16").map(|v| v == "1").unwrap_or(false),
         }
@@ -90,7 +87,6 @@ impl TrainConfig {
             format!("WARMUP_BATCHES={}", self.warmup_batches),
             format!("EPOCHS={}", self.epochs),
             format!("TOKEN_BATCH_SIZE={}", self.token_batch_size),
-            format!("MICRO_BATCH_SIZE={}", self.micro_batch_size),
             format!("NO_WARMUP={}", if self.no_warmup { "1" } else { "0" }),
             format!("BF16={}", if self.use_bf16 { "1" } else { "0" }),
         ]
