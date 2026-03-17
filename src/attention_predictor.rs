@@ -416,11 +416,14 @@ impl Model {
                     let result: Result<(), CandleError> = (|| {
                         let predictions = self.forward(&all_inputs, true)?;
                         let loss = nn::loss::cross_entropy(&predictions.to_dtype(DType::F32)?, &all_targets)?;
-                        loss_stat = loss.to_dtype(DType::F32)?.to_vec0::<f32>()?;
 
-                        if loss_stat.is_nan() {
-                            self.crash_dump(all_inputs.clone(), all_targets.clone())?;
-                            panic!("Loss is nan, gradient probably exploded or vanished.");
+                        // Only sync GPU→CPU every 200 batches to avoid stalling the pipeline
+                        if j % 200 == 0 {
+                            loss_stat = loss.to_dtype(DType::F32)?.to_vec0::<f32>()?;
+                            if loss_stat.is_nan() {
+                                self.crash_dump(all_inputs.clone(), all_targets.clone())?;
+                                panic!("Loss is nan, gradient probably exploded or vanished.");
+                            }
                         }
 
                         optimizer.step(&loss)?;
