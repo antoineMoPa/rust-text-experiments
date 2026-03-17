@@ -349,24 +349,7 @@ impl Model {
         let token_ids: Vec<u32> = tokens_chain.iter().map(|t| self.token_to_id(t)).collect();
         let num_samples = token_ids.len().saturating_sub(1);
 
-        // Pre-build all sequences once and upload to VRAM.
-        // corpus_seqs: [num_samples, context_window], corpus_tgts: [num_samples]
-        println!("Pre-building corpus on GPU ({} sequences × {} tokens)...", num_samples, context_window);
-        let mut flat_seqs: Vec<u32> = Vec::with_capacity(num_samples * context_window);
-        let mut flat_tgts: Vec<u32> = Vec::with_capacity(num_samples);
-        for idx in 0..num_samples {
-            let target = token_ids[idx + 1];
-            let start = idx.saturating_sub(context_window - 1);
-            let window = &token_ids[start..=idx];
-            let pad_len = context_window - window.len();
-            flat_seqs.extend(std::iter::repeat(pad_id).take(pad_len));
-            flat_seqs.extend_from_slice(window);
-            flat_tgts.push(target);
-        }
-        let corpus_seqs = Tensor::from_vec(flat_seqs, (num_samples, context_window), device)?;
-        let corpus_tgts = Tensor::from_vec(flat_tgts, num_samples, device)?;
-        println!("Corpus on GPU ({:.1} MB)", (num_samples * (context_window + 1) * 4) as f64 / 1e6);
-
+        const CHUNK_SIZE: usize = 100_000;
         let seqs_per_batch = (token_batch_size / context_window).max(1);
 
         let mut rng = rand::thread_rng();
@@ -383,13 +366,35 @@ impl Model {
             let mut indices: Vec<u32> = (0..num_samples as u32).collect();
             indices.shuffle(&mut rng);
             let mut batch_timer = std::time::Instant::now();
+            let mut j = 0usize;
 
-            for j in 0..batch_count {
-                let batch_start = j * seqs_per_batch;
-                let batch_end = (batch_start + seqs_per_batch).min(num_samples);
-                let batch_idx = Tensor::from_slice(&indices[batch_start..batch_end], batch_end - batch_start, device)?;
-                let all_inputs = corpus_seqs.index_select(&batch_idx, 0)?;
-                let all_targets = corpus_tgts.index_select(&batch_idx, 0)?;
+            for chunk_start in (0..num_samples).step_by(CHUNK_SIZE) {
+                let chunk_end = (chunk_start + CHUNK_SIZE).min(num_samples);
+                let chunk_indices = &indices[chunk_start..chunk_end];
+                let chunk_len = chunk_indices.len();
+
+                // Build this chunk on CPU (~50 MB) then upload to GPU
+                let mut flat_seqs: Vec<u32> = Vec::with_capacity(chunk_len * context_window);
+                let mut flat_tgts: Vec<u32> = Vec::with_capacity(chunk_len);
+                for &idx in chunk_indices {
+                    let idx = idx as usize;
+                    let target = token_ids[idx + 1];
+                    let start = idx.saturating_sub(context_window - 1);
+                    let window = &token_ids[start..=idx];
+                    let pad_len = context_window - window.len();
+                    flat_seqs.extend(std::iter::repeat(pad_id).take(pad_len));
+                    flat_seqs.extend_from_slice(window);
+                    flat_tgts.push(target);
+                }
+                let chunk_seqs = Tensor::from_vec(flat_seqs, (chunk_len, context_window), device)?;
+                let chunk_tgts = Tensor::from_vec(flat_tgts, chunk_len, device)?;
+
+                let chunk_batch_count = (chunk_len + seqs_per_batch - 1) / seqs_per_batch;
+                for ci in 0..chunk_batch_count {
+                    let bs = ci * seqs_per_batch;
+                    let be = (bs + seqs_per_batch).min(chunk_len);
+                    let all_inputs = chunk_seqs.narrow(0, bs, be - bs)?;
+                    let all_targets = chunk_tgts.narrow(0, bs, be - bs)?;
 
                 // Constant LR, or linear warmup then cosine decay
                 let lr = if self.config.no_warmup {
@@ -484,7 +489,9 @@ impl Model {
                     use std::io::Write;
                     std::io::stdout().flush().ok();
                 }
-            }
+                    j += 1;
+                } // end ci loop
+            } // end chunk loop
 
             println!(
                 "\rEpoch {:6}/{:6} : Loss = {:.6}              ",

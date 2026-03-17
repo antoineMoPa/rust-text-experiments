@@ -25,7 +25,7 @@ impl Default for TrainConfig {
             context_window: 128,
             num_attention_heads: 8,
             ffn_hidden: 512,
-            num_blocks: 2,
+            num_blocks: 3,
             file_path: "smoll-generated-corpus/level_5/corpus.corpus".to_string(),
             lr: 0.01,
             warmup_batches: 600,
