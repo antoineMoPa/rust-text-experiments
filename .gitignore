@@ -14,3 +14,6 @@ model.id
 .env
 runpod_jobs
 data/**
+# Profiling outputs
+*.nsys-rep
+*.sqlite

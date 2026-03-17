@@ -18,8 +18,12 @@ print_stats:
 	$(args) cargo run --release print_stats
 test:
 	$(args) cargo test attention -- --nocapture --test-threads 1
-profile:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --root -- train
+train_profile:
+	mkdir -p data
+	cargo build --release
+	$(args) nsys profile --trace=cuda,nvtx --output=train_profile --force-overwrite=true --kill=sigkill --duration=120 ./target/release/rust-text-experiments train
+train_profile_stats:
+	nsys stats train_profile.nsys-rep
 dump_loss:
 	cat train_log.log  | grep Loss | sed "s/Epoch    //g" | sed "s/\/.* Loss = /\t/g"
 test_model:

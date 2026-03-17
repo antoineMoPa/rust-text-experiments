@@ -30,7 +30,7 @@ impl Default for TrainConfig {
             lr: 0.01,
             warmup_batches: 600,
             epochs: 6,
-            token_batch_size: 8192,
+            token_batch_size: 16384,
             no_warmup: false,
             use_bf16: false,
         }
