@@ -27,7 +27,7 @@ impl Default for TrainConfig {
             ffn_hidden: 512,
             num_blocks: 3,
             file_path: "smoll-generated-corpus/level_5/corpus.corpus".to_string(),
-            lr: 0.008,
+            lr: 3.54e-5, // use lr-range-test
             warmup_batches: 600,
             epochs: 6,
             token_batch_size: 32768,
