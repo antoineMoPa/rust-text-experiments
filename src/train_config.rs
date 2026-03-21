@@ -9,11 +9,8 @@ pub struct TrainConfig {
     pub num_blocks: usize,
     pub file_path: String,
     pub lr: f64,
-    pub warmup_batches: usize,
     pub epochs: u32,
     pub token_batch_size: usize,
-    #[serde(default)]
-    pub no_warmup: bool,
     #[serde(default)]
     pub use_bf16: bool,
 }
@@ -27,11 +24,9 @@ impl Default for TrainConfig {
             ffn_hidden: 512,
             num_blocks: 3,
             file_path: "smoll-generated-corpus/level_5/corpus.corpus".to_string(),
-            lr: 3.54e-5, // use lr-range-test
-            warmup_batches: 10,
+            lr: 7e-3,
             epochs: 6,
             token_batch_size: 32768,
-            no_warmup: false,
             use_bf16: false,
         }
     }
@@ -66,10 +61,8 @@ impl TrainConfig {
             num_blocks: env_usize("NUM_BLOCKS", d.num_blocks),
             file_path: std::env::var("FILE_PATH").unwrap_or(d.file_path),
             lr: env_f64("LR", d.lr),
-            warmup_batches: env_usize("WARMUP_BATCHES", d.warmup_batches),
             epochs: env_usize("EPOCHS", d.epochs as usize) as u32,
             token_batch_size: env_usize("TOKEN_BATCH_SIZE", d.token_batch_size),
-            no_warmup: std::env::var("NO_WARMUP").map(|v| v == "1").unwrap_or(false),
             use_bf16: std::env::var("BF16").map(|v| v == "1").unwrap_or(false),
         }
     }
@@ -84,10 +77,8 @@ impl TrainConfig {
             format!("NUM_BLOCKS={}", self.num_blocks),
             format!("FILE_PATH={}", self.file_path),
             format!("LR={}", self.lr),
-            format!("WARMUP_BATCHES={}", self.warmup_batches),
             format!("EPOCHS={}", self.epochs),
             format!("TOKEN_BATCH_SIZE={}", self.token_batch_size),
-            format!("NO_WARMUP={}", if self.no_warmup { "1" } else { "0" }),
             format!("BF16={}", if self.use_bf16 { "1" } else { "0" }),
         ]
     }

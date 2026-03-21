@@ -44,14 +44,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if command == "train" {
         if args.iter().any(|a| a == "--help" || a == "-h") {
-            println!("Usage: train [FLAGS]\n\nFlags:\n  --bf16          Use bfloat16 (falls back to f32 if GPU doesn't support it)\n  --no-warmup     Disable LR warmup (constant LR)\n  --new-epoch [N] Continue training saved model for N more epochs (default 1)");
+            println!("Usage: train [FLAGS]\n\nFlags:\n  --bf16          Use bfloat16 (falls back to f32 if GPU doesn't support it)\n  --new-epoch [N] Continue training saved model for N more epochs (default 1)");
             return Ok(());
         }
         let device = get_device()?;
         let mut config = TrainConfig::from_env();
-        if args.iter().any(|a| a == "--no-warmup") {
-            config.no_warmup = true;
-        }
         if args.iter().any(|a| a == "--bf16") {
             config.use_bf16 = true;
         }
@@ -67,7 +64,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Continuing training for {} more epoch(s)", n);
             let mut model = Model::load_from_path("data/model", &device)?;
             model.config.epochs = n;
-            model.config.no_warmup = config.no_warmup;
             model.simple_train(tokens, &device, lr)?;
             model.save_to_path("data/model");
         } else {
@@ -214,8 +210,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if command == "lr-range-test" {
         let config = TrainConfig::from_env();
         let file_path = config.file_path.clone();
-        let (dict, tokens, bpe) = get_pretrained_dict(&file_path)?;
-        let mut model = create_model(&dict, bpe, &device, config)?;
+        let (_, tokens, _) = get_pretrained_dict(&file_path)?;
+        let mut model = Model::load_from_path("data/model", &device)?;
 
         let lr_lo: f64 = std::env::var("LR_LO").ok().and_then(|v| v.parse().ok()).unwrap_or(1e-5);
         let lr_hi: f64 = std::env::var("LR_HI").ok().and_then(|v| v.parse().ok()).unwrap_or(5e-2);
@@ -325,7 +321,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(v) = flag_usize(&args, "--num-blocks")        { config.num_blocks = v; }
                 if let Some(v) = flag_str(&args, "--file-path")           { config.file_path = v.to_string(); }
                 if let Some(v) = flag_f64(&args, "--lr")                  { config.lr = v; }
-                if let Some(v) = flag_usize(&args, "--warmup-batches")    { config.warmup_batches = v; }
                 if let Some(v) = flag_u32(&args, "--epochs")              { config.epochs = v; }
                 if let Some(v) = flag_usize(&args, "--batch-size")        { config.token_batch_size = v; }
                 if args.iter().any(|a| a == "--bf16") { config.use_bf16 = true; }
@@ -360,6 +355,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, lr-range-test, runpod\ntrain flags: --new-epoch [N] (continue training saved model for N more epochs, default 1), --no-warmup (constant LR)\nlr-range-test env vars: LR_LO (default 1e-5), LR_HI (default 5e-2), MAX_BATCHES (default 3000)");
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, lr-range-test, runpod\ntrain flags: --new-epoch [N] (continue training saved model for N more epochs, default 1)\nlr-range-test env vars: LR_LO (default 1e-5), LR_HI (default 5e-2), MAX_BATCHES (default 500)");
     Ok(())
 }

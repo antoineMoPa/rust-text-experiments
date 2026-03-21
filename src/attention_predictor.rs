@@ -311,7 +311,6 @@ impl Model {
         let epochs = self.config.epochs;
         let context_window = self.config.context_window;
         let token_batch_size = self.config.token_batch_size;
-        let warmup_batches = self.config.warmup_batches;
 
         let corpus_level = self.config.file_path
             .split('/')
@@ -396,17 +395,10 @@ impl Model {
                     let all_inputs = chunk_seqs.narrow(0, bs, be - bs)?;
                     let all_targets = chunk_tgts.narrow(0, bs, be - bs)?;
 
-                // Constant LR, or linear warmup then cosine decay
-                let lr = if self.config.no_warmup {
-                    base_lr
-                } else if global_step < warmup_batches {
-                    base_lr * ((global_step + 1) as f64 / warmup_batches as f64)
-                } else {
-                    let decay_steps = (total_steps - warmup_batches).max(1);
-                    let progress = (global_step - warmup_batches) as f64 / decay_steps as f64;
-                    lr_min
-                        + 0.5 * (base_lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos())
-                };
+                // Cosine decay from base_lr to lr_min
+                let progress = global_step as f64 / total_steps.max(1) as f64;
+                let lr = lr_min
+                    + 0.5 * (base_lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos());
                 optimizer.set_learning_rate(lr);
                 last_lr = lr;
                 global_step += 1;
