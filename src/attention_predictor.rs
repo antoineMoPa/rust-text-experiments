@@ -717,10 +717,12 @@ impl Model {
         }
 
         // Find the steepest descent window (most negative slope over a 10% window).
-        // This is the LR where loss is dropping fastest — the recommended training LR.
+        // Skip the first 10% of steps: AdamW's momentum is cold there and the loss
+        // drop reflects optimizer warm-up, not a genuinely good LR.
         let best_lr = if history.len() >= 10 {
+            let skip = history.len() / 10;
             let window = (history.len() / 10).max(5);
-            let (best_idx, _) = history
+            let (best_idx, _) = history[skip..]
                 .windows(window)
                 .enumerate()
                 .map(|(i, w)| {
@@ -729,8 +731,8 @@ impl Model {
                 })
                 .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
                 .unwrap();
-            // Use the LR at the center of the steepest window
-            let center = best_idx + window / 2;
+            // Use the LR at the center of the steepest window (offset by skip)
+            let center = skip + best_idx + window / 2;
             Some(history[center].0)
         } else {
             None
