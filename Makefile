@@ -37,6 +37,9 @@ results:
 sweep_lr:
 	mkdir -p data
 	$(args) nohup time cargo run --release sweep-lr 2>&1 | tee sweep_log.log
+lr_range_test:
+	mkdir -p data
+	$(args) cargo run --release lr-range-test 2>&1 | tee lr_range_test.log
 sweep_results:
 	@(printf '%s\t%s\t%s\t%s\t%s\n' LR L2 L3 QA JSON; cat lr_sweep.log | jq -r '[.LR, .Self_Test_Score_L2, .Self_Test_Score_L3, .QA_Test_Score, .JSON_Test_Score] | @tsv')
 epoch_stats:
@@ -47,3 +50,4 @@ clean:
 	rm -f *.log
 	rm -f *.json
 	rm -f data/*.bpe
+	rm -f *.tsv

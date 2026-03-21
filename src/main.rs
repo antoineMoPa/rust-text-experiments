@@ -211,6 +211,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if command == "lr-range-test" {
+        let config = TrainConfig::from_env();
+        let file_path = config.file_path.clone();
+        let (dict, tokens, bpe) = get_pretrained_dict(&file_path)?;
+        let mut model = create_model(&dict, bpe, &device, config)?;
+
+        let lr_lo: f64 = std::env::var("LR_LO").ok().and_then(|v| v.parse().ok()).unwrap_or(1e-5);
+        let lr_hi: f64 = std::env::var("LR_HI").ok().and_then(|v| v.parse().ok()).unwrap_or(5e-2);
+        let max_batches: usize = std::env::var("MAX_BATCHES").ok().and_then(|v| v.parse().ok()).unwrap_or(500);
+
+        println!("LR range test: {:.1e} → {:.1e} over {} batches", lr_lo, lr_hi, max_batches);
+        model.lr_range_test(tokens, &device, lr_lo, lr_hi, max_batches)?;
+        return Ok(());
+    }
+
     if command == "sweep-corpus" {
         let config = TrainConfig::from_env();
         let lr = config.lr;
@@ -345,6 +360,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, runpod\ntrain flags: --new-epoch [N] (continue training saved model for N more epochs, default 1), --no-warmup (constant LR)");
+    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, lr-range-test, runpod\ntrain flags: --new-epoch [N] (continue training saved model for N more epochs, default 1), --no-warmup (constant LR)\nlr-range-test env vars: LR_LO (default 1e-5), LR_HI (default 5e-2), MAX_BATCHES (default 3000)");
     Ok(())
 }

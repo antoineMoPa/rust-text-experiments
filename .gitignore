@@ -17,3 +17,4 @@ data/**
 # Profiling outputs
 *.nsys-rep
 *.sqlite
+*.tsv

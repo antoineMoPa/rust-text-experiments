@@ -596,6 +596,154 @@ impl Model {
         Ok(())
     }
 
+    /// LR range test (Leslie Smith 2018).
+    ///
+    /// Ramps LR log-linearly from `lr_lo` to `lr_hi` over `max_batches` steps.
+    /// Tracks EMA-smoothed loss (beta=0.98, bias-corrected).  Stops early when
+    /// smoothed loss exceeds 4× the minimum seen (model diverging).
+    /// Prints a TSV table and writes the same rows to `lr_range_test.tsv`.
+    pub fn lr_range_test(
+        &mut self,
+        tokens_chain: Vec<String>,
+        device: &Device,
+        lr_lo: f64,
+        lr_hi: f64,
+        max_batches: usize,
+    ) -> Result<(), candle_core::Error> {
+        use std::io::Write as IoWrite;
+
+        let context_window = self.config.context_window;
+        let token_batch_size = self.config.token_batch_size;
+        let seqs_per_batch = (token_batch_size / context_window).max(1);
+
+        let pad_id = self.token_to_id(" ");
+        let token_ids: Vec<u32> = tokens_chain.iter().map(|t| self.token_to_id(t)).collect();
+        let num_samples = token_ids.len().saturating_sub(1);
+
+        let mut optimizer = AdamW::new(self.var_map.all_vars(), lr_lo)?;
+
+        // Shuffle once
+        let mut rng = rand::thread_rng();
+        let mut indices: Vec<u32> = (0..num_samples as u32).collect();
+        indices.shuffle(&mut rng);
+
+        const CHUNK_SIZE: usize = 100_000;
+        const BETA: f64 = 0.98;
+
+        let mut out_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open("lr_range_test.tsv")
+            .ok();
+
+        let header = "step\tlr\tsmoothed_loss\traw_loss";
+        println!("{}", header);
+        if let Some(f) = &mut out_file {
+            let _ = writeln!(f, "{}", header);
+        }
+
+        let mut step = 0usize;
+        let mut ema: f64 = 0.0;
+        let mut min_smooth = f64::MAX;
+        // Collect (lr, smoothed_loss) for post-run analysis
+        let mut history: Vec<(f64, f64)> = Vec::with_capacity(max_batches);
+
+        'outer: for chunk_start in (0..num_samples).step_by(CHUNK_SIZE) {
+            let chunk_end = (chunk_start + CHUNK_SIZE).min(num_samples);
+            let chunk_indices = &indices[chunk_start..chunk_end];
+            let chunk_len = chunk_indices.len();
+
+            let mut flat_seqs: Vec<u32> = Vec::with_capacity(chunk_len * context_window);
+            let mut flat_tgts: Vec<u32> = Vec::with_capacity(chunk_len);
+            for &idx in chunk_indices {
+                let idx = idx as usize;
+                let target = token_ids[idx + 1];
+                let start = idx.saturating_sub(context_window - 1);
+                let window = &token_ids[start..=idx];
+                let pad_len = context_window - window.len();
+                flat_seqs.extend(std::iter::repeat(pad_id).take(pad_len));
+                flat_seqs.extend_from_slice(window);
+                flat_tgts.push(target);
+            }
+            let chunk_seqs = Tensor::from_vec(flat_seqs, (chunk_len, context_window), device)?;
+            let chunk_tgts = Tensor::from_vec(flat_tgts, chunk_len, device)?;
+
+            let chunk_batch_count = (chunk_len + seqs_per_batch - 1) / seqs_per_batch;
+            for ci in 0..chunk_batch_count {
+                if step >= max_batches {
+                    break 'outer;
+                }
+
+                // Log-linear LR ramp
+                let t = step as f64 / (max_batches - 1).max(1) as f64;
+                let lr = lr_lo * (lr_hi / lr_lo).powf(t);
+                optimizer.set_learning_rate(lr);
+
+                let bs = ci * seqs_per_batch;
+                let be = (bs + seqs_per_batch).min(chunk_len);
+                let inputs = chunk_seqs.narrow(0, bs, be - bs)?;
+                let targets = chunk_tgts.narrow(0, bs, be - bs)?;
+
+                let predictions = self.forward(&inputs, true)?;
+                let loss = nn::loss::cross_entropy(&predictions.to_dtype(DType::F32)?, &targets)?;
+                optimizer.step(&loss)?;
+
+                let raw: f64 = loss.to_dtype(DType::F32)?.to_vec0::<f32>()? as f64;
+
+                // EMA with bias correction
+                ema = BETA * ema + (1.0 - BETA) * raw;
+                let smooth = ema / (1.0 - BETA.powi((step + 1) as i32));
+
+                if smooth < min_smooth {
+                    min_smooth = smooth;
+                }
+                history.push((lr, smooth));
+
+                let row = format!("{}\t{:.4e}\t{:.6}\t{:.6}", step, lr, smooth, raw);
+                println!("{}", row);
+                if let Some(f) = &mut out_file {
+                    let _ = writeln!(f, "{}", row);
+                }
+
+                // Early stop: diverging
+                if smooth > 4.0 * min_smooth {
+                    println!("# Early stop: loss diverged (smooth={:.4} > 4×min={:.4})", smooth, min_smooth);
+                    break 'outer;
+                }
+
+                step += 1;
+            }
+        }
+
+        // Find the steepest descent window (most negative slope over a 10% window).
+        // This is the LR where loss is dropping fastest — the recommended training LR.
+        let best_lr = if history.len() >= 10 {
+            let window = (history.len() / 10).max(5);
+            let (best_idx, _) = history
+                .windows(window)
+                .enumerate()
+                .map(|(i, w)| {
+                    let slope = (w.last().unwrap().1 - w.first().unwrap().1) / window as f64;
+                    (i, slope)
+                })
+                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                .unwrap();
+            // Use the LR at the center of the steepest window
+            let center = best_idx + window / 2;
+            Some(history[center].0)
+        } else {
+            None
+        };
+
+        println!("# Results written to lr_range_test.tsv");
+        match best_lr {
+            Some(lr) => println!("# Recommended LR: {:.2e}  (steepest loss descent)", lr),
+            None => println!("# Not enough data to recommend LR"),
+        }
+        Ok(())
+    }
+
     pub fn count_params(&self) -> usize {
         let data = self.var_map.data().lock().unwrap();
         let mut total = 0usize;
