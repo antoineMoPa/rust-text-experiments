@@ -335,7 +335,7 @@ fn compute_json_test_score<M: PredictGreedy>(
     let total = pairs.len();
 
     for (prompt, expected) in &pairs {
-        let mut input = "[json] ".to_string() + prompt + "\n";
+        let mut input = prompt.to_string() + "\n";
         let mut buf = String::new();
 
         loop {
