@@ -592,7 +592,7 @@ impl Model {
         lr_lo: f64,
         lr_hi: f64,
         max_batches: usize,
-    ) -> Result<(), candle_core::Error> {
+    ) -> Result<Option<f64>, candle_core::Error> {
         use std::io::Write as IoWrite;
 
         let context_window = self.config.context_window;
@@ -726,7 +726,7 @@ impl Model {
             Some(lr) => println!("# Recommended LR: {:.2e}  (steepest loss descent)", lr),
             None => println!("# Not enough data to recommend LR"),
         }
-        Ok(())
+        Ok(best_lr)
     }
 
     pub fn count_params(&self) -> usize {

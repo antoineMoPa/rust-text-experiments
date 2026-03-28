@@ -77,19 +77,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if command == "fine-tune" {
+    if command == "fine-tune" || command == "fine-tune-lr-range" {
         use std::io::{BufRead, BufReader};
         let ft_path = std::env::var("FINETUNE_PATH")
             .unwrap_or_else(|_| "fine_tune/finetune_train.json".to_string());
-        let lr: f64 = std::env::var("LR").ok().and_then(|v| v.parse().ok()).unwrap_or(1e-4);
-        let epochs: u32 = std::env::var("EPOCHS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
 
-        println!("Fine-tuning from {}", ft_path);
         let mut model = Model::load_from_path("data/model", &device)?;
-        model.config.epochs = epochs;
 
-        // Convert NDJSON pairs to a flat token stream matching corpus format:
-        // "<prompt>\n<response_json>\n<stop>\n"
+        // Convert NDJSON pairs to a flat token stream: "<prompt>\n<response_json>\n<stop>\n"
         let file = std::fs::File::open(&ft_path)
             .map_err(|e| candle_core::Error::Msg(format!("Cannot open {}: {}", ft_path, e)))?;
         let mut text = String::new();
@@ -108,12 +103,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             text.push_str(token_utils::STOP_TOKEN);
             text.push('\n');
         }
-
         let tokens = model.bpe.tokenize(&text);
-        println!("Fine-tuning on {} tokens for {} epochs at lr={:.2e}", tokens.len(), epochs, lr);
-        model.simple_train(tokens, &device, lr)?;
-        model.save_to_path("data/model");
-        println!("Fine-tuned model saved to data/model");
+        println!("Loaded {} tokens from {}", tokens.len(), ft_path);
+
+        if command == "fine-tune-lr-range" {
+            let lr_lo: f64 = std::env::var("LR_LO").ok().and_then(|v| v.parse().ok()).unwrap_or(1e-6);
+            let lr_hi: f64 = std::env::var("LR_HI").ok().and_then(|v| v.parse().ok()).unwrap_or(1e-2);
+            let max_batches: usize = std::env::var("MAX_BATCHES").ok().and_then(|v| v.parse().ok()).unwrap_or(200);
+            println!("LR range test on fine-tune data: {:.1e} → {:.1e} over {} batches", lr_lo, lr_hi, max_batches);
+            model.lr_range_test(tokens, &device, lr_lo, lr_hi, max_batches)?;
+        } else {
+            let epochs: u32 = std::env::var("EPOCHS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+
+            // Auto LR range test — reload a fresh copy so weights are untouched for fine-tuning
+            let lr_lo: f64 = std::env::var("LR_LO").ok().and_then(|v| v.parse().ok()).unwrap_or(1e-6);
+            let lr_hi: f64 = std::env::var("LR_HI").ok().and_then(|v| v.parse().ok()).unwrap_or(1e-2);
+            let max_batches: usize = std::env::var("MAX_BATCHES").ok().and_then(|v| v.parse().ok()).unwrap_or(200);
+            println!("Auto LR range test: {:.1e} → {:.1e} over {} batches", lr_lo, lr_hi, max_batches);
+            let mut probe = Model::load_from_path("data/model", &device)?;
+            let best_lr = probe.lr_range_test(tokens.clone(), &device, lr_lo, lr_hi, max_batches)?;
+            let lr = best_lr.unwrap_or(1e-4);
+            println!("Using LR = {:.2e} for fine-tuning", lr);
+
+            model.config.epochs = epochs;
+            println!("Fine-tuning on {} tokens for {} epochs at lr={:.2e}", tokens.len(), epochs, lr);
+            model.simple_train(tokens, &device, lr)?;
+            model.save_to_path("data/model");
+            println!("Fine-tuned model saved to data/model");
+        }
         return Ok(());
     }
 
@@ -259,6 +276,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("LR range test: {:.1e} → {:.1e} over {} batches", lr_lo, lr_hi, max_batches);
         model.lr_range_test(tokens, &device, lr_lo, lr_hi, max_batches)?;
+
         return Ok(());
     }
 
