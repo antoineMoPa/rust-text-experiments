@@ -348,17 +348,12 @@ fn compute_json_test_score<M: PredictGreedy>(
             }
         }
 
-        let normalize = |s: &str| -> String {
-            s.chars()
-                .filter(|c| !c.is_whitespace())
-                .collect::<String>()
-                .to_lowercase()
-        };
+        let json_match = serde_json::from_str::<serde_json::Value>(expected.trim()).ok()
+            .zip(serde_json::from_str::<serde_json::Value>(buf.trim()).ok())
+            .map(|(exp, act)| exp == act)
+            .unwrap_or(false);
 
-        let expected_norm = normalize(expected);
-        let actual_norm = normalize(&buf);
-
-        if actual_norm.contains(&expected_norm) {
+        if json_match {
             match_count += 1;
             println!(
                 "prompt: '{}' |> '{}' ~ '{}' - match",
