@@ -11,7 +11,6 @@ pub struct TrainConfig {
     pub lr: f64,
     pub epochs: u32,
     pub token_batch_size: usize,
-    #[serde(default)]
     pub use_bf16: bool,
 }
 
@@ -27,7 +26,7 @@ impl Default for TrainConfig {
             lr: 7e-3,
             epochs: 6,
             token_batch_size: 32768,
-            use_bf16: false,
+            use_bf16: true,
         }
     }
 }
@@ -63,7 +62,7 @@ impl TrainConfig {
             lr: env_f64("LR", d.lr),
             epochs: env_usize("EPOCHS", d.epochs as usize) as u32,
             token_batch_size: env_usize("TOKEN_BATCH_SIZE", d.token_batch_size),
-            use_bf16: std::env::var("BF16").map(|v| v == "1").unwrap_or(false),
+            use_bf16: std::env::var("BF16").map(|v| v == "1").unwrap_or(true),
         }
     }
 

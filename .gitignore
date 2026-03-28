@@ -14,6 +14,11 @@ model.id
 .env
 runpod_jobs
 data/**
+# Fine-tune generated data (regenerate with generate_finetune.py)
+fine_tune/finetune_train.json
+fine_tune/finetune_val.json
+fine_tune/json_test_finetune.json
+
 # Profiling outputs
 *.nsys-rep
 *.sqlite

@@ -77,6 +77,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if command == "fine-tune" {
+        use std::io::{BufRead, BufReader};
+        let ft_path = std::env::var("FINETUNE_PATH")
+            .unwrap_or_else(|_| "fine_tune/finetune_train.json".to_string());
+        let lr: f64 = std::env::var("LR").ok().and_then(|v| v.parse().ok()).unwrap_or(1e-4);
+        let epochs: u32 = std::env::var("EPOCHS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+
+        println!("Fine-tuning from {}", ft_path);
+        let mut model = Model::load_from_path("data/model", &device)?;
+        model.config.epochs = epochs;
+
+        // Convert NDJSON pairs to a flat token stream matching corpus format:
+        // "<prompt>\n<response_json>\n<stop>\n"
+        let file = std::fs::File::open(&ft_path)
+            .map_err(|e| candle_core::Error::Msg(format!("Cannot open {}: {}", ft_path, e)))?;
+        let mut text = String::new();
+        for line in BufReader::new(file).lines() {
+            let line = line.map_err(|e| candle_core::Error::Msg(e.to_string()))?;
+            if line.trim().is_empty() { continue; }
+            let v: serde_json::Value = serde_json::from_str(&line)
+                .map_err(|e| candle_core::Error::Msg(e.to_string()))?;
+            let prompt = v["prompt"].as_str().unwrap_or("").to_string();
+            let response = serde_json::to_string(&v["response"])
+                .map_err(|e| candle_core::Error::Msg(e.to_string()))?;
+            text.push_str(&prompt);
+            text.push('\n');
+            text.push_str(&response);
+            text.push('\n');
+            text.push_str(token_utils::STOP_TOKEN);
+            text.push('\n');
+        }
+
+        let tokens = model.bpe.tokenize(&text);
+        println!("Fine-tuning on {} tokens for {} epochs at lr={:.2e}", tokens.len(), epochs, lr);
+        model.simple_train(tokens, &device, lr)?;
+        model.save_to_path("data/model");
+        println!("Fine-tuned model saved to data/model");
+        return Ok(());
+    }
+
     if command == "merge" {
         let path_a = "data/model_a";
         let path_b = "data/model_b";
@@ -355,6 +395,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, lr-range-test, runpod\ntrain flags: --new-epoch [N] (continue training saved model for N more epochs, default 1)\nlr-range-test env vars: LR_LO (default 1e-5), LR_HI (default 5e-2), MAX_BATCHES (default 500)");
+    println!("Usage: rust-text-experiments <command>\nCommands: train, fine-tune, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, lr-range-test, runpod\ntrain flags: --new-epoch [N] (continue training saved model for N more epochs, default 1)\nfine-tune env vars: FINETUNE_PATH (default fine_tune/finetune_train.json), LR (default 1e-4), EPOCHS (default 3)\nlr-range-test env vars: LR_LO (default 1e-5), LR_HI (default 5e-2), MAX_BATCHES (default 500)");
     Ok(())
 }

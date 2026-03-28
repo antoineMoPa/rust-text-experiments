@@ -352,14 +352,11 @@ impl Model {
         let seqs_per_batch = (token_batch_size / context_window).max(1);
 
         let mut rng = rand::thread_rng();
-        let mut global_step: usize = 0;
         let batch_count = (num_samples + seqs_per_batch - 1) / seqs_per_batch;
-        let total_steps = epochs as usize * batch_count;
-        let lr_min = base_lr * 0.1;
 
         for epoch in 0..epochs {
             let mut loss_stat: f32 = 1.0;
-            let mut last_lr = base_lr;
+            let last_lr = base_lr;
 
             // Shuffle sample indices each epoch
             let mut indices: Vec<u32> = (0..num_samples as u32).collect();
@@ -395,13 +392,6 @@ impl Model {
                     let all_inputs = chunk_seqs.narrow(0, bs, be - bs)?;
                     let all_targets = chunk_tgts.narrow(0, bs, be - bs)?;
 
-                // Cosine decay from base_lr to lr_min
-                let progress = global_step as f64 / total_steps.max(1) as f64;
-                let lr = lr_min
-                    + 0.5 * (base_lr - lr_min) * (1.0 + (std::f64::consts::PI * progress).cos());
-                optimizer.set_learning_rate(lr);
-                last_lr = lr;
-                global_step += 1;
 
                 let mut oom_retries = 0u32;
                 loop {
@@ -450,6 +440,7 @@ impl Model {
                         0.0
                     };
                     let batches_done = epoch as usize * batch_count + j;
+                    let total_steps = epochs as usize * batch_count;
                     let batches_left = total_steps - batches_done;
                     let eta_secs = batches_left as f64 * ms_per_batch / 1000.0;
                     let eta_str = if ms_per_batch > 0.0 {
@@ -461,7 +452,7 @@ impl Model {
                     };
                     println!(
                         "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6} LR = {:.2e} ({:.0}ms/batch, {})",
-                        epoch, epochs, j, batch_count, loss_stat, lr, ms_per_batch, eta_str
+                        epoch, epochs, j, batch_count, loss_stat, base_lr, ms_per_batch, eta_str
                     );
                     let prediction = self.run_str("Two birds", 15)?;
                     let prediction = prediction.replace("\n", "_");
