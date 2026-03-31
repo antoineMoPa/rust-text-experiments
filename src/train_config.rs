@@ -12,6 +12,8 @@ pub struct TrainConfig {
     pub epochs: u32,
     pub token_batch_size: usize,
     pub use_bf16: bool,
+    #[serde(default)]
+    pub train_seed: u64,
 }
 
 impl Default for TrainConfig {
@@ -24,9 +26,10 @@ impl Default for TrainConfig {
             num_blocks: 3,
             file_path: "smoll-generated-corpus/level_5/corpus.corpus".to_string(),
             lr: 7e-3,
-            epochs: 6,
+            epochs: 1,
             token_batch_size: 32768,
             use_bf16: true,
+            train_seed: 0,
         }
     }
 }
@@ -63,6 +66,7 @@ impl TrainConfig {
             epochs: env_usize("EPOCHS", d.epochs as usize) as u32,
             token_batch_size: env_usize("TOKEN_BATCH_SIZE", d.token_batch_size),
             use_bf16: std::env::var("BF16").map(|v| v == "1").unwrap_or(true),
+            train_seed: 0, // generated at training start if 0
         }
     }
 

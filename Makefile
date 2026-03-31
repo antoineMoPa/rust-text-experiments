@@ -34,6 +34,9 @@ json_test:
 	$(args) cargo run --release $(if $(features),--features $(features),) json_test
 results:
 	$(args) cargo run --release $(if $(features),--features $(features),) print_results
+train_fineweb:
+	mkdir -p data
+	$(args) nohup time cargo run --release train_fineweb $(or $(MAX_MB),128) 2>&1 | tee train_fineweb.log
 fine_tune:
 	$(args) nohup time cargo run --release fine-tune 2>&1 | tee fine_tune.log
 sweep_lr:

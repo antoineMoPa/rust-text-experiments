@@ -450,7 +450,7 @@ pub fn tokenize(input: &str) -> Vec<String> {
     tokens
 }
 
-pub fn tokens_to_dict(vocabulary: Vec<String>) -> Dict {
+pub fn tokens_to_dict(vocabulary: &[String]) -> Dict {
     let mut vocabulary_dict = Dict::new();
     for (i, token) in vocabulary.iter().enumerate() {
         if vocabulary_dict.contains_key(token) {

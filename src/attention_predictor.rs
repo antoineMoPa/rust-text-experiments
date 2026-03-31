@@ -1,7 +1,8 @@
 use rand::distributions::{Alphanumeric, WeightedIndex};
 use rand::prelude::Distribution;
+use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 use std::{fs, io::Error};
 
 use crate::grad_accum::AdamW;
@@ -175,6 +176,10 @@ impl Model {
         return Ok(result);
     }
 
+    pub fn token_to_id_pub(&self, token: &str) -> u32 {
+        self.token_to_id(token)
+    }
+
     fn token_to_id(&self, token: &str) -> u32 {
         *self
             .token_index
@@ -303,9 +308,10 @@ impl Model {
 
     pub fn simple_train(
         &mut self,
-        tokens_chain: Vec<String>,
+        token_ids: Vec<u32>,
         device: &Device,
         base_lr: f64,
+        resume_from: Option<(u32, usize)>, // (epoch, batch_j) — skip everything before this
     ) -> Result<(), candle_core::Error> {
         let start_time = std::time::Instant::now();
         let epochs = self.config.epochs;
@@ -342,21 +348,38 @@ impl Model {
             token_batch_size
         );
 
+        // Ensure we have a stable train_seed for deterministic per-epoch shuffles.
+        if self.config.train_seed == 0 {
+            self.config.train_seed = rand::thread_rng().gen::<u64>() | 1;
+        }
+        let train_seed = self.config.train_seed;
+
+        let (resume_epoch, resume_batch_j) = resume_from.unwrap_or((0, 0));
+
         let mut optimizer = AdamW::new(self.var_map.all_vars(), base_lr)?;
 
         let pad_id = self.token_to_id(" ");
-        let token_ids: Vec<u32> = tokens_chain.iter().map(|t| self.token_to_id(t)).collect();
         let num_samples = token_ids.len().saturating_sub(1);
 
         const CHUNK_SIZE: usize = 100_000;
         let seqs_per_batch = (token_batch_size / context_window).max(1);
 
-        let mut rng = rand::thread_rng();
         let batch_count = (num_samples + seqs_per_batch - 1) / seqs_per_batch;
 
         for epoch in 0..epochs {
+            if epoch < resume_epoch {
+                continue;
+            }
+            let start_batch_j = if epoch == resume_epoch { resume_batch_j } else { 0 };
+
             let mut loss_stat: f32 = 1.0;
             let last_lr = base_lr;
+
+            // Deterministic per-epoch shuffle: same seed → same order on resume.
+            let epoch_seed = train_seed
+                .wrapping_mul((epoch as u64).wrapping_add(1))
+                .wrapping_add(0x9e3779b97f4a7c15);
+            let mut rng = StdRng::seed_from_u64(epoch_seed);
 
             // Shuffle sample indices each epoch
             let mut indices: Vec<u32> = (0..num_samples as u32).collect();
@@ -387,11 +410,16 @@ impl Model {
 
                 let chunk_batch_count = (chunk_len + seqs_per_batch - 1) / seqs_per_batch;
                 for ci in 0..chunk_batch_count {
+                    // Skip batches already trained before the resume point.
+                    if j < start_batch_j {
+                        j += 1;
+                        continue;
+                    }
+
                     let bs = ci * seqs_per_batch;
                     let be = (bs + seqs_per_batch).min(chunk_len);
                     let all_inputs = chunk_seqs.narrow(0, bs, be - bs)?;
                     let all_targets = chunk_tgts.narrow(0, bs, be - bs)?;
-
 
                 let mut oom_retries = 0u32;
                 loop {
@@ -474,6 +502,18 @@ impl Model {
                     println!(" A carrot|>{:.40}", prediction);
                     use std::io::Write;
                     std::io::stdout().flush().ok();
+
+                    // Save model + checkpoint so training can be resumed from this batch.
+                    self.save_to_path("data/model");
+                    let ckpt = serde_json::json!({
+                        "epoch": epoch,
+                        "batch": j,
+                        "train_seed": train_seed,
+                    });
+                    let _ = fs::write(
+                        "data/model.ckpt",
+                        serde_json::to_string(&ckpt).unwrap(),
+                    );
                 }
                     j += 1;
                 } // end ci loop
@@ -587,7 +627,7 @@ impl Model {
     /// Prints a TSV table and writes the same rows to `lr_range_test.tsv`.
     pub fn lr_range_test(
         &mut self,
-        tokens_chain: Vec<String>,
+        token_ids: Vec<u32>,
         device: &Device,
         lr_lo: f64,
         lr_hi: f64,
@@ -600,7 +640,6 @@ impl Model {
         let seqs_per_batch = (token_batch_size / context_window).max(1);
 
         let pad_id = self.token_to_id(" ");
-        let token_ids: Vec<u32> = tokens_chain.iter().map(|t| self.token_to_id(t)).collect();
         let num_samples = token_ids.len().saturating_sub(1);
 
         let mut optimizer = AdamW::new(self.var_map.all_vars(), lr_lo)?;
@@ -804,7 +843,7 @@ impl Model {
         let dict_path = format!("{}.dict", path);
         let file = fs::File::open(&dict_path).unwrap();
         let dict_words: Vec<String> = serde_json::from_reader(file).unwrap();
-        let dict = tokens_to_dict(dict_words);
+        let dict = tokens_to_dict(&dict_words);
 
         let bpe_path = format!("{}.bpe", path);
         let bpe = Bpe::load(&bpe_path).unwrap_or_else(|_| Bpe::new_empty());
@@ -909,7 +948,7 @@ pub fn load_vocab(path: &str, device: &Device) -> Result<Model, std::io::Error> 
     let file = fs::File::open(&dict_path)?;
     let dict_words: Vec<String> = serde_json::from_reader(file)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    let dict = tokens_to_dict(dict_words);
+    let dict = tokens_to_dict(&dict_words);
     let bpe_path = format!("{}.bpe", path);
     let bpe = Bpe::load(&bpe_path).unwrap_or_else(|_| Bpe::new_empty());
     let config = {
@@ -937,7 +976,21 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
 
 pub fn get_pretrained_dict(
     file_path: &str,
-) -> Result<(Dict, Vec<String>, Bpe), candle_core::Error> {
+) -> Result<(Dict, Vec<u32>, Bpe), candle_core::Error> {
+    get_pretrained_dict_inner(file_path, None)
+}
+
+pub fn get_pretrained_dict_sampled(
+    file_path: &str,
+    bpe_sample_bytes: usize,
+) -> Result<(Dict, Vec<u32>, Bpe), candle_core::Error> {
+    get_pretrained_dict_inner(file_path, Some(bpe_sample_bytes))
+}
+
+fn get_pretrained_dict_inner(
+    file_path: &str,
+    bpe_sample_bytes: Option<usize>,
+) -> Result<(Dict, Vec<u32>, Bpe), candle_core::Error> {
     println!("Reading file: {}", file_path);
     let content = fs::read_to_string(file_path)?;
     println!("Read {} chars", content.len());
@@ -952,27 +1005,41 @@ pub fn get_pretrained_dict(
             bpe
         }
         Err(_) => {
-            let bpe = Bpe::learn(&content, NUM_BPE_MERGES);
+            let sample = match bpe_sample_bytes {
+                Some(n) => {
+                    let end = content.floor_char_boundary(n.min(content.len()));
+                    println!("Learning BPE from {:.1}MB sample...", end as f64 / 1_048_576.0);
+                    &content[..end]
+                }
+                None => &content,
+            };
+            let bpe = Bpe::learn(sample, NUM_BPE_MERGES);
             bpe.save("data/model.bpe")
                 .unwrap_or_else(|e| eprintln!("Warning: could not save BPE: {}", e));
             bpe
         }
     };
 
-    let tokens: Vec<String> = bpe.tokenize(&content);
-    println!(
-        "Dict size (before extras): {}",
-        tokens_to_dict(tokens.clone()).len()
-    );
+    let mut tokens: Vec<String> = bpe.tokenize(&content);
+    drop(content);
 
     let lorem_tokens = bpe.tokenize("lorem ipsum et dolor sit amet");
     let hello_world_tokens = bpe.tokenize("hello world");
     let sys_tokens = vec![String::from(NOT_FOUND), String::from(STOP_TOKEN)];
+    tokens.extend(lorem_tokens);
+    tokens.extend(hello_world_tokens);
+    tokens.extend(sys_tokens);
 
-    let tokens = [tokens, lorem_tokens, hello_world_tokens, sys_tokens].concat();
-
-    let dict = tokens_to_dict(tokens.clone());
+    let dict = tokens_to_dict(&tokens);
     println!("Dict size: {}", dict.len());
 
-    return Ok((dict, tokens, bpe));
+    // Convert to u32 IDs and drop the Vec<String> immediately
+    let token_index = dict.build_index();
+    let not_found_id = *token_index.get(NOT_FOUND).unwrap_or(&0);
+    let token_ids: Vec<u32> = tokens.iter()
+        .map(|t| *token_index.get(t.as_str()).unwrap_or(&not_found_id))
+        .collect();
+    drop(tokens);
+
+    return Ok((dict, token_ids, bpe));
 }

@@ -16,6 +16,7 @@ mod grad_accum;
 mod layer_norm;
 mod model_tests;
 mod models;
+mod fineweb;
 mod hf;
 mod runpod;
 mod token_utils;
@@ -44,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if command == "train" {
         if args.iter().any(|a| a == "--help" || a == "-h") {
-            println!("Usage: train [FLAGS]\n\nFlags:\n  --bf16          Use bfloat16 (falls back to f32 if GPU doesn't support it)\n  --new-epoch [N] Continue training saved model for N more epochs (default 1)");
+            println!("Usage: train [FLAGS]\n\nFlags:\n  --bf16          Use bfloat16 (falls back to f32 if GPU doesn't support it)\n  --new-epoch [N] Continue training saved model for N more epochs (default 1)\n  --resume        Resume from data/model.ckpt checkpoint");
             return Ok(());
         }
         let device = get_device()?;
@@ -59,18 +60,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Training on {} tokens", tokens.len());
 
         let new_epoch_flag = args.iter().position(|a| a == "--new-epoch");
-        if let Some(pos) = new_epoch_flag {
+        let resume_flag = args.iter().any(|a| a == "--resume");
+
+        if resume_flag {
+            let ckpt: serde_json::Value = std::fs::read_to_string("data/model.ckpt")
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
+            let resume_epoch = ckpt["epoch"].as_u64().unwrap_or(0) as u32;
+            let resume_batch = ckpt["batch"].as_u64().unwrap_or(0) as usize;
+            println!("Resuming from epoch={} batch={}", resume_epoch, resume_batch);
+            let mut model = Model::load_from_path("data/model", &device)?;
+            model.simple_train(tokens, &device, lr, Some((resume_epoch, resume_batch)))?;
+            model.save_to_path("data/model");
+        } else if let Some(pos) = new_epoch_flag {
             let n = args.get(pos + 1).and_then(|v| v.parse::<u32>().ok()).unwrap_or(1);
             println!("Continuing training for {} more epoch(s)", n);
             let mut model = Model::load_from_path("data/model", &device)?;
             model.config.epochs = n;
-            model.simple_train(tokens, &device, lr)?;
+            model.simple_train(tokens, &device, lr, None)?;
             model.save_to_path("data/model");
         } else {
             println!("Training new model");
             let mut model = create_model(&dict, bpe, &device, config)?;
             model.save_to_path("data/model");
-            model.simple_train(tokens, &device, lr)?;
+            model.simple_train(tokens, &device, lr, None)?;
             model.save_to_path("data/model");
         }
 
@@ -103,7 +117,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             text.push_str(token_utils::STOP_TOKEN);
             text.push('\n');
         }
-        let tokens = model.bpe.tokenize(&text);
+        let token_strs = model.bpe.tokenize(&text);
+        drop(text);
+        let tokens: Vec<u32> = token_strs.iter().map(|t| model.token_to_id_pub(t)).collect();
+        drop(token_strs);
         println!("Loaded {} tokens from {}", tokens.len(), ft_path);
 
         if command == "fine-tune-lr-range" {
@@ -127,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             model.config.epochs = epochs;
             println!("Fine-tuning on {} tokens for {} epochs at lr={:.2e}", tokens.len(), epochs, lr);
-            model.simple_train(tokens, &device, lr)?;
+            model.simple_train(tokens, &device, lr, None)?;
             model.save_to_path("data/model");
             println!("Fine-tuned model saved to data/model");
         }
@@ -236,7 +253,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for lr in lrs {
             println!("=== sweep-lr: LR = {:.2e} ===", lr);
             let mut model = create_model(&dict, bpe.clone(), &device, config.clone())?;
-            model.simple_train(tokens.clone(), &device, lr)?;
+            model.simple_train(tokens.clone(), &device, lr, None)?;
 
             match per_epoch_scores(&model, &device) {
                 Ok((l2, qa, json)) => {
@@ -298,7 +315,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 n
             );
             let mut model = create_model(&dict, bpe.clone(), &device, config.clone())?;
-            model.simple_train(subset, &device, lr)?;
+            model.simple_train(subset, &device, lr, None)?;
 
             match per_epoch_scores(&model, &device) {
                 Ok((l2, qa, json)) => {
@@ -327,6 +344,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        return Ok(());
+    }
+
+    if command == "train_fineweb" {
+        let max_mb: usize = args.iter().find(|a| !a.starts_with('-')).and_then(|v| v.parse().ok()).unwrap_or(128);
+        let resume_flag = args.iter().any(|a| a == "--resume");
+        let env = hf::load_env();
+        let hf_token = hf::require(&env, "HF_TOKEN")
+            .map_err(|e| candle_core::Error::Msg(e.to_string()))?;
+
+        // Download shard + extract text (both steps cached)
+        let text_path = fineweb::prepare_text(max_mb, &hf_token)
+            .map_err(|e| candle_core::Error::Msg(e.to_string()))?;
+
+        let mut config = TrainConfig::from_env();
+        config.file_path = text_path.to_string_lossy().to_string();
+        let lr = config.lr;
+
+        if resume_flag {
+            let ckpt: serde_json::Value = std::fs::read_to_string("data/model.ckpt")
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
+            let resume_epoch = ckpt["epoch"].as_u64().unwrap_or(0) as u32;
+            let resume_batch = ckpt["batch"].as_u64().unwrap_or(0) as usize;
+            println!("Resuming from epoch={} batch={}", resume_epoch, resume_batch);
+            // BPE vocab must be re-derived the same way; tokens are rebuilt from cached text.
+            let (_, tokens, _) = attention_predictor::get_pretrained_dict_sampled(&config.file_path, 10 * 1024 * 1024)?;
+            let mut model = Model::load_from_path("data/model", &device)?;
+            model.simple_train(tokens, &device, lr, Some((resume_epoch, resume_batch)))?;
+            model.save_to_path("data/model");
+        } else {
+            // Learn BPE from a 10MB sample to avoid OOM on large corpora
+            let (dict, tokens, bpe) = attention_predictor::get_pretrained_dict_sampled(&config.file_path, 10 * 1024 * 1024)?;
+            println!("Training on {} tokens from FineWeb ({}MB)", tokens.len(), max_mb);
+            let mut model = create_model(&dict, bpe, &device, config)?;
+            model.save_to_path("data/model");
+            model.simple_train(tokens, &device, lr, None)?;
+            model.save_to_path("data/model");
+        }
         return Ok(());
     }
 
@@ -413,6 +470,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("Usage: rust-text-experiments <command>\nCommands: train, fine-tune, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, lr-range-test, runpod\ntrain flags: --new-epoch [N] (continue training saved model for N more epochs, default 1)\nfine-tune env vars: FINETUNE_PATH (default fine_tune/finetune_train.json), LR (default 1e-4), EPOCHS (default 3)\nlr-range-test env vars: LR_LO (default 1e-5), LR_HI (default 5e-2), MAX_BATCHES (default 500)");
+    println!("Usage: rust-text-experiments <command>\nCommands: train, train_fineweb, fine-tune, run, merge, print_stats, param_count, tokenize, self_test, qa_test, json_test, test_all, print_results, sweep-lr, sweep-corpus, lr-range-test, runpod\ntrain flags: --new-epoch [N] (continue training saved model for N more epochs, default 1)\ntrain_fineweb [max_mb] — download FineWeb shard + train (default 128MB, cached in fineweb_cache/)\nfine-tune env vars: FINETUNE_PATH (default fine_tune/finetune_train.json), LR (default 1e-4), EPOCHS (default 3)\nlr-range-test env vars: LR_LO (default 1e-5), LR_HI (default 5e-2), MAX_BATCHES (default 500)");
     Ok(())
 }

@@ -16,6 +16,8 @@ reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], def
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 base64 = "0.22"
+parquet = { version = "53", default-features = false, features = ["arrow", "snap"] }
+arrow = { version = "53", default-features = false, features = ["ipc"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 candle-core = { version = "0.8.2", features = ["metal"] }
