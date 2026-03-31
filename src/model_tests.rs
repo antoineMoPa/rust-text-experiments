@@ -74,7 +74,12 @@ pub fn print_results() -> Result<(), Box<dyn std::error::Error>> {
         // Match the other source by Model_ID
         let r = t
             .get("Model_ID")
-            .and_then(|id| secondary.iter().rev().find(|r| r.get("Model_ID") == Some(id)))
+            .and_then(|id| {
+                secondary
+                    .iter()
+                    .rev()
+                    .find(|r| r.get("Model_ID") == Some(id))
+            })
             .unwrap_or(&empty);
         let row: Vec<String> = RESULT_COLS
             .iter()
@@ -197,7 +202,11 @@ fn compute_self_test_scores<M: PredictGreedy>(
     let mut match_count = 0;
     let mut total = 0;
 
-    for line in content.split("\n").filter(|l| !l.trim().is_empty()).take(20) {
+    for line in content
+        .split("\n")
+        .filter(|l| !l.trim().is_empty())
+        .take(20)
+    {
         let words: Vec<&str> = line.split(" ").take(6).collect();
         let expected_completion = line.split(" ").skip(6);
         let original_input = words.join(" ");
@@ -225,16 +234,25 @@ fn compute_self_test_scores<M: PredictGreedy>(
 
         if first_n_words_contain(&buf, &expected_completion, 3) {
             match_count += 1;
-            println!("'{}' |> '{}' ~ '{}' - match", original_input, buf, expected_completion);
+            println!(
+                "'{}' |> '{}' ~ '{}' - match",
+                original_input, buf, expected_completion
+            );
         } else {
-            println!("'{}' |> '{}' ~ '{}' - no match", original_input, buf, expected_completion);
+            println!(
+                "'{}' |> '{}' ~ '{}' - no match",
+                original_input, buf, expected_completion
+            );
         }
 
         total += 1;
     }
 
     let success_rate = match_count as f32 / total as f32;
-    println!("corpus {} - matches - {}, total - {}, success rate - {}", level_file_path, match_count, total, success_rate);
+    println!(
+        "corpus {} - matches - {}, total - {}, success rate - {}",
+        level_file_path, match_count, total, success_rate
+    );
     Ok(success_rate)
 }
 
@@ -348,7 +366,8 @@ fn compute_json_test_score<M: PredictGreedy>(
             }
         }
 
-        let json_match = serde_json::from_str::<serde_json::Value>(expected.trim()).ok()
+        let json_match = serde_json::from_str::<serde_json::Value>(expected.trim())
+            .ok()
             .zip(serde_json::from_str::<serde_json::Value>(buf.trim()).ok())
             .map(|(exp, act)| exp == act)
             .unwrap_or(false);

@@ -40,13 +40,19 @@ fn run_hf_cli(args: &[&str], hf_token: &str) -> Result<(), Box<dyn Error>> {
         .args(args)
         .env("HF_TOKEN", hf_token)
         .status()
-        .map_err(|e| if e.kind() == std::io::ErrorKind::NotFound {
-            "hf not found — run: pip install huggingface_hub (installs the `hf` CLI)".into()
-        } else {
-            Box::from(e) as Box<dyn Error>
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "hf not found — run: pip install huggingface_hub (installs the `hf` CLI)".into()
+            } else {
+                Box::from(e) as Box<dyn Error>
+            }
         })
-        .and_then(|s| if s.success() { Ok(()) } else {
-            Err(format!("hf {} failed", args[0]).into())
+        .and_then(|s| {
+            if s.success() {
+                Ok(())
+            } else {
+                Err(format!("hf {} failed", args[0]).into())
+            }
         })
 }
 
@@ -66,7 +72,10 @@ pub fn upload(hf_repo: &str, hf_token: &str) -> Result<(), Box<dyn Error>> {
             continue;
         }
         println!("Uploading {} to {}...", path, hf_repo);
-        run_hf_cli(&["upload", hf_repo, &path, filename, "--repo-type", "model"], hf_token)?;
+        run_hf_cli(
+            &["upload", hf_repo, &path, filename, "--repo-type", "model"],
+            hf_token,
+        )?;
     }
     println!("Upload complete.");
     Ok(())
@@ -83,9 +92,19 @@ pub fn upload_binary(hf_repo: &str, hf_token: &str) -> Result<(), Box<dyn Error>
     }
 
     let binary = "target/release/rust-text-experiments";
-    println!("Uploading binary to {}/bin/rust-text-experiments...", hf_repo);
+    println!(
+        "Uploading binary to {}/bin/rust-text-experiments...",
+        hf_repo
+    );
     run_hf_cli(
-        &["upload", hf_repo, binary, "bin/rust-text-experiments", "--repo-type", "model"],
+        &[
+            "upload",
+            hf_repo,
+            binary,
+            "bin/rust-text-experiments",
+            "--repo-type",
+            "model",
+        ],
         hf_token,
     )?;
     println!("Binary uploaded to {}/bin/rust-text-experiments.", hf_repo);
@@ -94,7 +113,17 @@ pub fn upload_binary(hf_repo: &str, hf_token: &str) -> Result<(), Box<dyn Error>
 
 pub fn download(hf_repo: &str, hf_token: &str) -> Result<(), Box<dyn Error>> {
     println!("Downloading data/ from {}...", hf_repo);
-    run_hf_cli(&["download", hf_repo, "--local-dir", "data", "--repo-type", "model"], hf_token)?;
+    run_hf_cli(
+        &[
+            "download",
+            hf_repo,
+            "--local-dir",
+            "data",
+            "--repo-type",
+            "model",
+        ],
+        hf_token,
+    )?;
     println!("Downloaded data/ from {}.", hf_repo);
     Ok(())
 }

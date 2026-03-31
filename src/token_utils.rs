@@ -97,7 +97,11 @@ fn decrement_pair(pair_counts: &mut HashMap<(u32, u32), usize>, pair: (u32, u32)
 }
 
 /// Increment a pair's count and return the new value.
-fn increment_pair(pair_counts: &mut HashMap<(u32, u32), usize>, pair: (u32, u32), by: usize) -> usize {
+fn increment_pair(
+    pair_counts: &mut HashMap<(u32, u32), usize>,
+    pair: (u32, u32),
+    by: usize,
+) -> usize {
     let c = pair_counts.entry(pair).or_insert(0);
     *c += by;
     *c
@@ -172,10 +176,8 @@ impl Bpe {
 
         // Max-heap entries: (count, a, b).  Lazy deletion: stale entries (where the heap
         // count no longer matches pair_counts) are discarded when popped.
-        let mut heap: BinaryHeap<(usize, u32, u32)> = pair_counts
-            .iter()
-            .map(|(&(a, b), &c)| (c, a, b))
-            .collect();
+        let mut heap: BinaryHeap<(usize, u32, u32)> =
+            pair_counts.iter().map(|(&(a, b), &c)| (c, a, b)).collect();
 
         let mut merges: Vec<(String, String)> = Vec::with_capacity(num_merges);
 
@@ -247,8 +249,7 @@ impl Bpe {
                         // (best_b, right) disappears → (merged_id, right) appears.
                         if let Some(y) = right {
                             decrement_pair(&mut pair_counts, (best_b, y), freq);
-                            let new_count =
-                                increment_pair(&mut pair_counts, (merged_id, y), freq);
+                            let new_count = increment_pair(&mut pair_counts, (merged_id, y), freq);
                             pair_to_words.entry((merged_id, y)).or_default().insert(wi);
                             heap.push((new_count, merged_id, y));
                         }
@@ -270,7 +271,10 @@ impl Bpe {
             .into_iter()
             .zip(segs.into_iter())
             .map(|(word, seg)| {
-                let tokens = seg.iter().map(|&id| id_to_str[id as usize].clone()).collect();
+                let tokens = seg
+                    .iter()
+                    .map(|&id| id_to_str[id as usize].clone())
+                    .collect();
                 (word, tokens)
             })
             .collect();

@@ -101,8 +101,18 @@ impl Model {
 
         let embedding = nn::embedding(vocab_size, config.embedding_size, vb.pp("embedding"))?;
         let pre_proj_norm = LayerNorm::new(config.embedding_size, 1e-5, vb.pp("pre_proj_norm"))?;
-        let pre_proj_in = nn::linear_b(config.embedding_size, config.ffn_hidden, true, vb.pp("pre_proj_in"))?;
-        let pre_proj_out = nn::linear_b(config.ffn_hidden, config.embedding_size, true, vb.pp("pre_proj_out"))?;
+        let pre_proj_in = nn::linear_b(
+            config.embedding_size,
+            config.ffn_hidden,
+            true,
+            vb.pp("pre_proj_in"),
+        )?;
+        let pre_proj_out = nn::linear_b(
+            config.ffn_hidden,
+            config.embedding_size,
+            true,
+            vb.pp("pre_proj_out"),
+        )?;
 
         println!(
             "Vocab, Embedding Size, Context Window, Epochs, Hidden Size, Num blocks, Num att. heads, LR, Batch Size"
@@ -318,7 +328,9 @@ impl Model {
         let context_window = self.config.context_window;
         let token_batch_size = self.config.token_batch_size;
 
-        let corpus_level = self.config.file_path
+        let corpus_level = self
+            .config
+            .file_path
             .split('/')
             .find_map(|s| s.strip_prefix("level_").and_then(|n| n.parse::<u32>().ok()))
             .unwrap_or(0);
@@ -370,7 +382,11 @@ impl Model {
             if epoch < resume_epoch {
                 continue;
             }
-            let start_batch_j = if epoch == resume_epoch { resume_batch_j } else { 0 };
+            let start_batch_j = if epoch == resume_epoch {
+                resume_batch_j
+            } else {
+                0
+            };
 
             let mut loss_stat: f32 = 1.0;
             let last_lr = base_lr;
@@ -421,100 +437,102 @@ impl Model {
                     let all_inputs = chunk_seqs.narrow(0, bs, be - bs)?;
                     let all_targets = chunk_tgts.narrow(0, bs, be - bs)?;
 
-                let mut oom_retries = 0u32;
-                loop {
-                    let result: Result<(), CandleError> = (|| {
-                        let predictions = self.forward(&all_inputs, true)?;
-                        let loss = nn::loss::cross_entropy(&predictions.to_dtype(DType::F32)?, &all_targets)?;
+                    let mut oom_retries = 0u32;
+                    loop {
+                        let result: Result<(), CandleError> = (|| {
+                            let predictions = self.forward(&all_inputs, true)?;
+                            let loss = nn::loss::cross_entropy(
+                                &predictions.to_dtype(DType::F32)?,
+                                &all_targets,
+                            )?;
 
-                        // Only sync GPU→CPU every 200 batches to avoid stalling the pipeline
-                        if j % 200 == 0 {
-                            loss_stat = loss.to_dtype(DType::F32)?.to_vec0::<f32>()?;
-                            if loss_stat.is_nan() {
-                                self.crash_dump(all_inputs.clone(), all_targets.clone())?;
-                                panic!("Loss is nan, gradient probably exploded or vanished.");
+                            // Only sync GPU→CPU every 200 batches to avoid stalling the pipeline
+                            if j % 200 == 0 {
+                                loss_stat = loss.to_dtype(DType::F32)?.to_vec0::<f32>()?;
+                                if loss_stat.is_nan() {
+                                    self.crash_dump(all_inputs.clone(), all_targets.clone())?;
+                                    panic!("Loss is nan, gradient probably exploded or vanished.");
+                                }
                             }
-                        }
 
-                        optimizer.step(&loss)?;
-                        Ok(())
-                    })();
+                            optimizer.step(&loss)?;
+                            Ok(())
+                        })();
 
-                    match result {
-                        Ok(()) => break,
-                        Err(e) if is_oom_error(&e) => {
-                            oom_retries += 1;
-                            if oom_retries >= 3 {
-                                eprintln!("\nCUDA OOM on batch {j}: too many retries, aborting.");
-                                return Err(e);
-                            }
-                            eprintln!(
+                        match result {
+                            Ok(()) => break,
+                            Err(e) if is_oom_error(&e) => {
+                                oom_retries += 1;
+                                if oom_retries >= 3 {
+                                    eprintln!(
+                                        "\nCUDA OOM on batch {j}: too many retries, aborting."
+                                    );
+                                    return Err(e);
+                                }
+                                eprintln!(
                                 "\nCUDA OOM on batch {j} (retry {oom_retries}/3), retrying in {OOM_RETRY_DELAY_SECS}s...",
                             );
-                            std::thread::sleep(std::time::Duration::from_secs(
-                                OOM_RETRY_DELAY_SECS,
-                            ));
+                                std::thread::sleep(std::time::Duration::from_secs(
+                                    OOM_RETRY_DELAY_SECS,
+                                ));
+                            }
+                            Err(e) => return Err(e),
                         }
-                        Err(e) => return Err(e),
                     }
-                }
 
-                if j % 200 == 0 {
-                    let elapsed = batch_timer.elapsed();
-                    batch_timer = std::time::Instant::now();
-                    let ms_per_batch = if j > 0 {
-                        elapsed.as_secs_f64() * 1000.0 / 200.0
-                    } else {
-                        0.0
-                    };
-                    let batches_done = epoch as usize * batch_count + j;
-                    let total_steps = epochs as usize * batch_count;
-                    let batches_left = total_steps - batches_done;
-                    let eta_secs = batches_left as f64 * ms_per_batch / 1000.0;
-                    let eta_str = if ms_per_batch > 0.0 {
-                        let h = (eta_secs / 3600.0) as u64;
-                        let m = ((eta_secs % 3600.0) / 60.0) as u64;
-                        format!("{}h{}m left", h, m)
-                    } else {
-                        "?".to_string()
-                    };
-                    println!(
+                    if j % 200 == 0 {
+                        let elapsed = batch_timer.elapsed();
+                        batch_timer = std::time::Instant::now();
+                        let ms_per_batch = if j > 0 {
+                            elapsed.as_secs_f64() * 1000.0 / 200.0
+                        } else {
+                            0.0
+                        };
+                        let batches_done = epoch as usize * batch_count + j;
+                        let total_steps = epochs as usize * batch_count;
+                        let batches_left = total_steps - batches_done;
+                        let eta_secs = batches_left as f64 * ms_per_batch / 1000.0;
+                        let eta_str = if ms_per_batch > 0.0 {
+                            let h = (eta_secs / 3600.0) as u64;
+                            let m = ((eta_secs % 3600.0) / 60.0) as u64;
+                            format!("{}h{}m left", h, m)
+                        } else {
+                            "?".to_string()
+                        };
+                        println!(
                         "\rEpoch {:4}/{:4} Batch {:4}/{:4} Loss = {:.6} LR = {:.2e} ({:.0}ms/batch, {})",
                         epoch, epochs, j, batch_count, loss_stat, base_lr, ms_per_batch, eta_str
                     );
-                    let prediction = self.run_str("Two birds", 15)?;
-                    let prediction = prediction.replace("\n", "_");
-                    print!("The birds|>{:.40}", prediction);
-                    let prediction = self.run_str("The cat", 15)?;
-                    let prediction = prediction.replace("\n", "_");
-                    print!(" The cat|>{:.40}", prediction);
-                    let prediction = self.run_str("The dog", 15)?;
-                    let prediction = prediction.replace("\n", "_");
-                    println!(" The dog|>{:.40}", prediction);
-                    let prediction = self.run_str("The fish", 15)?;
-                    let prediction = prediction.replace("\n", "_");
-                    print!("The fish|>{:.40}", prediction);
-                    let prediction = self.run_str("A sailboat", 15)?;
-                    let prediction = prediction.replace("\n", "_");
-                    print!(" A sailboat|>{:.40}", prediction);
-                    let prediction = self.run_str("A carrot", 15)?;
-                    let prediction = prediction.replace("\n", "_");
-                    println!(" A carrot|>{:.40}", prediction);
-                    use std::io::Write;
-                    std::io::stdout().flush().ok();
+                        let prediction = self.run_str("Two birds", 15)?;
+                        let prediction = prediction.replace("\n", "_");
+                        print!("The birds|>{:.40}", prediction);
+                        let prediction = self.run_str("The cat", 15)?;
+                        let prediction = prediction.replace("\n", "_");
+                        print!(" The cat|>{:.40}", prediction);
+                        let prediction = self.run_str("The dog", 15)?;
+                        let prediction = prediction.replace("\n", "_");
+                        println!(" The dog|>{:.40}", prediction);
+                        let prediction = self.run_str("The fish", 15)?;
+                        let prediction = prediction.replace("\n", "_");
+                        print!("The fish|>{:.40}", prediction);
+                        let prediction = self.run_str("A sailboat", 15)?;
+                        let prediction = prediction.replace("\n", "_");
+                        print!(" A sailboat|>{:.40}", prediction);
+                        let prediction = self.run_str("A carrot", 15)?;
+                        let prediction = prediction.replace("\n", "_");
+                        println!(" A carrot|>{:.40}", prediction);
+                        use std::io::Write;
+                        std::io::stdout().flush().ok();
 
-                    // Save model + checkpoint so training can be resumed from this batch.
-                    self.save_to_path("data/model");
-                    let ckpt = serde_json::json!({
-                        "epoch": epoch,
-                        "batch": j,
-                        "train_seed": train_seed,
-                    });
-                    let _ = fs::write(
-                        "data/model.ckpt",
-                        serde_json::to_string(&ckpt).unwrap(),
-                    );
-                }
+                        // Save model + checkpoint so training can be resumed from this batch.
+                        self.save_to_path("data/model");
+                        let ckpt = serde_json::json!({
+                            "epoch": epoch,
+                            "batch": j,
+                            "train_seed": train_seed,
+                        });
+                        let _ = fs::write("data/model.ckpt", serde_json::to_string(&ckpt).unwrap());
+                    }
                     j += 1;
                 } // end ci loop
             } // end chunk loop
@@ -730,7 +748,10 @@ impl Model {
 
                 // Early stop: diverging
                 if smooth > 4.0 * min_smooth {
-                    println!("# Early stop: loss diverged (smooth={:.4} > 4×min={:.4})", smooth, min_smooth);
+                    println!(
+                        "# Early stop: loss diverged (smooth={:.4} > 4×min={:.4})",
+                        smooth, min_smooth
+                    );
                     break 'outer;
                 }
 
@@ -803,7 +824,11 @@ impl Model {
             let min = var.min_all()?.to_dtype(DType::F32)?.to_vec0::<f32>()?;
             let max = var.max_all()?.to_dtype(DType::F32)?.to_vec0::<f32>()?;
             let mean = var.mean_all()?.to_dtype(DType::F32)?.to_vec0::<f32>()?;
-            let variance = var.flatten_all()?.to_dtype(DType::F32)?.var(D::Minus1)?.to_vec0::<f32>()?;
+            let variance = var
+                .flatten_all()?
+                .to_dtype(DType::F32)?
+                .var(D::Minus1)?
+                .to_vec0::<f32>()?;
             println!(
                 "{}: min: {:.3}, max: {:.3}, mean: {:.3}, std: {:.3}",
                 "", min, max, mean, variance
@@ -913,7 +938,12 @@ fn gpu_compute_cap_x10() -> Option<u32> {
     Some((cap * 10.0).round() as u32)
 }
 
-pub fn create_model(dict: &Dict, bpe: Bpe, device: &Device, mut config: TrainConfig) -> Result<Model, candle_core::Error> {
+pub fn create_model(
+    dict: &Dict,
+    bpe: Bpe,
+    device: &Device,
+    mut config: TrainConfig,
+) -> Result<Model, candle_core::Error> {
     if config.use_bf16 {
         match gpu_compute_cap_x10() {
             Some(cap) if cap < 80 => {
@@ -924,14 +954,20 @@ pub fn create_model(dict: &Dict, bpe: Bpe, device: &Device, mut config: TrainCon
                 config.use_bf16 = false;
             }
             None => {
-                eprintln!("Warning: could not detect GPU compute capability — disabling bf16 to be safe.");
+                eprintln!(
+                    "Warning: could not detect GPU compute capability — disabling bf16 to be safe."
+                );
                 config.use_bf16 = false;
             }
             _ => {}
         }
     }
     let varmap = VarMap::new();
-    let dtype = if config.use_bf16 { DType::BF16 } else { DType::F32 };
+    let dtype = if config.use_bf16 {
+        DType::BF16
+    } else {
+        DType::F32
+    };
     println!("Model dtype: {:?}", dtype);
     let vb = VarBuilder::from_varmap(&varmap, dtype, &device);
 
@@ -958,7 +994,8 @@ pub fn load_vocab(path: &str, device: &Device) -> Result<Model, std::io::Error> 
             .and_then(|f| serde_json::from_reader(f).ok())
             .unwrap_or_else(TrainConfig::from_env)
     };
-    create_model(&dict, bpe, device, config).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    create_model(&dict, bpe, device, config)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 }
 
 pub fn get_device() -> Result<Device, candle_core::Error> {
@@ -974,9 +1011,7 @@ pub fn get_device() -> Result<Device, candle_core::Error> {
     }
 }
 
-pub fn get_pretrained_dict(
-    file_path: &str,
-) -> Result<(Dict, Vec<u32>, Bpe), candle_core::Error> {
+pub fn get_pretrained_dict(file_path: &str) -> Result<(Dict, Vec<u32>, Bpe), candle_core::Error> {
     get_pretrained_dict_inner(file_path, None)
 }
 
@@ -1008,7 +1043,10 @@ fn get_pretrained_dict_inner(
             let sample = match bpe_sample_bytes {
                 Some(n) => {
                     let end = content.floor_char_boundary(n.min(content.len()));
-                    println!("Learning BPE from {:.1}MB sample...", end as f64 / 1_048_576.0);
+                    println!(
+                        "Learning BPE from {:.1}MB sample...",
+                        end as f64 / 1_048_576.0
+                    );
                     &content[..end]
                 }
                 None => &content,
@@ -1036,7 +1074,8 @@ fn get_pretrained_dict_inner(
     // Convert to u32 IDs and drop the Vec<String> immediately
     let token_index = dict.build_index();
     let not_found_id = *token_index.get(NOT_FOUND).unwrap_or(&0);
-    let token_ids: Vec<u32> = tokens.iter()
+    let token_ids: Vec<u32> = tokens
+        .iter()
         .map(|t| *token_index.get(t.as_str()).unwrap_or(&not_found_id))
         .collect();
     drop(tokens);

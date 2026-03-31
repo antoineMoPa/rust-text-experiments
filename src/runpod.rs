@@ -9,8 +9,8 @@ use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
 
-use crate::train_config::TrainConfig;
 use crate::hf::{load_env, require};
+use crate::train_config::TrainConfig;
 
 // ---------------------------------------------------------------------------
 // Per-job train params (subset of TrainConfig that the caller may override)
@@ -34,12 +34,9 @@ struct RunpodConfig {
 
 impl RunpodConfig {
     fn from_env(env: &HashMap<String, String>) -> Result<Self, Box<dyn Error>> {
-        let docker_image = env
-            .get("RUNPOD_DOCKER_IMAGE")
-            .cloned()
-            .unwrap_or_else(|| {
-                "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04".to_string()
-            });
+        let docker_image = env.get("RUNPOD_DOCKER_IMAGE").cloned().unwrap_or_else(|| {
+            "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04".to_string()
+        });
         Ok(Self {
             api_key: require(env, "RUNPOD_API_KEY")?,
             docker_image,
@@ -76,8 +73,7 @@ fn save_job(state: &JobState) -> Result<String, Box<dyn Error>> {
 fn load_job(job_id_opt: Option<&str>) -> Result<JobState, Box<dyn Error>> {
     if let Some(id) = job_id_opt {
         let path = format!("runpod_jobs/{}.json", id);
-        let text = fs::read_to_string(&path)
-            .map_err(|e| format!("Cannot read {}: {}", path, e))?;
+        let text = fs::read_to_string(&path).map_err(|e| format!("Cannot read {}: {}", path, e))?;
         return Ok(serde_json::from_str(&text)?);
     }
 
@@ -248,7 +244,6 @@ impl<'a> RunpodClient<'a> {
             Ok(())
         })
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -482,9 +477,7 @@ fn check_git_pushed() -> Result<(String, String), Box<dyn Error>> {
     }
     let branch = String::from_utf8(branch.stdout)?.trim().to_string();
 
-    let local = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()?;
+    let local = Command::new("git").args(["rev-parse", "HEAD"]).output()?;
     let local = String::from_utf8(local.stdout)?.trim().to_string();
 
     let remote_ref = format!("origin/{}", branch);
@@ -495,15 +488,19 @@ fn check_git_pushed() -> Result<(String, String), Box<dyn Error>> {
         return Err(format!(
             "Branch '{}' not found on origin. Push it first: git push origin {}",
             branch, branch
-        ).into());
+        )
+        .into());
     }
     let upstream = String::from_utf8(upstream.stdout)?.trim().to_string();
 
     if local != upstream {
         return Err(format!(
             "Branch '{}' is not up to date with remote ({} vs {}). Push first.",
-            branch, &local[..12], &upstream[..12]
-        ).into());
+            branch,
+            &local[..12],
+            &upstream[..12]
+        )
+        .into());
     }
 
     Ok((branch, local))
@@ -518,7 +515,10 @@ pub fn send_job(params: SendParams) -> Result<(), Box<dyn Error>> {
     let hf_repo = require(&env, "HF_REPO")?;
     let job_id = make_job_id();
 
-    params.config.validate().map_err(|e| format!("Config error: {}", e))?;
+    params
+        .config
+        .validate()
+        .map_err(|e| format!("Config error: {}", e))?;
 
     let (git_branch, git_commit) = check_git_pushed()?;
     println!("Branch {} at {} is pushed.", git_branch, &git_commit[..12]);
@@ -543,8 +543,14 @@ pub fn send_job(params: SendParams) -> Result<(), Box<dyn Error>> {
         ("HF_TOKEN", hf_token),
         ("HF_REPO", hf_repo.clone()),
         ("RP_ADMIN_KEY", runpod_config.api_key.clone()),
-        ("NO_SHUTDOWN", if params.no_shutdown { "1" } else { "0" }.to_string()),
-        ("CONTINUE_TRAINING", if params.continue_training { "1" } else { "0" }.to_string()),
+        (
+            "NO_SHUTDOWN",
+            if params.no_shutdown { "1" } else { "0" }.to_string(),
+        ),
+        (
+            "CONTINUE_TRAINING",
+            if params.continue_training { "1" } else { "0" }.to_string(),
+        ),
     ];
 
     // Append all TrainConfig fields as env vars so the pod binary picks them up
@@ -690,7 +696,10 @@ pub fn fetch_job(job_id_opt: Option<&str>) -> Result<(), Box<dyn Error>> {
     crate::hf::download(&state.hf_repo, &hf_token)
 }
 
-pub fn build_and_upload_binary(machine_type: &str, no_shutdown: bool) -> Result<(), Box<dyn Error>> {
+pub fn build_and_upload_binary(
+    machine_type: &str,
+    no_shutdown: bool,
+) -> Result<(), Box<dyn Error>> {
     let env = load_env();
     let config = RunpodConfig::from_env(&env)?;
     let git_repo_url = require(&env, "GIT_REPO_URL")?;
@@ -715,7 +724,10 @@ pub fn build_and_upload_binary(machine_type: &str, no_shutdown: bool) -> Result<
         ("HF_TOKEN", hf_token),
         ("HF_REPO", hf_repo.clone()),
         ("RP_ADMIN_KEY", config.api_key.clone()),
-        ("NO_SHUTDOWN", if no_shutdown { "1" } else { "0" }.to_string()),
+        (
+            "NO_SHUTDOWN",
+            if no_shutdown { "1" } else { "0" }.to_string(),
+        ),
     ];
 
     let pod_id = runpod.create_pod("build-binary", machine_type, env_vars, &config.docker_image)?;
@@ -724,8 +736,14 @@ pub fn build_and_upload_binary(machine_type: &str, no_shutdown: bool) -> Result<
 
     println!("Pod is building and uploading binary (this takes ~10 min)...");
     println!("Monitor logs in RunPod dashboard, pod: {}", pod_id);
-    println!("When done the binary will be at {}/bin/rust-text-experiments", hf_repo);
-    println!("Stop the pod manually with:  cargo run --release -- runpod stop {}", pod_id);
+    println!(
+        "When done the binary will be at {}/bin/rust-text-experiments",
+        hf_repo
+    );
+    println!(
+        "Stop the pod manually with:  cargo run --release -- runpod stop {}",
+        pod_id
+    );
 
     Ok(())
 }

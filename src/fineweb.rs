@@ -42,16 +42,21 @@ fn download_shard(shard: &str, hf_token: &str) -> Result<(), Box<dyn std::error:
         .args([
             "download",
             HF_DATASET,
-            "--repo-type", "dataset",
-            "--include", shard,
-            "--local-dir", CACHE_DIR,
+            "--repo-type",
+            "dataset",
+            "--include",
+            shard,
+            "--local-dir",
+            CACHE_DIR,
         ])
         .env("HF_TOKEN", hf_token)
         .status()
-        .map_err(|e| if e.kind() == std::io::ErrorKind::NotFound {
-            "hf not found — run: pip install huggingface_hub".into()
-        } else {
-            Box::from(e) as Box<dyn std::error::Error>
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "hf not found — run: pip install huggingface_hub".into()
+            } else {
+                Box::from(e) as Box<dyn std::error::Error>
+            }
         })?;
 
     if !status.success() {
@@ -62,7 +67,10 @@ fn download_shard(shard: &str, hf_token: &str) -> Result<(), Box<dyn std::error:
 }
 
 /// Read the `text` column from a Parquet file up to `max_bytes`.
-pub fn read_parquet_text(path: &Path, max_bytes: usize) -> Result<String, Box<dyn std::error::Error>> {
+pub fn read_parquet_text(
+    path: &Path,
+    max_bytes: usize,
+) -> Result<String, Box<dyn std::error::Error>> {
     let file = File::open(path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
 
@@ -86,28 +94,42 @@ pub fn read_parquet_text(path: &Path, max_bytes: usize) -> Result<String, Box<dy
         let col = batch.column(text_col);
 
         if col_type == DataType::Utf8 {
-            let arr = col.as_any().downcast_ref::<StringArray>()
+            let arr = col
+                .as_any()
+                .downcast_ref::<StringArray>()
                 .ok_or("Failed to downcast Utf8 column")?;
             for value in arr.iter() {
                 if let Some(t) = value {
                     out.push_str(t);
                     out.push('\n');
-                    if out.len() >= max_bytes { out.truncate(max_bytes); break 'outer; }
+                    if out.len() >= max_bytes {
+                        out.truncate(max_bytes);
+                        break 'outer;
+                    }
                 }
             }
         } else {
-            let arr = col.as_any().downcast_ref::<LargeStringArray>()
+            let arr = col
+                .as_any()
+                .downcast_ref::<LargeStringArray>()
                 .ok_or("Failed to downcast LargeUtf8 column")?;
             for value in arr.iter() {
                 if let Some(t) = value {
                     out.push_str(t);
                     out.push('\n');
-                    if out.len() >= max_bytes { out.truncate(max_bytes); break 'outer; }
+                    if out.len() >= max_bytes {
+                        out.truncate(max_bytes);
+                        break 'outer;
+                    }
                 }
             }
         }
     }
 
-    println!("Read {:.1} MB from {}", out.len() as f64 / 1_048_576.0, path.display());
+    println!(
+        "Read {:.1} MB from {}",
+        out.len() as f64 / 1_048_576.0,
+        path.display()
+    );
     Ok(out)
 }

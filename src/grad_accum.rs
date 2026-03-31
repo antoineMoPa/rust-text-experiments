@@ -85,7 +85,8 @@ impl AdamW {
                 // Compute update in F32, then cast back to the var's dtype (e.g. BF16).
                 let theta_f32 = var.as_tensor().to_dtype(DType::F32)?;
                 let adjusted_grad = (m_hat / (v_hat.sqrt()? + self.eps)?)?;
-                let next_theta = ((theta_f32 * (1.0 - lr * self.weight_decay))? - (adjusted_grad * lr)?)?;
+                let next_theta =
+                    ((theta_f32 * (1.0 - lr * self.weight_decay))? - (adjusted_grad * lr)?)?;
 
                 self.first_moment[i] = next_m;
                 self.second_moment[i] = next_v;

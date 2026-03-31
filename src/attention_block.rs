@@ -67,8 +67,7 @@ impl AttentionBlock {
                     (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 })
                 })
                 .collect();
-            Tensor::from_slice(&mask_data, (seq_len, seq_len), device)?
-                .to_dtype(vb.dtype())?
+            Tensor::from_slice(&mask_data, (seq_len, seq_len), device)?.to_dtype(vb.dtype())?
         };
 
         let mut pe_data: Vec<f32> = Vec::with_capacity(seq_len * config.embedding_size);
